@@ -27,7 +27,7 @@
         <button onclick="window.print()">🖨 Druck / PDF</button>
         <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none">
         <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none">
-        <span class="version-tag">v1.2.0 · BUILD 11.09.2026-3</span>
+        <span class="version-tag">v1.3.1 · BUILD 11.09.2026-5</span>
       </div>
     </div>
 
@@ -61,6 +61,7 @@
         <button class="mini-button" onclick="duplicatePage()">Duplizieren</button>
         <button class="mini-button" onclick="deletePage()">Seite löschen</button>
         <button class="mini-button" onclick="exportPagePNG()">PNG</button>
+        <button class="mini-button" onclick="clearPageBg()">HG entfernen</button>
       </div>
 
       <div class="toolbar box no-print">
@@ -93,6 +94,7 @@
         <div>
           <div class="stage-wrap">
             <div class="stage" id="stage">
+              <div id="bgLayer"></div>
               <canvas id="drawCanvas"></canvas>
               <canvas id="overlayCanvas"></canvas>
               <div class="img-layer" id="imgLayer"></div>

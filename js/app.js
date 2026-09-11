@@ -42,7 +42,7 @@ function persistSoon() {
 function setSaveStatus(t) { const el = $('statusSave'); if (el) el.textContent = t; }
 
 /* ---------- Modell ---------- */
-function newPage() { return { id: uid(), strokes: [], texts: [], images: [] }; }
+function newPage() { return { id: uid(), strokes: [], texts: [], images: [], bg: null }; }
 function newBook(title, withStarter) {
   const b = { id: uid(), title: title || 'Neues Buch', paper: '', updatedAt: Date.now(), pages: [newPage()] };
   if (withStarter) {
@@ -132,14 +132,14 @@ function renderLibrary() {
 /* ---------- Seiten ---------- */
 function snapshot() {
   const p = currentPage(); if (!p) return;
-  undoStack.push(JSON.stringify({ strokes: p.strokes, texts: p.texts, images: p.images }));
+  undoStack.push(JSON.stringify({ strokes: p.strokes, texts: p.texts, images: p.images, bg: p.bg || null }));
   if (undoStack.length > 60) undoStack.shift();
   redoStack = [];
 }
 function restore(json) {
   const p = currentPage(); if (!p) return;
   const s = JSON.parse(json);
-  p.strokes = s.strokes; p.texts = s.texts; p.images = s.images;
+  p.strokes = s.strokes; p.texts = s.texts; p.images = s.images; p.bg = s.bg || null;
   selectedBox = null; selectedImg = null;
   touchBook(); persistSoon(); renderAll();
 }
@@ -229,11 +229,27 @@ function drawStroke(c, s) {
   c.lineWidth = s.size;
   c.lineCap = 'round'; c.lineJoin = 'round';
   if (s.tool === 'marker') c.globalAlpha = 0.35;
+  if (s.alpha != null && s.alpha < 1) c.globalAlpha *= s.alpha;
+  if (s.dash && s.dash.length) { try { c.setLineDash(s.dash); } catch { /* ignore */ } }
+  const pts = s.points;
+  const closed = !!s.closed || (!!s.fill && pts.length > 2);
   c.beginPath();
-  c.moveTo(s.points[0].x, s.points[0].y);
-  for (let i = 1; i < s.points.length; i++) c.lineTo(s.points[i].x, s.points[i].y);
-  if (s.points.length === 1) { c.fillStyle = s.color; c.arc(s.points[0].x, s.points[0].y, s.size / 2, 0, 7); c.fill(); }
-  else c.stroke();
+  c.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].x, pts[i].y);
+  if (pts.length === 1) {
+    c.fillStyle = s.color;
+    c.beginPath(); c.arc(pts[0].x, pts[0].y, s.size / 2, 0, 7); c.fill();
+  } else {
+    if (closed) c.closePath();
+    if (s.fill) {
+      c.fillStyle = s.fill;
+      const ga = c.globalAlpha;
+      c.globalAlpha = ga * (s.fillAlpha == null ? 1 : s.fillAlpha);
+      c.fill();
+      c.globalAlpha = ga;
+    }
+    c.stroke();
+  }
   c.restore();
 }
 function renderCanvas() {
@@ -434,7 +450,18 @@ function applyPaper() {
   st.classList.remove('lined', 'grid');
   if (b && b.paper) st.classList.add(b.paper);
 }
-function renderAll() { applyPaper(); renderCanvas(); renderTextLayer(); renderImgLayer(); renderRail(); }
+function applyBg() {
+  const p = currentPage();
+  const bg = $('bgLayer');
+  if (bg) bg.style.backgroundImage = (p && p.bg) ? 'url("' + p.bg + '")' : 'none';
+}
+function clearPageBg() {
+  const p = currentPage(); if (!p || !p.bg) return;
+  snapshot();
+  p.bg = null;
+  touchBook(); persistSoon(); renderAll();
+}
+function renderAll() { applyPaper(); applyBg(); renderCanvas(); renderTextLayer(); renderImgLayer(); renderRail(); }
 
 /* ---------- Export / Import ---------- */
 function download(filename, text, type) {
@@ -467,6 +494,7 @@ function normalizeBook(obj) {
     p.strokes = Array.isArray(p.strokes) ? p.strokes : [];
     p.texts = Array.isArray(p.texts) ? p.texts : [];
     p.images = Array.isArray(p.images) ? p.images : [];
+    p.bg = typeof p.bg === 'string' ? p.bg : null;
   });
   if (!b.pages.length) b.pages.push(newPage());
   return b;
@@ -496,6 +524,89 @@ function importAllJSON(ev) {
   });
 }
 /* ---------- GoodNotes-Import (.goodnotes, mehrere Dateien) ---------- */
+const GN_PDFJS = [
+  { lib: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs', worker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs' },
+  { lib: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs', worker: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs' }
+];
+let gnPdfJsPromise = null;
+function gnPdfJs() {
+  if (!gnPdfJsPromise) {
+    gnPdfJsPromise = (async () => {
+      let lastErr = null;
+      for (const cdn of GN_PDFJS) {
+        try {
+          const lib = await import(cdn.lib);
+          lib.GlobalWorkerOptions.workerSrc = cdn.worker;
+          return lib;
+        } catch (e) { lastErr = e; }
+      }
+      throw lastErr || new Error('pdf.js nicht ladbar');
+    })();
+  }
+  return gnPdfJsPromise;
+}
+async function gnRenderPdfWorker(pdfBytes, pageNo, targetW, cdn, timeoutMs) {
+  // Worker-Pfad mit harter Timeout-Garantie (terminate blockiert nie den Main-Thread)
+  if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') {
+    throw new Error('kein worker/offscreen-canvas');
+  }
+  return new Promise((resolve, reject) => {
+    let worker = null;
+    const timer = setTimeout(() => {
+      try { worker && worker.terminate(); } catch { /* ignore */ }
+      reject(new Error('pdf-timeout'));
+    }, timeoutMs || 30000);
+    try {
+      worker = new Worker('js/gnpdf-worker.js', { type: 'module' });
+    } catch (e) { clearTimeout(timer); reject(e); return; }
+    worker.onmessage = (ev) => {
+      const d = ev.data || {};
+      // Fremd-Messages (z.B. Browser-Infra) ignorieren, nur eigene Antworten werten
+      if (d.ok !== true && !d.error) return;
+      clearTimeout(timer);
+      try { worker.terminate(); } catch { /* ignore */ }
+      if (d.ok && d.url) resolve(d.url);
+      else reject(new Error(d.error || 'pdf-worker'));
+    };
+    worker.onerror = (ev) => {
+      clearTimeout(timer);
+      try { worker.terminate(); } catch { /* ignore */ }
+      reject(new Error((ev && ev.message) || 'worker-fehler'));
+    };
+    try {
+      worker.postMessage({ libUrl: cdn.lib, workerUrl: cdn.worker, pdf: pdfBytes, pageNo, targetW });
+    } catch (e) { clearTimeout(timer); reject(e); }
+  });
+}
+async function gnRenderPdfPageMain(pdfBytes, pageNo, targetW, timeoutMs) {
+  // Fallback nur für Browser ohne Worker/OffscreenCanvas (kann hängen -> kurzes Timeout)
+  const pdfjs = await gnPdfJs();
+  const pdf = await pdfjs.getDocument({ data: pdfBytes }).promise;
+  try {
+    const page = await pdf.getPage(Math.max(1, Math.min(pageNo, pdf.numPages)));
+    const v1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: targetW / v1.width });
+    const c = document.createElement('canvas');
+    c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const render = page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    await Promise.race([render, new Promise((_, rej) => setTimeout(() => rej(new Error('pdf-timeout')), timeoutMs || 20000))]);
+    return c.toDataURL('image/jpeg', 0.85);
+  } finally {
+    try { await pdf.destroy(); } catch { /* ignore */ }
+  }
+}
+async function gnRenderPdfPage(pdfBytes, pageNo, targetW, timeoutMs) {
+  const canWorker = (typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined');
+  if (canWorker) {
+    let lastErr = null;
+    for (const cdn of GN_PDFJS) {
+      try { return await gnRenderPdfWorker(pdfBytes.slice(), pageNo, targetW, cdn, timeoutMs || 30000); }
+      catch (e) { lastErr = e; console.warn('PDF-Worker', cdn.lib, e); }
+    }
+    throw lastErr || new Error('pdf-worker');
+  }
+  return gnRenderPdfPageMain(pdfBytes, pageNo, targetW, timeoutMs);
+}
 function gnImageToDataURL(bytes, mime) {
   return new Promise(res => {
     let url = null;
@@ -519,14 +630,25 @@ function gnImageToDataURL(bytes, mime) {
     img.src = url;
   });
 }
-async function buildBookFromGN(doc, fileName) {
+async function buildBookFromGN(doc, fileName, members) {
   const DPI = 132 / 72;
   const book = { id: uid(), title: doc.title || fileName.replace(/\.goodnotes$/i, ''), paper: '', updatedAt: Date.now(), pages: [] };
-  for (const pg of doc.pages) {
+  let pdfBytes = null;
+  if (members) {
+    for (const k of Object.keys(members)) {
+      const b = members[k];
+      if (k.startsWith('attachments/') && b.length > 5 && b[0] === 0x25 && b[1] === 0x50) { pdfBytes = b.slice(); break; }
+    }
+  }
+  for (let pi = 0; pi < doc.pages.length; pi++) {
+    const pg = doc.pages[pi];
     const m = GoodNotes.mapPage(pg);
-    const page = { id: uid(), strokes: m.strokes, texts: [], images: [] };
+    const page = { id: uid(), strokes: m.strokes, texts: [], images: [], bg: null };
     const iw = pg.dim.w * DPI, ih = pg.dim.h * DPI;
     const sc = 1000 / iw, offY = (1294 - ih * sc) / 2;
+    for (const t of m.texts) {
+      page.texts.push({ id: uid(), x: Math.max(0, Math.min(0.9, t.x)), y: Math.max(0, Math.min(0.95, t.y)), html: t.html });
+    }
     for (const im of pg.images) {
       const dataUrl = await gnImageToDataURL(im.bytes, im.mime);
       if (!dataUrl) continue;
@@ -541,10 +663,46 @@ async function buildBookFromGN(doc, fileName) {
     book.pages.push(page);
   }
   if (!book.pages.length) book.pages.push(newPage());
-  if (doc.stats.pdfBg && book.pages.length) {
-    book.pages[0].texts.push({ id: uid(), x: 0.06, y: 0.015, html: '<p><i>GoodNotes-Import: PDF-Hintergrund des Originals nicht übernommen.</i></p>' });
+  // PDF-Hintergrund LAZY: Import bleibt schnell & offline-fähig, Rendering läuft nach.
+  let pdfPending = 0;
+  if (pdfBytes && doc.stats.pdfBg) {
+    pdfPending = book.pages.length;
+    book.pages.forEach((page, pi) => {
+      gnRenderPdfPageLazy(pdfBytes, pi + 1, book.id, page.id);
+    });
   }
-  return book;
+  return { book, pdfPending };
+}
+// PDF-Render mit Timeout; Erfolg -> bg setzen, Fehlschlag -> Hinweis-Box
+async function gnRenderPdfPageLazy(pdfBytes, pageNo, bookId, pageId) {
+  const done = (ok, url) => {
+    const b = state.books.find(x => x.id === bookId);
+    const p = b && b.pages.find(x => x.id === pageId);
+    if (!p) return;
+    if (ok && url) {
+      p.bg = url;
+      // evtl. Fallback-Hinweis wieder entfernen
+      p.texts = p.texts.filter(t => !stripHtml(t.html).includes('PDF-Hintergrund des Originals'));
+    } else if (!p.bg) {
+      p.texts.push({ id: uid(), x: 0.06, y: 0.015, html: '<p><i>GoodNotes-Import: PDF-Hintergrund des Originals nicht übernommen (pdf.js offline nicht ladbar).</i></p>' });
+    }
+    touchBookLazy(bookId);
+    persistSoon();
+    if (state.openBookId === bookId && state.openPageId === pageId) renderAll();
+    else if (state.openBookId === bookId) renderRail();
+  };
+  const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('pdf-timeout')), 25000));
+  try {
+    const url = await Promise.race([gnRenderPdfPage(pdfBytes, pageNo, 1000), timeout]);
+    done(true, url);
+  } catch (e) {
+    console.warn('PDF-Hintergrund Seite ' + pageNo + ':', e);
+    done(false);
+  }
+}
+function touchBookLazy(bookId) {
+  const b = state.books.find(x => x.id === bookId);
+  if (b) b.updatedAt = Date.now();
 }
 async function importGoodNotes(ev) {
   const files = ev.target.files; if (!files || !files.length) return;
@@ -559,12 +717,17 @@ async function importGoodNotes(ev) {
       const members = await GNZip.readZip(new Uint8Array(buf));
       const doc = GoodNotes.parseDocument(members, f.name.replace(/\.goodnotes$/i, ''));
       if (!doc.pages.length) throw new Error('keine Seiten');
-      const book = await buildBookFromGN(doc, f.name);
+      const { book, pdfPending } = await buildBookFromGN(doc, f.name, members);
       const nStrokes = book.pages.reduce((n, p) => n + p.strokes.length, 0);
       const nImg = book.pages.reduce((n, p) => n + p.images.length, 0);
+      const nTexts = book.pages.reduce((n, p) => n + p.texts.length, 0);
       state.books.unshift(book);
       persistNow();
-      ok.push('• ' + book.title + ' (' + book.pages.length + ' S., ' + nStrokes + ' Striche, ' + nImg + ' Bilder)');
+      let extra = '';
+      if (pdfPending) extra += ', PDF-HG rendert nach';
+      if (doc.stats.texts) extra += ', ' + doc.stats.texts + ' Textbox(en)';
+      if (doc.stats.shapes) extra += ', ' + doc.stats.shapes + ' Shape(s)';
+      ok.push('• ' + book.title + ' (' + book.pages.length + ' S., ' + nStrokes + ' Striche, ' + nImg + ' Bilder, ' + nTexts + ' Texte' + extra + ')');
     } catch (err) {
       console.warn('GoodNotes-Import fehlgeschlagen:', f.name, err);
       fail.push('• ' + f.name);
@@ -572,7 +735,6 @@ async function importGoodNotes(ev) {
   }
   renderLibrary(); showLibrary();
   let msg = ok.length ? ok.length + ' Dokument(e) importiert:\n' + ok.join('\n') : 'Nichts importiert.';
-  msg += '\n\nv1-Limits: Shapes und getippte Textboxen werden noch nicht übernommen.';
   if (fail.length) msg += '\nFehlgeschlagen:\n' + fail.join('\n');
   alert(msg);
 }

@@ -527,6 +527,630 @@ var GoodNotes = (function () {
     return imgs;
   }
 
+  /* ---------- Shapes (Port von shape.py) ---------- */
+  function shapeFixedOf(msg, n) { const a = byNumber(msg, n); return a.length ? fixedFloat(a[0]) : null; }
+  function shapeExtractPoint(msg) {
+    const fs = msg.fields.slice().sort((a, b) => a.n - b.n);
+    const vals = [];
+    for (const f of fs) { const v = fixedFloat(f); if (v != null) vals.push(v); }
+    return vals.length >= 2 ? [vals[0], vals[1]] : null;
+  }
+  function shapeGetPoint(msg) {
+    let pt = shapeExtractPoint(msg);
+    if (pt) return pt;
+    const fs = msg.fields.slice().sort((a, b) => a.n - b.n);
+    for (const f of fs) {
+      if (!(f.v instanceof Uint8Array)) continue;
+      const sub = tryDecode(f.v);
+      if (sub) { pt = shapeExtractPoint(sub); if (pt) return pt; }
+    }
+    return null;
+  }
+  function parseCurves(container) {
+    const dict = {};
+    for (const f of container.fields) {
+      if (!(f.v instanceof Uint8Array)) continue;
+      const sub = tryDecode(f.v);
+      if (sub) { const pt = shapeGetPoint(sub); if (pt) dict[f.n] = pt; }
+    }
+    const bez = (p0, c1, c2, pe, cubic) => {
+      const r = [];
+      for (let j = 1; j < 30; j++) {
+        const t = j / 30, u = 1 - t;
+        if (!cubic) r.push([u * u * p0[0] + 2 * u * t * c1[0] + t * t * pe[0], u * u * p0[1] + 2 * u * t * c1[1] + t * t * pe[1]]);
+        else r.push([u * u * u * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * pe[0], u * u * u * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * pe[1]]);
+      }
+      return r;
+    };
+    if (dict[1] && dict[2] && (dict[3] || dict[4])) {
+      const pts = [dict[1]], p0 = dict[1];
+      if (dict[3] && !dict[4]) bez(p0, dict[2], null, dict[3], false).forEach(p => pts.push(p));
+      else if (dict[3] && dict[4]) bez(p0, dict[2], dict[3], dict[4], true).forEach(p => pts.push(p));
+      else pts.push(dict[2]);
+      return pts;
+    }
+    const cmds = [];
+    for (const f of container.fields) {
+      if (!(f.v instanceof Uint8Array)) continue;
+      const item = tryDecode(f.v);
+      if (!item) continue;
+      let cmd = f.n;
+      if (item.fields.length && [1, 2, 3, 4, 5].includes(item.fields[0].n)) cmd = item.fields[0].n;
+      const pt = shapeGetPoint(item);
+      if (pt) cmds.push([cmd, pt]);
+    }
+    const pts = [];
+    let i = 0;
+    while (i < cmds.length) {
+      const cmd = cmds[i][0], pt = cmds[i][1];
+      if (cmd === 3 && i + 1 < cmds.length) {
+        const p0 = pts.length ? pts[pts.length - 1] : pt;
+        bez(p0, pt, null, cmds[i + 1][1], false).forEach(p => pts.push(p));
+        i += 2; continue;
+      }
+      if (cmd === 4 && i + 2 < cmds.length) {
+        const p0 = pts.length ? pts[pts.length - 1] : pt;
+        bez(p0, pt, cmds[i + 1][1], cmds[i + 2][1], true).forEach(p => pts.push(p));
+        i += 3; continue;
+      }
+      pts.push(pt); i++;
+    }
+    return pts;
+  }
+  function shapeUuid(msg) {
+    const a = byNumber(msg, 1);
+    if (a.length && a[0].v instanceof Uint8Array) {
+      const s = bytesToStr(a[0].v);
+      if (looksLikeUuid(s)) return s;
+    }
+    return null;
+  }
+  function shapeRgb(m) {
+    const g = (n) => { const a = byNumber(m, n); return a.length ? fixedFloat(a[0]) : null; };
+    const hx = (v) => Math.min(255, Math.max(0, Math.round((v || 0) * 255))).toString(16).padStart(2, '0');
+    const r = g(1), gg = g(2), b = g(3), a = g(4);
+    return { color: '#' + hx(r) + hx(gg) + hx(b), alpha: a == null ? 1 : a };
+  }
+  function shapeMoveOffset(msg) {
+    for (const fn of [14, 6]) {
+      const f = byNumber(msg, fn);
+      if (f.length && f[0].v instanceof Uint8Array && f[0].v.length) {
+        try {
+          const om = decodeMessage(f[0].v);
+          const dx = shapeFixedOf(om, 1), dy = shapeFixedOf(om, 2);
+          if (dx != null || dy != null) return [dx || 0, dy || 0];
+        } catch { /* ignore */ }
+      }
+    }
+    return [0, 0];
+  }
+  function type31Shape(msg) {
+    const uuid = shapeUuid(msg);
+    const vi = (n) => { const a = byNumber(msg, n); return (a.length && !(a[0].v instanceof Uint8Array)) ? a[0].v : 0; };
+    let pts = [];
+    const f21 = byNumber(msg, 21);
+    if (f21.length && f21[0].v instanceof Uint8Array) {
+      const m21 = tryDecode(f21[0].v);
+      if (m21) pts = parseCurves(m21);
+    }
+    if (!pts.length) {
+      const f20 = byNumber(msg, 20);
+      if (f20.length && f20[0].v instanceof Uint8Array) {
+        const m20 = tryDecode(f20[0].v);
+        if (m20) for (const sf of byNumber(m20, 2)) {
+          if (!(sf.v instanceof Uint8Array)) continue;
+          const mp = tryDecode(sf.v);
+          if (mp && byNumber(mp, 1).length && byNumber(mp, 2).length) {
+            const fx = fixedFloat(byNumber(mp, 1)[0]), fy = fixedFloat(byNumber(mp, 2)[0]);
+            if (fx != null && fy != null) pts.push([fx, fy]);
+          }
+        }
+      }
+    }
+    if (!pts.length) return null;
+    let width = 1, color = '#1e1b1b', dash = null;
+    const f32 = byNumber(msg, 32);
+    if (f32.length && f32[0].v instanceof Uint8Array) {
+      const m32 = tryDecode(f32[0].v);
+      if (m32) {
+        if (byNumber(m32, 1).length) width = fixedFloat(byNumber(m32, 1)[0]) || 1;
+        const d2 = byNumber(m32, 2);
+        if (d2.length && d2[0].v instanceof Uint8Array) {
+          const m2 = tryDecode(d2[0].v);
+          if (m2 && byNumber(m2, 2).length && byNumber(m2, 2)[0].v instanceof Uint8Array) {
+            const md = tryDecode(byNumber(m2, 2)[0].v);
+            if (md) {
+              const dv = md.fields.map(f => fixedFloat(f)).filter(v => v != null);
+              if (dv.length) dash = dv;
+            }
+          }
+        }
+        const c3 = byNumber(m32, 3);
+        if (c3.length && c3[0].v instanceof Uint8Array) {
+          const mc = tryDecode(c3[0].v);
+          if (mc && byNumber(mc, 1).length && byNumber(mc, 1)[0].v instanceof Uint8Array) {
+            const mrgb = tryDecode(byNumber(mc, 1)[0].v);
+            if (mrgb) color = shapeRgb(mrgb).color;
+          }
+        }
+      }
+    }
+    const [dx, dy] = shapeMoveOffset(msg);
+    if (dx || dy) pts = pts.map(p => [p[0] + dx, p[1] + dy]);
+    return { uuid, points: pts, width, color, alpha: 1, fill: null, fillAlpha: 0, type: 'polyline', dash, closed: false };
+  }
+  function type35Shape(msg) {
+    const uuid = shapeUuid(msg);
+    let px = 0, py = 0;
+    const f20 = byNumber(msg, 20);
+    if (f20.length && f20[0].v instanceof Uint8Array) {
+      const m20 = tryDecode(f20[0].v);
+      if (m20 && byNumber(m20, 1).length && byNumber(m20, 1)[0].v instanceof Uint8Array) {
+        const mp = tryDecode(byNumber(m20, 1)[0].v);
+        if (mp) { px = fixedFloat(byNumber(mp, 1)[0]) || 0; py = fixedFloat(byNumber(mp, 2)[0]) || 0; }
+      }
+    }
+    let w = 0, h = 0;
+    const f21s = byNumber(msg, 21);
+    if (f21s.length && f21s[0].v instanceof Uint8Array) {
+      const m21 = tryDecode(f21s[0].v);
+      if (m21 && byNumber(m21, 2).length && byNumber(m21, 2)[0].v instanceof Uint8Array) {
+        const ms = tryDecode(byNumber(m21, 2)[0].v);
+        if (ms) { w = fixedFloat(byNumber(ms, 1)[0]) || 0; h = fixedFloat(byNumber(ms, 2)[0]) || 0; }
+      }
+    }
+    if (!(w > 0 && h > 0)) return null;
+    let color = '#1e1b1b', fillAlpha = 0;
+    const f30 = byNumber(msg, 30);
+    if (f30.length && f30[0].v instanceof Uint8Array) {
+      const m30 = tryDecode(f30[0].v);
+      if (m30 && byNumber(m30, 1).length && byNumber(m30, 1)[0].v instanceof Uint8Array) {
+        const mc = tryDecode(byNumber(m30, 1)[0].v);
+        if (mc && byNumber(mc, 1).length && byNumber(mc, 1)[0].v instanceof Uint8Array) {
+          const mrgb = tryDecode(byNumber(mc, 1)[0].v);
+          if (mrgb) {
+            const c = shapeRgb(mrgb);
+            color = c.color;
+            fillAlpha = Math.max(0, Math.min(1, c.alpha));
+          }
+        }
+      }
+    }
+    let width = 1, alpha = 1, dash = null;
+    const f31 = byNumber(msg, 31);
+    if (f31.length && f31[0].v instanceof Uint8Array) {
+      const m31 = tryDecode(f31[0].v);
+      if (m31) {
+        if (byNumber(m31, 1).length) width = fixedFloat(byNumber(m31, 1)[0]) || 1;
+        const d2 = byNumber(m31, 2);
+        if (d2.length && d2[0].v instanceof Uint8Array) {
+          const m2 = tryDecode(d2[0].v);
+          if (m2 && byNumber(m2, 2).length && byNumber(m2, 2)[0].v instanceof Uint8Array) {
+            const md = tryDecode(byNumber(m2, 2)[0].v);
+            if (md) {
+              const dv = md.fields.map(f => fixedFloat(f)).filter(v => v != null);
+              if (dv.length) dash = dv;
+            }
+          }
+        }
+        const c3 = byNumber(m31, 3);
+        if (c3.length && c3[0].v instanceof Uint8Array) {
+          const m3 = tryDecode(c3[0].v);
+          if (m3 && byNumber(m3, 1).length && byNumber(m3, 1)[0].v instanceof Uint8Array) {
+            const m1 = tryDecode(byNumber(m3, 1)[0].v);
+            if (m1 && byNumber(m1, 4).length) {
+              const av = fixedFloat(byNumber(m1, 4)[0]);
+              if (av != null) alpha = Math.max(0, Math.min(1, av));
+            }
+          }
+        }
+      }
+    }
+    let type = 'rectangle', norm = [];
+    const f22 = byNumber(msg, 22);
+    if (f22.length && f22[0].v instanceof Uint8Array) {
+      const m22 = tryDecode(f22[0].v);
+      if (m22) {
+        const g3 = byNumber(m22, 3);
+        if (g3.length && g3[0].v instanceof Uint8Array) {
+          const m3 = tryDecode(g3[0].v);
+          if (m3 && byNumber(m3, 1).length && byNumber(m3, 1)[0].v instanceof Uint8Array) {
+            const m1 = tryDecode(byNumber(m3, 1)[0].v);
+            if (m1) for (const item of byNumber(m1, 1)) {
+              if (!(item.v instanceof Uint8Array)) continue;
+              const mp = tryDecode(item.v);
+              if (!mp) continue;
+              const fi = byNumber(mp, 1);
+              if (fi.length && fi[0].v instanceof Uint8Array) {
+                const mxy = tryDecode(fi[0].v);
+                if (mxy && byNumber(mxy, 1).length && byNumber(mxy, 2).length)
+                  norm.push([fixedFloat(byNumber(mxy, 1)[0]) || 0, fixedFloat(byNumber(mxy, 2)[0]) || 0]);
+              }
+            }
+          }
+          if (norm.length) type = 'polygon';
+        } else if (byNumber(m22, 2).length) type = 'ellipse';
+        else if (byNumber(m22, 1).length && byNumber(m22, 1)[0].v instanceof Uint8Array) {
+          const m1 = tryDecode(byNumber(m22, 1)[0].v);
+          const rv = (m1 && byNumber(m1, 1).length) ? (fixedFloat(byNumber(m1, 1)[0]) || 0) : 0;
+          type = rv >= 50 ? 'capsule' : 'rectangle';
+        }
+      }
+    }
+    const cx = px + w / 2, cy = py + h / 2, rx = w / 2, ry = h / 2;
+    let pts;
+    if (type === 'ellipse') {
+      pts = [];
+      for (let i = 0; i < 144; i++) {
+        const t = 2 * Math.PI * i / 144;
+        pts.push([cx + rx * Math.cos(t), cy + ry * Math.sin(t)]);
+      }
+      pts.push(pts[0].slice());
+    } else if (type === 'polygon' && norm.length) {
+      pts = norm.map(n => [px + n[0] * w, py + n[1] * h]);
+      pts.push(pts[0].slice());
+    } else {
+      pts = [[px, py], [px + w, py], [px + w, py + h], [px, py + h], [px, py]];
+      if (type !== 'capsule') type = 'rectangle';
+    }
+    const [dx, dy] = shapeMoveOffset(msg);
+    if (dx || dy) pts = pts.map(p => [p[0] + dx, p[1] + dy]);
+    const filled = fillAlpha > 0;
+    return { uuid, points: pts, width, color, alpha, fill: filled ? color : null, fillAlpha, type, dash, closed: true };
+  }
+  function geometryFromField9(m) {
+    const geom = { points: [], type: 'polygon', cx: null, cy: null, rx: null, ry: null, rot: 0 };
+    const cont = byNumber(m, 1).concat(byNumber(m, 2));
+    if (cont.length && cont[0].v instanceof Uint8Array) {
+      const c = tryDecode(cont[0].v);
+      if (c) {
+        const pts = parseCurves(c);
+        if (pts.length >= 2) { geom.points = pts; return geom; }
+      }
+    }
+    const f4 = byNumber(m, 4);
+    if (f4.length && f4[0].v instanceof Uint8Array) {
+      try {
+        const sub = decodeMessage(f4[0].v);
+        const c1 = byNumber(sub, 1), c2 = byNumber(sub, 2), c3 = byNumber(sub, 3);
+        if (c1.length && c2.length && c1[0].v instanceof Uint8Array && c2[0].v instanceof Uint8Array) {
+          const m1 = tryDecode(c1[0].v), m2 = tryDecode(c2[0].v);
+          const ce = m1 && shapeExtractPoint(m1), ra = m2 && shapeExtractPoint(m2);
+          if (ce && ra) {
+            geom.cx = ce[0]; geom.cy = ce[1]; geom.rx = ra[0]; geom.ry = ra[1];
+            if (c3.length) geom.rot = fixedFloat(c3[0]) || 0;
+            geom.type = 'ellipse';
+            const pts = [], N = 144, cr = Math.cos(geom.rot), sr = Math.sin(geom.rot);
+            for (let i = 0; i < N; i++) {
+              const t = 2 * Math.PI * i / N, ct = Math.cos(t), st = Math.sin(t);
+              pts.push([geom.cx + geom.rx * ct * cr - geom.ry * st * sr, geom.cy + geom.rx * ct * sr + geom.ry * st * cr]);
+            }
+            pts.push(pts[0].slice());
+            geom.points = pts;
+            return geom;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    const f3 = byNumber(m, 3);
+    if (f3.length && f3[0].v instanceof Uint8Array) {
+      try {
+        const sub = decodeMessage(f3[0].v);
+        const c1 = byNumber(sub, 1), c2 = byNumber(sub, 2);
+        if (c1.length && c2.length && c1[0].v instanceof Uint8Array && c2[0].v instanceof Uint8Array) {
+          const m1 = tryDecode(c1[0].v), m2 = tryDecode(c2[0].v);
+          const ce = m1 && shapeExtractPoint(m1), sz = m2 && shapeExtractPoint(m2);
+          if (ce && sz) {
+            const cx = ce[0], cy = ce[1], w = sz[0], h = sz[1];
+            geom.type = 'rectangle';
+            geom.cx = cx; geom.cy = cy; geom.rx = w / 2; geom.ry = h / 2;
+            geom.points = [[cx - w / 2, cy - h / 2], [cx + w / 2, cy - h / 2], [cx + w / 2, cy + h / 2], [cx - w / 2, cy + h / 2], [cx - w / 2, cy - h / 2]];
+            return geom;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    return geom;
+  }
+  function parseShapeRecord(ri, record, hasText) {
+    const f22 = byNumber(record, 22);
+    if (f22.length && f22[0].v instanceof Uint8Array) {
+      const m22 = tryDecode(f22[0].v);
+      if (m22 && byNumber(m22, 2).length && !(byNumber(m22, 2)[0].v instanceof Uint8Array) && byNumber(m22, 2)[0].v === 31) {
+        const t = type31Shape(m22);
+        if (t) return t;
+      }
+    }
+    const f21 = byNumber(record, 21);
+    if (f21.length && f21[0].v instanceof Uint8Array && !hasText) {
+      const m21 = tryDecode(f21[0].v);
+      if (m21) {
+        const t = type35Shape(m21);
+        if (t) return t;
+      }
+    }
+    const f7 = byNumber(record, 7);
+    if (!f7.length || !(f7[0].v instanceof Uint8Array)) return null;
+    const outer = tryDecode(f7[0].v);
+    if (!outer) return null;
+    const o22 = byNumber(outer, 22);
+    if (o22.length && o22[0].v instanceof Uint8Array) {
+      const m22 = tryDecode(o22[0].v);
+      if (m22 && byNumber(m22, 2).length && !(byNumber(m22, 2)[0].v instanceof Uint8Array) && byNumber(m22, 2)[0].v === 31) {
+        const t = type31Shape(m22);
+        if (t) return t;
+      }
+    }
+    const o21 = byNumber(outer, 21);
+    if (o21.length && o21[0].v instanceof Uint8Array && !hasText) {
+      const m21 = tryDecode(o21[0].v);
+      if (m21) {
+        const t = type35Shape(m21);
+        if (t) return t;
+      }
+    }
+    const f9 = byNumber(outer, 9);
+    if (!f9.length || !(f9[0].v instanceof Uint8Array)) return null;
+    const sm = tryDecode(f9[0].v);
+    if (!sm) return null;
+    const geom = geometryFromField9(sm);
+    if (geom.points.length < 2) return null;
+    let dx = 0, dy = 0;
+    const off = shapeMoveOffset(outer);
+    if (off[0] || off[1]) { dx = off[0]; dy = off[1]; }
+    else { const off2 = shapeMoveOffset(record); dx = off2[0]; dy = off2[1]; }
+    let pts = geom.points;
+    if (dx || dy) pts = pts.map(p => [p[0] + dx, p[1] + dy]);
+    let width = 1;
+    const wf = byNumber(sm, 15);
+    if (wf.length) width = fixedFloat(wf[0]) || 1;
+    let color = '#1e1b1b', alpha = 1;
+    const cf = byNumber(outer, 4);
+    if (cf.length && cf[0].v instanceof Uint8Array) {
+      try {
+        const cm = decodeMessage(cf[0].v);
+        const c = shapeRgb(cm);
+        color = c.color; alpha = c.alpha;
+      } catch { /* ignore */ }
+    }
+    let dash = null;
+    const d5 = byNumber(sm, 5);
+    if (d5.length && d5[0].v instanceof Uint8Array) {
+      const m5 = tryDecode(d5[0].v);
+      if (m5 && byNumber(m5, 1).length && byNumber(m5, 1)[0].v instanceof Uint8Array) {
+        const bv = byNumber(m5, 1)[0].v;
+        if (bv.length >= 8) {
+          const dv = new DataView(bv.buffer, bv.byteOffset, bv.length);
+          const vals = [];
+          for (let o = 0; o + 4 <= bv.length; o += 4) vals.push(dv.getFloat32(o, true));
+          if (vals.some(v => v > 0)) dash = vals;
+        }
+      }
+    }
+    const closed = geom.type !== 'polygon' || Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 1e-6;
+    return { uuid: shapeUuid(outer), points: pts, width, color, alpha, fill: null, fillAlpha: 0, type: geom.type, dash, closed, cx: geom.cx, cy: geom.cy, rx: geom.rx, ry: geom.ry, rot: geom.rot };
+  }
+
+  /* ---------- Typed Text (Port von text.py) ---------- */
+  function parseTextRuns(decMsg, dflt) {
+    const runs = [];
+    for (const field of decMsg.fields) {
+      if (!(field.v instanceof Uint8Array)) continue;
+      const item = tryDecode(field.v);
+      if (!item) continue;
+      const t1 = byNumber(item, 1);
+      if (!t1.length || !(t1[0].v instanceof Uint8Array)) continue;
+      const txt = bytesToStr(t1[0].v);
+      if (!txt) continue;
+      const run = { text: txt, bold: false, italic: false, underline: false, strike: false, list: null, align: 'left', font: dflt.font, size: dflt.size, color: dflt.color };
+      const f2 = byNumber(item, 2);
+      if (f2.length && f2[0].v instanceof Uint8Array) {
+        const m2 = tryDecode(f2[0].v);
+        if (m2) {
+          const is1 = (n) => { const a = byNumber(m2, n); return a.length && !(a[0].v instanceof Uint8Array) && a[0].v === 1; };
+          if (is1(1)) run.strike = true;
+          if (is1(2)) run.underline = true;
+          if (is1(50)) run.italic = true;
+          const s30 = byNumber(m2, 30);
+          if (s30.length && s30[0].v instanceof Uint8Array) run.font = bytesToStr(s30[0].v) || run.font;
+          const s40 = byNumber(m2, 40);
+          if (s40.length && fixedFloat(s40[0]) > 0) run.size = fixedFloat(s40[0]);
+          const s60 = byNumber(m2, 60);
+          if ((s60.length && !(s60[0].v instanceof Uint8Array) && s60[0].v >= 18446744073709551000) || /bold/i.test(run.font)) run.bold = true;
+          const c3 = byNumber(m2, 3);
+          if (c3.length && c3[0].v instanceof Uint8Array) {
+            const cm = tryDecode(c3[0].v);
+            if (cm) {
+              const c = shapeRgb(cm);
+              run.color = c.color;
+            }
+          }
+        }
+      }
+      const f3 = byNumber(item, 3);
+      if (f3.length && f3[0].v instanceof Uint8Array) {
+        const m3 = tryDecode(f3[0].v);
+        if (m3) {
+          const l3 = byNumber(m3, 3);
+          if (l3.length && l3[0].v instanceof Uint8Array) {
+            if (l3[0].v.length === 0) run.list = 'bullet';
+            else {
+              const mm = tryDecode(l3[0].v);
+              if (mm && byNumber(mm, 1).length && !(byNumber(mm, 1)[0].v instanceof Uint8Array) && byNumber(mm, 1)[0].v === 1) run.list = 'numbered';
+              else if (mm && !mm.fields.length) run.list = 'bullet';
+            }
+          }
+          const al = byNumber(m3, 4);
+          if (al.length && !(al[0].v instanceof Uint8Array)) {
+            const c = +al[0].v;
+            run.align = c === 2 ? 'center' : c === 3 ? 'right' : 'left';
+          }
+        }
+      }
+      runs.push(run);
+    }
+    return runs;
+  }
+  function textBoxPos(msg) {
+    // msg = f21-Payload (Typ 35): f20 -> f1 -> {f1 x, f2 y}
+    const f20 = byNumber(msg, 20);
+    if (f20.length && f20[0].v instanceof Uint8Array) {
+      const m20 = tryDecode(f20[0].v);
+      if (m20 && byNumber(m20, 1).length && byNumber(m20, 1)[0].v instanceof Uint8Array) {
+        const mp = tryDecode(byNumber(m20, 1)[0].v);
+        if (mp && byNumber(mp, 1).length && byNumber(mp, 2).length)
+          return [fixedFloat(byNumber(mp, 1)[0]) || 0, fixedFloat(byNumber(mp, 2)[0]) || 0];
+      }
+    }
+    return [0, 0];
+  }
+  function textBoxBg(msg) {
+    const f30 = byNumber(msg, 30);
+    if (f30.length && f30[0].v instanceof Uint8Array) {
+      const m30 = tryDecode(f30[0].v);
+      if (m30 && byNumber(m30, 1).length && byNumber(m30, 1)[0].v instanceof Uint8Array) {
+        const mf = tryDecode(byNumber(m30, 1)[0].v);
+        if (mf && byNumber(mf, 1).length && byNumber(mf, 1)[0].v instanceof Uint8Array) {
+          const bg = tryDecode(byNumber(mf, 1)[0].v);
+          if (bg) {
+            const c = shapeRgb(bg);
+            if (c.alpha > 0) return { color: c.color, alpha: c.alpha };
+          }
+        }
+      }
+    }
+    return null;
+  }
+  function parseTexts(records) {
+    const boxes = [], byRecord = new Set();
+    const dflt = { font: 'Helvetica Neue', size: 24, color: '#000000' };
+    records.forEach((record, ri) => {
+      const f1 = byNumber(record, 1);
+      let recUuid = '';
+      if (f1.length && f1[0].v instanceof Uint8Array) {
+        const s = bytesToStr(f1[0].v);
+        if (looksLikeUuid(s)) recUuid = s;
+      }
+      const f21 = byNumber(record, 21);
+      if (!f21.length || !(f21[0].v instanceof Uint8Array)) return;
+      const msg = tryDecode(f21[0].v);
+      if (!msg) return;
+      const [x, y] = textBoxPos(msg);
+      const f32 = byNumber(msg, 32);
+      if (!f32.length || !(f32[0].v instanceof Uint8Array)) return;
+      const msg32 = tryDecode(f32[0].v);
+      if (!msg32) return;
+      let w = 0, h = 0;
+      const d2 = byNumber(msg32, 2);
+      if (d2.length && d2[0].v instanceof Uint8Array) {
+        const md = tryDecode(d2[0].v);
+        if (md) { w = fixedFloat(byNumber(md, 1)[0]) || 0; h = fixedFloat(byNumber(md, 2)[0]) || 0; }
+      }
+      const f10 = byNumber(msg32, 10);
+      if (f10.length && f10[0].v instanceof Uint8Array) {
+        const m10 = tryDecode(f10[0].v);
+        if (m10 && byNumber(m10, 1).length && byNumber(m10, 2).length) {
+          w += 2 * (fixedFloat(byNumber(m10, 1)[0]) || 0);
+          h += 2 * (fixedFloat(byNumber(m10, 2)[0]) || 0);
+        }
+      }
+      const font = { ...dflt };
+      const f5 = byNumber(msg32, 5);
+      if (f5.length && f5[0].v instanceof Uint8Array) {
+        const m5 = tryDecode(f5[0].v);
+        if (m5 && byNumber(m5, 1).length && byNumber(m5, 1)[0].v instanceof Uint8Array) {
+          const m51 = tryDecode(byNumber(m5, 1)[0].v);
+          if (m51) {
+            const s30 = byNumber(m51, 30);
+            if (s30.length && s30[0].v instanceof Uint8Array) font.font = bytesToStr(s30[0].v) || font.font;
+            const s40 = byNumber(m51, 40);
+            if (s40.length && fixedFloat(s40[0]) > 0) font.size = fixedFloat(s40[0]);
+          }
+        }
+      }
+      const m1 = byNumber(msg32, 1);
+      if (!m1.length || !(m1[0].v instanceof Uint8Array)) return;
+      const mm1 = tryDecode(m1[0].v);
+      if (!mm1) return;
+      const b2 = byNumber(mm1, 2);
+      if (!b2.length || !(b2[0].v instanceof Uint8Array)) return;
+      if (findBytes(b2[0].v, BV41, 0) < 0) return;
+      let dec = null;
+      try {
+        const lz = decodeAppleLz4(b2[0].v.subarray(findBytes(b2[0].v, BV41, 0)));
+        dec = tryDecode(lz.bytes);
+      } catch { return; }
+      if (!dec) return;
+      const runs = parseTextRuns(dec, font);
+      if (!runs.length) return;
+      boxes.push({ uuid: recUuid, x, y, w, h, runs, bg: textBoxBg(msg), sticky: false });
+      byRecord.add(ri);
+    });
+    // Sticky Notes (Typ 35 in record.f20)
+    records.forEach((record, ri) => {
+      for (const f of byNumber(record, 20)) {
+        if (!(f.v instanceof Uint8Array)) continue;
+        const msg = tryDecode(f.v);
+        if (!msg) continue;
+        if (!byNumber(msg, 2).some(x => !(x.v instanceof Uint8Array) && x.v === 35)) continue;
+        const f1 = byNumber(msg, 1);
+        const ustr = (f1.length && f1[0].v instanceof Uint8Array) ? bytesToStr(f1[0].v) : '';
+        const [nx, ny] = textBoxPos(msg);
+        for (const f31 of byNumber(msg, 31)) {
+          if (!(f31.v instanceof Uint8Array)) continue;
+          const m31 = tryDecode(f31.v);
+          if (!m31) continue;
+          for (const it1 of byNumber(m31, 1)) {
+            if (!(it1.v instanceof Uint8Array)) continue;
+            const m311 = tryDecode(it1.v);
+            if (!m311) continue;
+            for (const it2 of byNumber(m311, 2)) {
+              if (!(it2.v instanceof Uint8Array) || findBytes(it2.v, BV41, 0) < 0) continue;
+              try {
+                const lz = decodeAppleLz4(it2.v.subarray(findBytes(it2.v, BV41, 0)));
+                const dec = tryDecode(lz.bytes);
+                if (!dec) continue;
+                const runs = parseTextRuns(dec, { font: 'Helvetica Neue', size: 14, color: '#000000' });
+                if (!runs.length) continue;
+                boxes.push({ uuid: ustr, x: nx, y: ny, w: 256, h: 256, runs, bg: { color: '#FAE778', alpha: 1 }, sticky: true });
+                byRecord.add(ri);
+              } catch { /* ignore */ }
+            }
+          }
+        }
+      }
+    });
+    return { boxes, byRecord };
+  }
+  function runsToHtml(box) {
+    const escH = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    let html = '', open = null;
+    const close = () => { if (open) { html += open === 'bullet' ? '</ul>' : '</ol>'; open = null; } };
+    for (const r of box.runs) {
+      if (r.list !== open) { close(); if (r.list) { html += r.list === 'bullet' ? '<ul>' : '<ol>'; open = r.list; } }
+      let t = escH(r.text);
+      if (r.bold) t = '<b>' + t + '</b>';
+      if (r.italic) t = '<i>' + t + '</i>';
+      if (r.underline) t = '<u>' + t + '</u>';
+      if (r.strike) t = '<s>' + t + '</s>';
+      if (r.size >= 40) t = '<h1>' + t + '</h1>';
+      else if (r.size >= 32) t = '<h2>' + t + '</h2>';
+      else if (r.size >= 28) t = '<h3>' + t + '</h3>';
+      if (r.color && r.color.toLowerCase() !== '#000000') t = '<span style="color:' + r.color + '">' + t + '</span>';
+      if (r.list) t = '<li>' + t + '</li>';
+      else if (r.align && r.align !== 'left') t = '<p style="text-align:' + r.align + '">' + t + '</p>';
+      html += t;
+    }
+    close();
+    html = html.replace(/\n/g, '<br>');
+    if (box.bg && box.bg.alpha > 0) {
+      const m = /^#([0-9a-f]{6})$/i.exec(box.bg.color || '');
+      const bg = m ? 'rgba(' + parseInt(m[1].slice(0, 2), 16) + ',' + parseInt(m[1].slice(2, 4), 16) + ',' + parseInt(m[1].slice(4, 6), 16) + ',' + (Math.round(box.bg.alpha * 100) / 100) + ')' : box.bg.color;
+      html = '<div style="background:' + bg + ';padding:6px;border-radius:4px">' + html + '</div>';
+    }
+    return html || '(leerer Text)';
+  }
+
   /* ---------- Dokument: Seiten, Titel, Maße ---------- */
   function pdfMediaBox(pdfBytes) {
     const s = Array.from(pdfBytes.subarray(0, Math.min(pdfBytes.length, 200000)))
@@ -571,6 +1195,8 @@ var GoodNotes = (function () {
     return null;
   }
 
+  function r3(v) { return Math.round(v * 1000) / 1000; }
+
   function parseDocument(members, fallbackName) {
     // Seiten-Einträge
     let entries = [];
@@ -594,25 +1220,68 @@ var GoodNotes = (function () {
 
     const title = guessTitle(members) || fallbackName || 'GoodNotes-Import';
     const pages = [];
-    let skippedShapes = 0, pdfBg = false, imgCount = 0;
+    let pdfBg = false, imgCount = 0;
 
     for (const e of entries) {
       let records;
       try { records = decodeDelimited(members[e.path]); }
       catch { continue; }
 
-      // Metadaten: UUID -> radiert?
-      const erased = {};
+      // Metadaten: UUID -> radiert? + alle Record-UUIDs
+      const erased = {}, allUuids = new Set();
       for (const rec of records) {
         const f1 = byNumber(rec, 1);
         if (f1.length && f1[0].v instanceof Uint8Array) {
           const s = bytesToStr(f1[0].v);
           if (looksLikeUuid(s)) {
+            allUuids.add(s);
+            // Nur Metadata-Records mit f3 ändern das Flag (Stroke-Records
+            // ohne f3 dürfen ein früheres „radiert“ nicht zurücksetzen)
             const f3 = byNumber(rec, 3);
-            erased[s] = !!(f3.length && !(f3[0].v instanceof Uint8Array) && f3[0].v === 1);
+            if (f3.length && !(f3[0].v instanceof Uint8Array)) erased[s] = (f3[0].v === 1);
           }
         }
       }
+
+      // Typed Text + Stickies (vor Shapes: Textbox-Hintergründe unterdrücken)
+      const { boxes: textBoxes, byRecord: textRecords } = parseTexts(records);
+      const textRects = new Set();
+      for (const t of textBoxes)
+        if (t.w > 0 && t.h > 0)
+          textRects.add([r3(t.x), r3(t.y), r3(t.w), r3(t.h)].join(','));
+      const textShapeUuids = new Set();
+      // Linearer Regex-Scan nur über f21-Records (statt Records × UUIDs)
+      const uuidRe = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/g;
+      records.forEach(rec => {
+        if (!byNumber(rec, 21).length) return; // nur f21-Records scannen (linear statt quadratisch)
+        let recUuid = null;
+        const top1 = byNumber(rec, 1);
+        if (top1.length && top1[0].v instanceof Uint8Array) {
+          const s = bytesToStr(top1[0].v);
+          if (looksLikeUuid(s)) recUuid = s;
+        }
+        for (const f of byNumber(rec, 21)) {
+          if (!(f.v instanceof Uint8Array)) continue;
+          const inner = tryDecode(f.v);
+          let innerUuid = null;
+          if (inner) {
+            const i1 = byNumber(inner, 1);
+            if (i1.length && i1[0].v instanceof Uint8Array) {
+              const s = bytesToStr(i1[0].v);
+              if (looksLikeUuid(s)) innerUuid = s;
+            }
+          }
+          uuidRe.lastIndex = 0;
+          const s = bytesToStr(f.v);
+          let m;
+          while ((m = uuidRe.exec(s))) {
+            const cand = m[0];
+            if (!allUuids.has(cand)) continue;
+            if (cand === recUuid || cand === innerUuid) continue;
+            textShapeUuids.add(cand);
+          }
+        }
+      });
 
       // Strokes
       const strokes = [];
@@ -648,13 +1317,21 @@ var GoodNotes = (function () {
             if (sf.v instanceof Uint8Array && findBytes(sf.v, BV41, 0) >= 0) handle(sf.v, '_7_' + sfi);
           });
         }
-        // Shapes zählen (Typ 31/35-Geometrie), v1: nicht importiert
-        const f21 = byNumber(rec, 21), f22 = byNumber(rec, 22);
-        if ((f21.length && f21[0].v instanceof Uint8Array) || (f22.length && f22[0].v instanceof Uint8Array)) {
-          // grob: Datensätze mit Geometrie-Payload, die kein Stroke sind
-          const hasInk = rec.fields.some(f => f.v instanceof Uint8Array && findBytes(f.v, BV41, 0) >= 0);
-          if (!hasInk) skippedShapes++;
+      });
+
+      // Shapes (mit Textbox-Unterdrückung + radiert-Skip wie im Referenzparser)
+      const shapes = [];
+      records.forEach((rec, ri) => {
+        let sh = null;
+        try { sh = parseShapeRecord(ri, rec, textRecords.has(ri)); } catch { return; }
+        if (!sh || !sh.points.length) return;
+        if (sh.uuid && erased[sh.uuid]) return;
+        if (sh.type === 'rectangle' && sh.points.length >= 4) {
+          const xs = sh.points.map(p => p[0]), ys = sh.points.map(p => p[1]);
+          const key = [r3(Math.min(...xs)), r3(Math.min(...ys)), r3(Math.max(...xs) - Math.min(...xs)), r3(Math.max(...ys) - Math.min(...ys))].join(',');
+          if (!sh.fill && (textShapeUuids.has(sh.uuid) || textRects.has(key))) return;
         }
+        shapes.push(sh);
       });
 
       // Bilder
@@ -689,9 +1366,11 @@ var GoodNotes = (function () {
           if (mb) { dim = mb; break; }
         }
       }
-      pages.push({ uuid: e.uuid, strokes, images, dim });
+      pages.push({ uuid: e.uuid, strokes, shapes, textBoxes, images, dim });
     }
-    return { title, pages, stats: { skippedShapes, pdfBg, imgCount } };
+    const nShapes = pages.reduce((n, p) => n + p.shapes.length, 0);
+    const nTexts = pages.reduce((n, p) => n + p.textBoxes.length, 0);
+    return { title, pages, stats: { shapes: nShapes, texts: nTexts, pdfBg, imgCount } };
   }
 
   /* ---------- Mapping auf Grimoire-Modell (Canvas 1000×1294) ---------- */
@@ -715,12 +1394,36 @@ var GoodNotes = (function () {
         points: pts
       });
     }
-    return { strokes, dim: pg.dim, scale: sc, offY };
+    for (const sh of (pg.shapes || [])) {
+      if (!sh.points.length) continue;
+      const pts = sh.points.map(p => ([
+        Math.round((p[0] * sc) * 10) / 10,
+        Math.round((p[1] * sc + offY) * 10) / 10
+      ])).map(p => ({ x: p[0], y: p[1] }));
+      const closed = pts.length > 2 && Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 0.6;
+      strokes.push({
+        tool: 'pen',
+        color: sh.color,
+        size: Math.max(0.5, Math.round(sh.width * wsc * 100) / 100),
+        points: pts,
+        alpha: sh.alpha == null ? 1 : Math.max(0, Math.min(1, sh.alpha)),
+        dash: sh.dash ? sh.dash.map(d => Math.round(d * wsc * 100) / 100) : null,
+        closed: closed || !!sh.fill,
+        fill: sh.fill || null,
+        fillAlpha: sh.fillAlpha || 0
+      });
+    }
+    const texts = (pg.textBoxes || []).map(t => ({
+      x: Math.round((t.x / iw) * 10000) / 10000,
+      y: Math.round(((t.y * sc + offY)) / CH * 10000) / 10000,
+      html: runsToHtml(t)
+    }));
+    return { strokes, texts, dim: pg.dim, scale: sc, offY };
   }
 
   return {
-    parseDocument, mapPage,
-    _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements }
+    parseDocument, mapPage, runsToHtml,
+    _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9 }
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = GoodNotes;
