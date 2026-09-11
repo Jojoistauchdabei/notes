@@ -1,0 +1,66 @@
+name: Release – Test + Cloudflare Deploy
+
+# Läuft, wenn ein GitHub Release veröffentlicht wird:
+# 1. Tests (müssen grün sein, sonst kein Deploy)
+# 2. Deploy des Release-Tags per Wrangler auf den Cloudflare Worker
+# Benötigte Repo-Secrets (Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN  – Token mit Berechtigung „Workers Scripts: Edit“
+#   CLOUDFLARE_ACCOUNT_ID – Account-ID (Cloudflare Dashboard, rechte Seitenleiste)
+
+"on":
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (Pflicht vor Deploy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release-Tag auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Node einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tests laufen lassen
+        run: npm test
+
+  deploy:
+    name: Deploy auf Cloudflare
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release-Tag auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Secrets prüfen
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Secret CLOUDFLARE_API_TOKEN fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Secret CLOUDFLARE_ACCOUNT_ID fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
+
+      - name: Deploy-Verzeichnis bauen (nur öffentliche Dateien)
+        run: |
+          rm -rf dist && mkdir -p dist
+          cp index.html manifest.webmanifest sw.js altes_Papier.png dist/
+          cp -r css js icons screenshots dist/
+          echo "--- dist-Inhalt ---"
+          find dist -type f | sort
+
+      - name: Auf Cloudflare deployen (wrangler.toml → Worker „notes“)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
