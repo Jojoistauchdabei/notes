@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#8b5a2b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Grimoire">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>📜 Grimoire – Notizbuch</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📜 GRIMOIRE</h1>
+      <div class="buttons">
+        <button onclick="exportAllJSON()">⬇ Export</button>
+        <button onclick="document.getElementById('importFile').click()">⬆ Import</button>
+        <button onclick="window.print()">🖨 Druck / PDF</button>
+        <input id="importFile" type="file" accept=".json,application/json" onchange="importAllJSON(event)" style="display:none">
+        <span class="version-tag">BUILD 11.09.2026-1</span>
+      </div>
+    </div>
+
+    <!-- BIBLIOTHEK -->
+    <div class="view active" id="viewLibrary">
+      <div class="box">
+        <div class="search-bar no-print">
+          <input type="text" id="librarySearch" placeholder="Grimoire durchsuchen (Titel, Text, Seite)..." oninput="renderLibrary()">
+          <button onclick="createNotebook()" style="white-space:nowrap">+ Neues Buch</button>
+        </div>
+        <div class="divider"><div class="divider-line"></div><div class="divider-title">Bibliothek</div><div class="divider-line"></div></div>
+        <div class="library-grid" id="libraryGrid"></div>
+      </div>
+      <div class="box">
+        <label>Über dieses Grimoire</label>
+        <div style="font-size:14px">Handschrift-Notizbuch im D&D-Papier-Stil: Stift, Marker, Radierer, Textboxen (mit dem Texteditor aus dem DND-Repo), Bilder, Seiten, Thumbnails. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA).</div>
+      </div>
+    </div>
+
+    <!-- ARBEITSBEREICH -->
+    <div class="view" id="viewBook">
+      <div class="box no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="inactive" onclick="showLibrary()">← Bibliothek</button>
+        <input type="text" id="bookTitle" onchange="renameBook(this.value)" style="max-width:260px;flex:1" placeholder="Buchtitel">
+        <select id="paperSelect" onchange="setPaper(this.value)" style="max-width:160px;flex:0 0 auto">
+          <option value="">Blanko</option>
+          <option value="lined">Liniert</option>
+          <option value="grid">Kariert</option>
+        </select>
+        <button class="mini-button" onclick="addPage()">+ Seite</button>
+        <button class="mini-button" onclick="duplicatePage()">Duplizieren</button>
+        <button class="mini-button" onclick="deletePage()">Seite löschen</button>
+        <button class="mini-button" onclick="exportPagePNG()">PNG</button>
+      </div>
+
+      <div class="toolbar box no-print">
+        <div class="tool-group" id="toolButtons">
+          <button class="mini-button picked" data-tool="pen" onclick="setTool('pen')">✒ Stift</button>
+          <button class="mini-button" data-tool="marker" onclick="setTool('marker')">🖍 Marker</button>
+          <button class="mini-button" data-tool="eraser" onclick="setTool('eraser')">⌫ Radierer</button>
+          <button class="mini-button" data-tool="text" onclick="setTool('text')">T Text</button>
+          <button class="mini-button" data-tool="move" onclick="setTool('move')">✥ Auswahl</button>
+        </div>
+        <div class="sep"></div>
+        <div class="tool-group">
+          <input type="color" id="penColor" value="#2a1a0e" onchange="setColor(this.value)" title="Farbe">
+          <input type="range" id="penSize" min="1" max="24" value="3" oninput="setSize(this.value)" title="Stärke">
+          <span id="sizeLabel" style="font-size:12px">3px</span>
+        </div>
+        <div class="sep"></div>
+        <div class="tool-group">
+          <button class="mini-button" onclick="undo()">↩</button>
+          <button class="mini-button" onclick="redo()">↪</button>
+          <button class="mini-button" onclick="document.getElementById('imgFile').click()">🖼 Bild</button>
+          <input id="imgFile" type="file" accept="image/*" onchange="importImage(event)" style="display:none">
+          <button class="mini-button" onclick="openTextEditorForSelected()">✎ Texteditor</button>
+          <button class="mini-button" onclick="clearPage()">Seite leeren</button>
+        </div>
+      </div>
+
+      <div class="work-layout">
+        <div class="page-rail no-print" id="pageRail"></div>
+        <div>
+          <div class="stage-wrap">
+            <div class="stage" id="stage">
+              <canvas id="drawCanvas"></canvas>
+              <canvas id="overlayCanvas"></canvas>
+              <div class="img-layer" id="imgLayer"></div>
+              <div class="text-layer" id="textLayer"></div>
+            </div>
+          </div>
+          <div class="status-line no-print">
+            <span id="statusPage">Seite 1/1</span>
+            <span id="statusTool">✒ Stift</span>
+            <span id="statusSave">💾 gespeichert</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TEXTEDITOR-OVERLAY: 1:1 aus DND-Character-sheet-generator/index.html übernommen -->
+  <div id="editorOverlay" class="editor-overlay" onclick="if (event.target === this) closeTextEditor()">
+    <div class="editor-modal">
+      <div class="editor-header">
+        <div class="editor-header-title">⚔ TEXTEDITOR: <span id="editorTargetTitle">NOTIZEN</span> ⚔</div>
+        <button type="button" class="mini-button" onclick="closeTextEditor()" style="font-size: 14px; padding: 2px 8px; line-height: 1;">✕</button>
+      </div>
+      <div class="editor-toolbar">
+        <select class="editor-select" onchange="applyEditorFormat(this.value); this.selectedIndex = 0;">
+          <option value="" disabled selected>Schriftgröße / Stil</option>
+          <option value="p">Normal (Fließtext)</option>
+          <option value="h1">Große Überschrift (H1)</option>
+          <option value="h2">Mittlere Überschrift (H2)</option>
+          <option value="h3">Kleine Überschrift (H3)</option>
+          <option value="font-2">Kleiner Text</option>
+          <option value="font-5">Großer Text</option>
+          <option value="font-6">Sehr großer Text</option>
+        </select>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('bold', false, null)" title="Fett"><b>B</b></button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('italic', false, null)" title="Kursiv"><i>I</i></button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('underline', false, null)" title="Unterstrichen"><u>U</u></button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('strikeThrough', false, null)" title="Durchgestrichen"><s>S</s></button>
+        <span class="editor-sep"></span>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertUnorderedList', false, null)" title="Aufzählung">• Liste</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertOrderedList', false, null)" title="Nummeriert">1. Liste</button>
+        <span class="editor-sep"></span>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyLeft', false, null)" title="Linksbündig">⫷</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyCenter', false, null)" title="Zentriert">≡</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyRight', false, null)" title="Rechtsbündig">⫸</button>
+        <span class="editor-sep"></span>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertHorizontalRule', false, null)" title="Trennlinie">— Linie</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('removeFormat', false, null)" title="Formatierung entfernen">⌫ Reset</button>
+      </div>
+      <div id="editorContent" class="editor-body" contenteditable="true" spellcheck="false"></div>
+      <div class="editor-footer">
+        <button type="button" class="inactive" onclick="closeTextEditor()">✖ Abbrechen</button>
+        <button type="button" onclick="saveTextEditor()">💾 Übernehmen</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/editor.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
