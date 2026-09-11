@@ -12,6 +12,8 @@ const $ = id => document.getElementById(id);
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const stripHtml = h => { const d = document.createElement('div'); d.innerHTML = h || ''; return d.textContent || ''; };
+// 1px-Platzhalter, bis Blob-URLs aus IndexedDB aufgelöst sind
+const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 /* ---------- Persistenz ---------- */
 function load() {
@@ -28,8 +30,13 @@ function load() {
 }
 function persistNow() {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(state));
-    setSaveStatus('💾 gespeichert');
+    if (typeof GrimoireStore !== 'undefined') {
+      GrimoireStore.saveNow(state).catch(() => setSaveStatus('⚠ Speichern fehlgeschlagen'));
+      setSaveStatus('💾 gespeichert');
+    } else {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      setSaveStatus('💾 gespeichert');
+    }
   } catch {
     setSaveStatus('⚠ Speicher voll (Bilder verkleinern)');
   }
@@ -85,6 +92,14 @@ function deleteBook(id, ev) {
   if (!confirm('Buch wirklich löschen?')) return;
   state.books = state.books.filter(b => b.id !== id);
   persistNow(); renderLibrary();
+  // Cloud-Propagierung (fire-and-forget, nur wenn konfiguriert)
+  try {
+    if (typeof GrimoireCloud !== 'undefined' && GrimoireCloud.isConfigured()) {
+      GrimoireCloud.deleteRemoteBookById(id).catch(() => {});
+    } else if (typeof GrimoireCloud !== 'undefined') {
+      GrimoireCloud.forgetLocalBook(id);
+    }
+  } catch { /* Cloud optional */ }
 }
 function duplicateBook(id, ev) {
   if (ev) ev.stopPropagation();
@@ -351,7 +366,9 @@ function renderImgLayer() {
     d.style.width = (im.w * 100) + '%';
     d.style.aspectRatio = 'auto';
     const img = document.createElement('img');
-    img.src = im.src; img.draggable = false;
+    // blob:-Refs lösen asynchron auf (Cache in GrimoireStore), Rest direkt
+    img.src = (typeof GrimoireStore !== 'undefined' ? (GrimoireStore.url(im.src) || TRANSPARENT_PIXEL) : im.src);
+    img.draggable = false;
     img.style.height = 'auto';
     d.appendChild(img);
     const h = document.createElement('div');
@@ -410,13 +427,35 @@ function importImage(ev) {
     c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
     URL.revokeObjectURL(img.src);
-    snapshot();
-    p.images.push({ id: uid(), x: 0.15, y: 0.25, w: 0.5, src: c.toDataURL('image/jpeg', 0.85) });
-    touchBook(); persistSoon(); renderImgLayer();
+    // Snapshot passiert in importImageBlob direkt vor dem Push (ein Undo-Schritt)
+    c.toBlob(b => importImageBlob(b || c), 'image/jpeg', 0.85);
+    touchBook(); persistSoon();
     setTool('move');
   };
   img.src = URL.createObjectURL(f);
   ev.target.value = '';
+  // NOTE: importImageBlob übernimmt push/render (async Blob-Store)
+}
+function importImageBlob(blob) {
+  // Canvas-Blob (oder Datei) in Blob-Store legen -> kurze blob:-Ref statt dataURL
+  const p = currentPage(); if (!p) return;
+  const done = async (src) => {
+    if (!src) return;
+    if (typeof GrimoireStore !== 'undefined' && GrimoireStore.putDataUrl && src.startsWith('data:')) {
+      src = await GrimoireStore.putDataUrl(src);
+    }
+    snapshot();
+    p.images.push({ id: uid(), x: 0.15, y: 0.25, w: 0.5, src });
+    touchBook(); persistSoon(); renderImgLayer();
+    setTool('move');
+  };
+  if (typeof GrimoireStore !== 'undefined' && GrimoireStore.putBlob) {
+    GrimoireStore.putBlob(blob).then(done);
+  } else {
+    const r = new FileReader();
+    r.onload = () => done(r.result);
+    r.readAsDataURL(blob);
+  }
 }
 
 /* ---------- Rail / Status / Paper ---------- */
@@ -453,7 +492,10 @@ function applyPaper() {
 function applyBg() {
   const p = currentPage();
   const bg = $('bgLayer');
-  if (bg) bg.style.backgroundImage = (p && p.bg) ? 'url("' + p.bg + '")' : 'none';
+  if (!bg) return;
+  let src = (p && p.bg) || null;
+  if (src && typeof GrimoireStore !== 'undefined') src = GrimoireStore.url(src) || null;
+  bg.style.backgroundImage = src ? 'url("' + src + '")' : 'none';
 }
 function clearPageBg() {
   const p = currentPage(); if (!p || !p.bg) return;
@@ -473,12 +515,20 @@ function download(filename, text, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 function exportAllJSON() {
-  download('grimoire-export.json', JSON.stringify(state, null, 2));
+  (async () => {
+    const books = (typeof GrimoireStore !== 'undefined')
+      ? await Promise.all(state.books.map(b => GrimoireStore.inlineBook(b)))
+      : state.books;
+    download('grimoire-export.json', JSON.stringify({ books, openBookId: state.openBookId, openPageId: state.openPageId }, null, 2));
+  })().catch(e => alert('Export fehlgeschlagen: ' + e.message));
 }
 function exportBookJSON(id, ev) {
   if (ev) ev.stopPropagation();
   const b = state.books.find(x => x.id === id); if (!b) return;
-  download('grimoire-' + (b.title || 'buch').replace(/[^\wäöüÄÖÜß-]+/gi, '_') + '.json', JSON.stringify(b, null, 2));
+  (async () => {
+    const out = (typeof GrimoireStore !== 'undefined') ? await GrimoireStore.inlineBook(b) : b;
+    download('grimoire-' + (b.title || 'buch').replace(/[^\wäöüÄÖÜß-]+/gi, '_') + '.json', JSON.stringify(out, null, 2));
+  })().catch(e => alert('Export fehlgeschlagen: ' + e.message));
 }
 function normalizeBook(obj) {
   if (!obj || typeof obj !== 'object') return null;
@@ -505,12 +555,16 @@ function importAllJSON(ev) {
   const added = [];
   Array.from(files).forEach(f => {
     const r = new FileReader();
-    r.onload = () => {
+    r.onload = async () => {
       try {
         const p = JSON.parse(r.result);
         const books = Array.isArray(p) ? p.map(normalizeBook).filter(Boolean)
           : (p.books ? p.books.map(normalizeBook).filter(Boolean)
           : (normalizeBook(p) ? (Array.isArray(normalizeBook(p)) ? normalizeBook(p) : [normalizeBook(p)]) : []));
+        // Importierte dataURLs in Blob-Store auslagern (kleiner State)
+        if (typeof GrimoireStore !== 'undefined') {
+          for (const b of books) await GrimoireStore.extractBook(b);
+        }
         books.forEach(b => { state.books.unshift(b); added.push(b.title); });
       } catch { /* einzelne defekte Datei ignorieren, Rest zählt */ }
       if (--pending === 0) {
@@ -663,6 +717,8 @@ async function buildBookFromGN(doc, fileName, members) {
     book.pages.push(page);
   }
   if (!book.pages.length) book.pages.push(newPage());
+  // Bilder/bg in Blob-Store auslagern (kleiner State, kein localStorage-Overflow)
+  if (typeof GrimoireStore !== 'undefined') await GrimoireStore.extractBook(book);
   // PDF-Hintergrund LAZY: Import bleibt schnell & offline-fähig, Rendering läuft nach.
   let pdfPending = 0;
   if (pdfBytes && doc.stats.pdfBg) {
@@ -675,12 +731,13 @@ async function buildBookFromGN(doc, fileName, members) {
 }
 // PDF-Render mit Timeout; Erfolg -> bg setzen, Fehlschlag -> Hinweis-Box
 async function gnRenderPdfPageLazy(pdfBytes, pageNo, bookId, pageId) {
-  const done = (ok, url) => {
+  const done = async (ok, url) => {
     const b = state.books.find(x => x.id === bookId);
     const p = b && b.pages.find(x => x.id === pageId);
     if (!p) return;
     if (ok && url) {
-      p.bg = url;
+      // dataURL in Blob-Store auslagern statt State aufzublähen
+      p.bg = (typeof GrimoireStore !== 'undefined') ? await GrimoireStore.putDataUrl(url) : url;
       // evtl. Fallback-Hinweis wieder entfernen
       p.texts = p.texts.filter(t => !stripHtml(t.html).includes('PDF-Hintergrund des Originals'));
     } else if (!p.bg) {
@@ -740,16 +797,34 @@ async function importGoodNotes(ev) {
 }
 function exportPagePNG() {
   const p = currentPage(); if (!p) return;
-  const c = document.createElement('canvas');
-  c.width = CANVAS_W; c.height = CANVAS_H;
-  const g = c.getContext('2d');
-  g.fillStyle = '#fffdf6'; g.fillRect(0, 0, CANVAS_W, CANVAS_H);
-  const jobs = p.images.map(im => new Promise(res => {
-    const img = new Image();
-    img.onload = () => { g.drawImage(img, im.x * CANVAS_W, im.y * CANVAS_H, im.w * CANVAS_W, img.height * (im.w * CANVAS_W / img.width)); res(); };
-    img.onerror = res; img.src = im.src;
-  }));
-  Promise.all(jobs).then(() => {
+  (async () => {
+    const resolve = (typeof GrimoireStore !== 'undefined')
+      ? (ref => GrimoireStore.dataUrl(ref)) : (async ref => ref);
+    const c = document.createElement('canvas');
+    c.width = CANVAS_W; c.height = CANVAS_H;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fffdf6'; g.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    // Hintergrund (bg, blob:-Ref möglich) zuerst
+    if (p.bg) {
+      const bgSrc = await resolve(p.bg);
+      if (bgSrc) {
+        await new Promise(res => {
+          const bgImg = new Image();
+          bgImg.onload = () => { try { g.drawImage(bgImg, 0, 0, CANVAS_W, CANVAS_H); } catch { /* ignore */ } res(); };
+          bgImg.onerror = res; bgImg.src = bgSrc;
+        });
+      }
+    }
+    const jobs = p.images.map(im => (async () => {
+      const src = await resolve(im.src);
+      if (!src) return;
+      await new Promise(res => {
+        const img = new Image();
+        img.onload = () => { try { g.drawImage(img, im.x * CANVAS_W, im.y * CANVAS_H, im.w * CANVAS_W, img.height * (im.w * CANVAS_W / img.width)); } catch { /* ignore */ } res(); };
+        img.onerror = res; img.src = src;
+      });
+    })());
+    await Promise.all(jobs);
     p.strokes.forEach(s => drawStroke(g, s));
     g.fillStyle = '#2a1a0e'; g.font = '22px serif';
     p.texts.forEach(t => {
@@ -760,17 +835,42 @@ function exportPagePNG() {
     a.href = c.toDataURL('image/png');
     a.download = 'seite.png';
     a.click();
-  });
+  })().catch(e => alert('PNG-Export fehlgeschlagen: ' + e.message));
 }
 
-/* ---------- Init ---------- */
+/* ---------- Init (async: IndexedDB + Legacy-Migration) ---------- */
 window.addEventListener('resize', () => { if (openBook()) renderCanvas(); });
-load();
 bindStage();
-renderLibrary();
-if (state.openBookId && openBook()) openBookView(state.openBookId, state.openPageId);
-else showLibrary();
-setTool('pen');
+if (typeof GrimoireStore !== 'undefined') {
+  // Blob-URLs trudeln asynchron ein -> sichtbare Ebenen nachrendern
+  GrimoireStore.subscribe(() => {
+    if ($('viewBook') && $('viewBook').classList.contains('active')) { renderImgLayer(); applyBg(); }
+  });
+}
+(async function boot() {
+  let migrated = 0;
+  try {
+    if (typeof GrimoireStore !== 'undefined') {
+      const s = await GrimoireStore.init();
+      if (s && Array.isArray(s.books)) {
+        state = s;
+        migrated = s._migratedImages || 0;
+        delete state._migratedImages;
+      } else {
+        load(); // kein gespeicherter Stand -> Legacy-Pfad (legt Starter-Buch an)
+      }
+    } else {
+      load();
+    }
+  } catch {
+    try { load(); } catch { /* ignore */ }
+  }
+  renderLibrary();
+  if (state.openBookId && openBook()) openBookView(state.openBookId, state.openPageId);
+  else showLibrary();
+  setTool('pen');
+  if (migrated) setSaveStatus('💾 gespeichert (☁ ' + migrated + ' Bild(er) in Bildspeicher migriert)');
+})();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));

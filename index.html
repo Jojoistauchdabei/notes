@@ -24,10 +24,12 @@
         <button onclick="exportAllJSON()">⬇ Export</button>
         <button onclick="document.getElementById('importFile').click()">⬆ JSON</button>
         <button onclick="document.getElementById('gnFile').click()">📥 GoodNotes</button>
+        <button onclick="GrimoireCloudUI.syncNow()">☁ Sync</button>
+        <button class="inactive" onclick="GrimoireCloudUI.openSettings()">☁⚙</button>
         <button onclick="window.print()">🖨 Druck / PDF</button>
         <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none">
         <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none">
-        <span class="version-tag">v1.3.1 · BUILD 11.09.2026-5</span>
+        <span class="version-tag">v1.4.0 · BUILD 11.09.2026-7</span>
       </div>
     </div>
 
@@ -43,7 +45,12 @@
       </div>
       <div class="box">
         <label>Über dieses Grimoire</label>
-        <div style="font-size:14px">Handschrift-Notizbuch im D&D-Papier-Stil: Stift, Marker, Radierer, Textboxen (mit dem Texteditor aus dem DND-Repo), Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA).</div>
+        <div style="font-size:14px">Handschrift-Notizbuch im D&D-Papier-Stil: Stift, Marker, Radierer, Textboxen (mit dem Texteditor aus dem DND-Repo), Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ WebDAV-Sync</b> (z. B. Nextcloud), komplett im Browser – siehe ☁⚙.</div>
+      </div>
+      <div class="box">
+        <label>☁ Cloud-Status</label>
+        <div style="font-size:14px" id="cloudStatus">Cloud nicht eingerichtet – auf ☁⚙ klicken.</div>
+      </div>
       </div>
     </div>
 
@@ -152,9 +159,45 @@
     </div>
   </div>
 
+  <!-- CLOUD-OVERLAY: WebDAV-Einstellungen (rein Browser-seitig) -->
+  <div id="cloudOverlay" class="editor-overlay" onclick="if (event.target === this) GrimoireCloudUI.closeSettings()">
+    <div class="editor-modal" style="max-width:560px">
+      <div class="editor-header">
+        <div class="editor-header-title">☁ WEBDAV-SYNC</div>
+        <button type="button" class="mini-button" onclick="GrimoireCloudUI.closeSettings()" style="font-size: 14px; padding: 2px 8px; line-height: 1;">✕</button>
+      </div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px">Funktioniert <b>komplett im Browser</b> per <code>fetch()</code> (PUT/GET/PROPFIND) – kein eigener Server nötig. Für Nextcloud ein <b>App-Passwort</b> nutzen (Profil → Sicherheit → App-Passwörter). Server-URL z. B. <code>https://cloud.example.de/remote.php/dav/files/USERNAME</code>.</div>
+        <div><label>WebDAV-Basis-URL</label><input type="text" id="cloudUrl" placeholder="https://cloud.example.de/remote.php/dav/files/USERNAME" autocomplete="off"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="flex:1;min-width:140px"><label>Benutzername</label><input type="text" id="cloudUser" autocomplete="username"></div>
+          <div style="flex:1;min-width:140px"><label>App-Passwort</label><input type="password" id="cloudPass" autocomplete="current-password" style="font-family:'Crimson Text',serif;font-size:14px;color:var(--text);background:var(--field-bg);border:none;border-bottom:1px solid var(--border);padding:4px 6px;width:100%;outline:none"></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="flex:1;min-width:140px"><label>Ordner</label><input type="text" id="cloudFolder" value="Grimoire"></div>
+          <div style="flex:1;min-width:140px"><label style="display:flex;gap:6px;align-items:center;margin-top:18px"><input type="checkbox" id="cloudAuto" style="width:auto"> Auto-Sync beim Start</label></div>
+        </div>
+        <div id="cloudMsg" style="font-size:13px;min-height:18px"></div>
+        <div style="font-size:12px;opacity:.85"><b>CORS-Hinweis:</b> Der Server muss deine Grimoire-URL erlauben. Fehler mit „Failed to fetch“ / CORS → Grimoire auf dieselbe Domain legen (z. B. Nextcloud-Ordner hosten), Reverse-Proxy mit <code>Access-Control-Allow-Origin</code> nutzen, oder weiter manuell per ⬇/⬆ JSON arbeiten. Alternative ohne CORS: Nextcloud-Desktop-Client + Browser-Ordner syncen.</div>
+      </div>
+      <div class="editor-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <button type="button" class="inactive" onclick="GrimoireCloudUI.clear()">Zurücksetzen</button>
+        <span style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="inactive" onclick="GrimoireCloudUI.test()">Testen</button>
+          <button type="button" class="inactive" onclick="GrimoireCloudUI.pull()">⬇ Herunterladen</button>
+          <button type="button" onclick="GrimoireCloudUI.push()">⬆ Hochladen</button>
+          <button type="button" onclick="GrimoireCloudUI.save()">💾 Speichern</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
   <script src="js/editor.js"></script>
   <script src="js/gnzip.js"></script>
   <script src="js/goodnotes.js"></script>
+  <script src="js/store.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/cloud.js"></script>
+  <script src="js/cloud-ui.js"></script>
 </body>
 </html>

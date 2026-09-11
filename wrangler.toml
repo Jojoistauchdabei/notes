@@ -1,0 +1,11 @@
+# Cloudflare Worker (Static Assets) für Grimoire.
+# Deploy läuft ausschließlich über GitHub Releases:
+# .github/workflows/release.yml baut dist/ (nur öffentliche Dateien,
+# ohne .git/tests/Tools) und deployed per Wrangler auf den Worker.
+# Lokal: erst dist/ bauen (s. README), dann `wrangler deploy`.
+name = "notes"
+compatibility_date = "2026-09-11"
+
+[assets]
+directory = "dist"
+not_found_handling = "single-page-application"
