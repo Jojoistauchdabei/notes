@@ -122,6 +122,7 @@ function renderLibrary() {
       + '<div class="notebook-meta">' + b.pages.length + ' Seite(n) · ' + strokes + ' Striche · ' + new Date(b.updatedAt).toLocaleDateString('de-DE') + '</div>'
       + '<div class="notebook-preview">' + preview + '</div>'
       + '<div class="notebook-actions">'
+      + '<button class="mini-button" onclick="exportBookJSON(\'' + b.id + '\',event)">Export</button>'
       + '<button class="mini-button" onclick="duplicateBook(\'' + b.id + '\',event)">Duplizieren</button>'
       + '<button class="mini-button" onclick="deleteBook(\'' + b.id + '\',event)">Löschen</button>'
       + '</div></div></div>';
@@ -436,27 +437,144 @@ function applyPaper() {
 function renderAll() { applyPaper(); renderCanvas(); renderTextLayer(); renderImgLayer(); renderRail(); }
 
 /* ---------- Export / Import ---------- */
-function exportAllJSON() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+function download(filename, text, type) {
+  const blob = new Blob([text], { type: type || 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'grimoire-export.json';
+  a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
+function exportAllJSON() {
+  download('grimoire-export.json', JSON.stringify(state, null, 2));
+}
+function exportBookJSON(id, ev) {
+  if (ev) ev.stopPropagation();
+  const b = state.books.find(x => x.id === id); if (!b) return;
+  download('grimoire-' + (b.title || 'buch').replace(/[^\wäöüÄÖÜß-]+/gi, '_') + '.json', JSON.stringify(b, null, 2));
+}
+function normalizeBook(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  if (Array.isArray(obj.books)) return obj.books.map(normalizeBook).filter(Boolean);
+  if (!Array.isArray(obj.pages)) return null;
+  const b = JSON.parse(JSON.stringify(obj));
+  b.id = uid();
+  b.title = String(b.title || 'Importiertes Buch');
+  b.paper = b.paper || '';
+  b.updatedAt = Date.now();
+  b.pages.forEach(p => {
+    p.id = uid();
+    p.strokes = Array.isArray(p.strokes) ? p.strokes : [];
+    p.texts = Array.isArray(p.texts) ? p.texts : [];
+    p.images = Array.isArray(p.images) ? p.images : [];
+  });
+  if (!b.pages.length) b.pages.push(newPage());
+  return b;
+}
 function importAllJSON(ev) {
-  const f = ev.target.files && ev.target.files[0]; if (!f) return;
-  const r = new FileReader();
-  r.onload = () => {
+  const files = ev.target.files; if (!files || !files.length) return;
+  let pending = files.length;
+  const added = [];
+  Array.from(files).forEach(f => {
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const p = JSON.parse(r.result);
+        const books = Array.isArray(p) ? p.map(normalizeBook).filter(Boolean)
+          : (p.books ? p.books.map(normalizeBook).filter(Boolean)
+          : (normalizeBook(p) ? (Array.isArray(normalizeBook(p)) ? normalizeBook(p) : [normalizeBook(p)]) : []));
+        books.forEach(b => { state.books.unshift(b); added.push(b.title); });
+      } catch { /* einzelne defekte Datei ignorieren, Rest zählt */ }
+      if (--pending === 0) {
+        ev.target.value = '';
+        if (!added.length) { alert('Keine gültige Grimoire-JSON-Datei dabei.'); return; }
+        persistNow(); renderLibrary(); showLibrary();
+        alert(added.length + ' Dokument(e) importiert:\n• ' + added.join('\n• '));
+      }
+    };
+    r.readAsText(f);
+  });
+}
+/* ---------- GoodNotes-Import (.goodnotes, mehrere Dateien) ---------- */
+function gnImageToDataURL(bytes, mime) {
+  return new Promise(res => {
+    let url = null;
     try {
-      const p = JSON.parse(r.result);
-      if (!p.books) throw 0;
-      state = p;
-      persistNow(); renderLibrary(); showLibrary();
-    } catch { alert('Ungültige Datei.'); }
-  };
-  r.readAsText(f);
+      url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    } catch { res(null); return; }
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const max = 1000;
+        const sc = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * sc));
+        c.height = Math.max(1, Math.round(img.height * sc));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        res(c.toDataURL(mime === 'image/png' ? 'image/png' : 'image/jpeg', 0.85));
+      } catch { URL.revokeObjectURL(url); res(null); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); res(null); };
+    img.src = url;
+  });
+}
+async function buildBookFromGN(doc, fileName) {
+  const DPI = 132 / 72;
+  const book = { id: uid(), title: doc.title || fileName.replace(/\.goodnotes$/i, ''), paper: '', updatedAt: Date.now(), pages: [] };
+  for (const pg of doc.pages) {
+    const m = GoodNotes.mapPage(pg);
+    const page = { id: uid(), strokes: m.strokes, texts: [], images: [] };
+    const iw = pg.dim.w * DPI, ih = pg.dim.h * DPI;
+    const sc = 1000 / iw, offY = (1294 - ih * sc) / 2;
+    for (const im of pg.images) {
+      const dataUrl = await gnImageToDataURL(im.bytes, im.mime);
+      if (!dataUrl) continue;
+      page.images.push({
+        id: uid(),
+        x: Math.round((im.ie.x * sc) / 1000 * 10000) / 10000,
+        y: Math.round((im.ie.y * sc + offY) / 1294 * 10000) / 10000,
+        w: Math.round((im.ie.w * sc) / 1000 * 10000) / 10000,
+        src: dataUrl
+      });
+    }
+    book.pages.push(page);
+  }
+  if (!book.pages.length) book.pages.push(newPage());
+  if (doc.stats.pdfBg && book.pages.length) {
+    book.pages[0].texts.push({ id: uid(), x: 0.06, y: 0.015, html: '<p><i>GoodNotes-Import: PDF-Hintergrund des Originals nicht übernommen.</i></p>' });
+  }
+  return book;
+}
+async function importGoodNotes(ev) {
+  const files = ev.target.files; if (!files || !files.length) return;
   ev.target.value = '';
+  const list = Array.from(files);
+  const ok = [], fail = [];
+  for (let i = 0; i < list.length; i++) {
+    const f = list[i];
+    setSaveStatus('Importiere ' + (i + 1) + '/' + list.length + ' …');
+    try {
+      const buf = await f.arrayBuffer();
+      const members = await GNZip.readZip(new Uint8Array(buf));
+      const doc = GoodNotes.parseDocument(members, f.name.replace(/\.goodnotes$/i, ''));
+      if (!doc.pages.length) throw new Error('keine Seiten');
+      const book = await buildBookFromGN(doc, f.name);
+      const nStrokes = book.pages.reduce((n, p) => n + p.strokes.length, 0);
+      const nImg = book.pages.reduce((n, p) => n + p.images.length, 0);
+      state.books.unshift(book);
+      persistNow();
+      ok.push('• ' + book.title + ' (' + book.pages.length + ' S., ' + nStrokes + ' Striche, ' + nImg + ' Bilder)');
+    } catch (err) {
+      console.warn('GoodNotes-Import fehlgeschlagen:', f.name, err);
+      fail.push('• ' + f.name);
+    }
+  }
+  renderLibrary(); showLibrary();
+  let msg = ok.length ? ok.length + ' Dokument(e) importiert:\n' + ok.join('\n') : 'Nichts importiert.';
+  msg += '\n\nv1-Limits: Shapes und getippte Textboxen werden noch nicht übernommen.';
+  if (fail.length) msg += '\nFehlgeschlagen:\n' + fail.join('\n');
+  alert(msg);
 }
 function exportPagePNG() {
   const p = currentPage(); if (!p) return;
