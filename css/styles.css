@@ -43,7 +43,7 @@
   }
 }
 
-body { font-family: 'Crimson Text', serif; background-color: var(--bg); background-image: var(--bg-image); color: var(--text); padding: 20px; }
+body { font-family: 'Crimson Text', serif; background-color: var(--bg); background-image: var(--bg-image); color: var(--text); padding: 20px; overscroll-behavior-y: none; }
 .container { max-width: 1100px; margin: 0 auto; }
 
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
@@ -103,7 +103,7 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
 .tool-group input[type="range"] { width: 90px; accent-color: var(--accent); }
 
 .stage-wrap { display: flex; justify-content: center; }
-.stage { position: relative; width: 100%; max-width: 760px; aspect-ratio: 1 / 1.294; background-color: #fffdf6; background-image: var(--bg-image); background-blend-mode: multiply; border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--surface-strong), 0 14px 34px rgba(0,0,0,.3); overflow: hidden; touch-action: none; }
+.stage { position: relative; width: 100%; max-width: 760px; aspect-ratio: 210 / 297; background-color: #fffdf6; background-image: var(--bg-image); background-blend-mode: multiply; border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--surface-strong), 0 14px 34px rgba(0,0,0,.3); overflow: hidden; touch-action: none; }
 .stage.lined { background-image: linear-gradient(transparent 95%, var(--border-light) 100%), var(--bg-image); background-size: 100% 32px, auto; }
 .stage.grid { background-image: linear-gradient(var(--border-light) 1px, transparent 1px), linear-gradient(90deg, var(--border-light) 1px, transparent 1px), var(--bg-image); background-size: 24px 24px, 24px 24px, auto; }
 #drawCanvas, #overlayCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -123,6 +123,12 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
 .img-handle { position: absolute; right: -10px; bottom: -10px; width: 20px; height: 20px; background: var(--accent); color: var(--button-text); font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: nwse-resize; border-radius: 50%; }
 
 .status-line { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--accent-muted); margin-top: 8px; }
+
+/* ===== Seiten-Preview-Pop-up ===== */
+.preview-modal { max-width: 640px; }
+.preview-body { display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: var(--field-bg); }
+#previewCanvas { flex: 1; min-width: 0; width: 100%; height: auto; aspect-ratio: 210 / 297; background: #fffdf6; border: 1px solid var(--border); }
+.preview-nav { font-size: 16px; padding: 10px 8px; flex: 0 0 auto; }
 
 /* ===== Cloud-Dialog ===== */
 #cloudOverlay code { font-size: 12px; background: var(--disabled-bg); padding: 0 4px; }
@@ -151,6 +157,22 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
   .work-layout { grid-template-columns: 1fr; }
   .page-rail { flex-direction: row; max-height: none; overflow-x: auto; }
   .page-thumb { min-width: 110px; }
+  /* iOS zoomt bei Fokus auf Inputs <16px – darum hier 16px */
+  input[type="text"], input[type="number"], input[type="password"], textarea, select { font-size: 16px; }
+  .preview-body { padding: 8px; gap: 6px; }
+  .preview-nav { padding: 14px 10px; font-size: 18px; }
+}
+
+/* Größere Touch-Targets auf Handy/iPad (Stift- und Fingerbedienung) */
+@media (pointer: coarse) {
+  .mini-button { min-height: 40px; padding: 8px 12px; }
+  .toolbar .mini-button { min-height: 44px; }
+  .tool-group input[type="color"] { width: 48px; height: 40px; }
+  .tool-group input[type="range"] { width: 120px; height: 40px; }
+  .img-handle { width: 28px; height: 28px; right: -12px; bottom: -12px; font-size: 15px; }
+  .page-thumb { min-width: 120px; }
+  .preview-nav { min-height: 56px; min-width: 48px; }
+  .editor-modal { max-height: 94vh; }
 }
 
 @media print {

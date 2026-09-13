@@ -1373,8 +1373,8 @@ var GoodNotes = (function () {
     return { title, pages, stats: { shapes: nShapes, texts: nTexts, pdfBg, imgCount } };
   }
 
-  /* ---------- Mapping auf Grimoire-Modell (Canvas 1000×1294) ---------- */
-  const CW = 1000, CH = 1294, DPI = 132 / 72;
+  /* ---------- Mapping auf Grimoire-Modell (A4-Canvas 1000×1414) ---------- */
+  const CW = 1000, CH = 1414, DPI = 132 / 72;
   function mapPage(pg) {
     const iw = pg.dim.w * DPI, ih = pg.dim.h * DPI;
     const sc = CW / iw;
