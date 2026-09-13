@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#8b5a2b">
   <meta name="mobile-web-app-capable" content="yes">
@@ -29,7 +29,7 @@
         <button onclick="window.print()">🖨 Druck / PDF</button>
         <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none">
         <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none">
-        <span class="version-tag">v1.4.0 · BUILD 11.09.2026-7</span>
+        <span class="version-tag">v1.5.0 · BUILD 11.09.2026-9</span>
       </div>
     </div>
 
@@ -155,6 +155,28 @@
       <div class="editor-footer">
         <button type="button" class="inactive" onclick="closeTextEditor()">✖ Abbrechen</button>
         <button type="button" onclick="saveTextEditor()">💾 Übernehmen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PREVIEW-OVERLAY: große Seitenvorschau (Klick auf Mini-Thumbnail) -->
+  <div id="previewOverlay" class="editor-overlay" onclick="if (event.target === this) closePagePreview()">
+    <div class="editor-modal preview-modal">
+      <div class="editor-header">
+        <div class="editor-header-title">🔍 <span id="previewTitle">SEITE 1</span></div>
+        <button type="button" class="mini-button" onclick="closePagePreview()" style="font-size: 14px; padding: 2px 8px; line-height: 1;">✕</button>
+      </div>
+      <div class="preview-body">
+        <button type="button" class="mini-button preview-nav" onclick="stepPreview(-1)" title="Vorherige Seite">◀</button>
+        <canvas id="previewCanvas"></canvas>
+        <button type="button" class="mini-button preview-nav" onclick="stepPreview(1)" title="Nächste Seite">▶</button>
+      </div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <span id="previewMeta" style="font-size:12px;align-self:center"></span>
+        <span style="display:flex;gap:8px">
+          <button type="button" class="inactive" onclick="closePagePreview()">Schließen</button>
+          <button type="button" onclick="openPreviewPage()">Seite öffnen →</button>
+        </span>
       </div>
     </div>
   </div>

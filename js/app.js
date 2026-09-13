@@ -1,6 +1,7 @@
 /* Grimoire – GoodNotes-Klon im DND-Stil. LocalStorage, kein Server. */
+/* Seitenformat: A4 (210:297), Canvas 1000×1414 */
 const LS_KEY = 'grimoire-dnd-v1';
-const CANVAS_W = 1000, CANVAS_H = 1294;
+const CANVAS_W = 1000, CANVAS_H = 1414;
 
 let state = { books: [], openBookId: null, openPageId: null };
 let tool = 'pen', penColor = '#2a1a0e', penSize = 3;
@@ -201,6 +202,94 @@ function clearPage() {
   touchBook(); persistSoon(); renderAll();
 }
 function gotoPage(id) { state.openPageId = id; undoStack = []; redoStack = []; selectedBox = null; selectedImg = null; renderAll(); }
+
+/* ---------- Seiten-Preview-Pop-up (Klick auf Mini-Thumbnail) ---------- */
+let previewPageId = null;
+function openPagePreview(id) {
+  const b = openBook(); if (!b || !b.pages.length) return;
+  previewPageId = id || state.openPageId;
+  $('previewOverlay').classList.add('active');
+  renderPreview();
+}
+function closePagePreview() {
+  const o = $('previewOverlay');
+  if (o) o.classList.remove('active');
+  previewPageId = null;
+}
+function stepPreview(d) {
+  const b = openBook(); if (!b || !b.pages.length) return;
+  const idx = Math.max(0, b.pages.findIndex(p => p.id === previewPageId));
+  previewPageId = b.pages[(idx + d + b.pages.length) % b.pages.length].id;
+  renderPreview();
+}
+function openPreviewPage() {
+  const id = previewPageId;
+  closePagePreview();
+  if (id) gotoPage(id);
+}
+function drawPreviewImg(g, src, x, y, w, h) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => { try { g.drawImage(img, x, y, w, h); } catch { /* ignore */ } res(); };
+    img.onerror = res; img.src = src;
+  });
+}
+async function renderPreview() {
+  const b = openBook(); if (!b) return;
+  const p = b.pages.find(x => x.id === previewPageId) || b.pages[0];
+  if (!p) return;
+  previewPageId = p.id;
+  const idx = b.pages.indexOf(p);
+  $('previewTitle').textContent = 'SEITE ' + (idx + 1) + ' / ' + b.pages.length;
+  $('previewMeta').textContent = p.strokes.length + ' Striche · ' + p.texts.length + ' Texte · ' + p.images.length + ' Bilder';
+  const c = $('previewCanvas');
+  const W = 600, H = Math.round(600 * CANVAS_H / CANVAS_W);
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fffdf6'; g.fillRect(0, 0, W, H);
+  const resolve = (typeof GrimoireStore !== 'undefined') ? (r => GrimoireStore.dataUrl(r)) : (async r => r);
+  if (p.bg) {
+    try {
+      const src = await resolve(p.bg);
+      if (src && previewPageId === p.id) await drawPreviewImg(g, src, 0, 0, W, H);
+    } catch { /* weiter ohne HG */ }
+  }
+  for (const im of p.images) {
+    try {
+      const src = await resolve(im.src);
+      if (!src || previewPageId !== p.id) continue;
+      const nat = await new Promise(res => {
+        const probe = new Image();
+        probe.onload = () => res({ w: probe.naturalWidth || 1, h: probe.naturalHeight || 1 });
+        probe.onerror = () => res(null);
+        probe.src = src;
+      });
+      if (!nat || previewPageId !== p.id) continue;
+      const w = im.w * W, h = w * nat.h / nat.w;
+      await drawPreviewImg(g, src, im.x * W, im.y * H, w, h);
+    } catch { /* einzelnes Bild überspringen */ }
+  }
+  if (previewPageId !== p.id) return; // inzwischen weitergeblättert
+  g.save(); g.scale(W / CANVAS_W, H / CANVAS_H);
+  p.strokes.forEach(s => drawStroke(g, s));
+  g.restore();
+  g.fillStyle = '#2a1a0e'; g.font = '13px serif';
+  p.texts.forEach(t => {
+    const lines = stripHtml(t.html).split('\n');
+    lines.slice(0, 12).forEach((ln, i) => {
+      try { g.fillText(ln.slice(0, 50), t.x * W + 5, t.y * H + 15 + i * 15); } catch { /* ignore */ }
+    });
+  });
+}
+document.addEventListener('keydown', e => {
+  const o = $('previewOverlay');
+  if (!o || !o.classList.contains('active')) return;
+  if ($('editorOverlay') && $('editorOverlay').classList.contains('active')) return;
+  if (e.key === 'Escape') closePagePreview();
+  else if (e.key === 'ArrowRight') stepPreview(1);
+  else if (e.key === 'ArrowLeft') stepPreview(-1);
+  else if (e.key === 'Enter') openPreviewPage();
+});
 
 /* ---------- Toolbar ---------- */
 function setTool(t) {
@@ -467,17 +556,18 @@ function renderRail() {
     const d = document.createElement('div');
     d.className = 'page-thumb' + (p.id === state.openPageId ? ' selected' : '');
     const c = document.createElement('canvas');
-    c.width = 140; c.height = 182;
+    c.width = 140; c.height = 198; // A4-Mini (210:297)
     const g = c.getContext('2d');
-    g.fillStyle = '#fffdf6'; g.fillRect(0, 0, 140, 182);
-    g.save(); g.scale(140 / CANVAS_W, 182 / CANVAS_H);
+    g.fillStyle = '#fffdf6'; g.fillRect(0, 0, 140, 198);
+    g.save(); g.scale(140 / CANVAS_W, 198 / CANVAS_H);
     p.strokes.forEach(s => drawStroke(g, s));
     g.restore();
     const label = document.createElement('div');
     label.className = 'thumb-label';
     label.textContent = 'Seite ' + (i + 1);
     d.appendChild(c); d.appendChild(label);
-    d.onclick = () => gotoPage(p.id);
+    d.title = 'Vorschau öffnen';
+    d.onclick = () => openPagePreview(p.id);
     rail.appendChild(d);
   });
   const idx = b.pages.findIndex(p => p.id === state.openPageId);
@@ -699,7 +789,7 @@ async function buildBookFromGN(doc, fileName, members) {
     const m = GoodNotes.mapPage(pg);
     const page = { id: uid(), strokes: m.strokes, texts: [], images: [], bg: null };
     const iw = pg.dim.w * DPI, ih = pg.dim.h * DPI;
-    const sc = 1000 / iw, offY = (1294 - ih * sc) / 2;
+    const sc = CANVAS_W / iw, offY = (CANVAS_H - ih * sc) / 2;
     for (const t of m.texts) {
       page.texts.push({ id: uid(), x: Math.max(0, Math.min(0.9, t.x)), y: Math.max(0, Math.min(0.95, t.y)), html: t.html });
     }
@@ -708,9 +798,9 @@ async function buildBookFromGN(doc, fileName, members) {
       if (!dataUrl) continue;
       page.images.push({
         id: uid(),
-        x: Math.round((im.ie.x * sc) / 1000 * 10000) / 10000,
-        y: Math.round((im.ie.y * sc + offY) / 1294 * 10000) / 10000,
-        w: Math.round((im.ie.w * sc) / 1000 * 10000) / 10000,
+        x: Math.round((im.ie.x * sc) / CANVAS_W * 10000) / 10000,
+        y: Math.round((im.ie.y * sc + offY) / CANVAS_H * 10000) / 10000,
+        w: Math.round((im.ie.w * sc) / CANVAS_W * 10000) / 10000,
         src: dataUrl
       });
     }
