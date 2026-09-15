@@ -43,30 +43,54 @@
   }
 }
 
+/* ===== Base ===== */
 body { font-family: 'Crimson Text', serif; background-color: var(--bg); background-image: var(--bg-image); color: var(--text); padding: 20px; overscroll-behavior-y: none; }
 .container { max-width: 1100px; margin: 0 auto; }
 
+/* ===== Buttons (global) ===== */
+button { font-family: 'Cinzel', serif; font-size: 12px; padding: 8px 16px; background: var(--button-bg); color: var(--button-text); border: 2px solid var(--accent); cursor: pointer; transition: background 0.2s, transform 0.1s; }
+button:hover { background: var(--accent-dark); }
+button:active { transform: scale(0.97); }
+button.inactive { background: var(--button-inactive-bg); color: var(--button-inactive-text); }
+button.inactive:hover { background: var(--button-inactive-bg); opacity: 0.85; }
+
+/* ===== Header ===== */
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
 .header h1 { font-family: 'Cinzel', serif; font-size: 26px; color: var(--accent); letter-spacing: 2px; }
-.buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.header-buttons { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.header-group { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .version-tag { font-family: 'Cinzel', serif; font-size: 9px; color: var(--accent-muted); align-self: center; padding: 0 4px; letter-spacing: 1px; }
 
-button { font-family: 'Cinzel', serif; font-size: 12px; padding: 8px 16px; background: var(--button-bg); color: var(--button-text); border: 2px solid var(--accent); cursor: pointer; transition: background 0.2s; }
-button:hover { background: var(--accent-dark); }
-button.inactive { background: var(--button-inactive-bg); color: var(--button-inactive-text); }
+/* Header button utility classes */
+.btn-export { background: #6b4226; border-color: #4a2c17; }
+.btn-export:hover { background: #4a2c17; }
+.btn-import { background: #4a6b32; border-color: #2f4a21; }
+.btn-import:hover { background: #2f4a21; }
+.btn-cloud { background: #3a5a6b; border-color: #2a3f4f; }
+.btn-cloud:hover { background: #2a3f4f; }
+.btn-print { background: #5a4a32; border-color: #3a2a18; }
+.btn-print:hover { background: #3a2a18; }
 
+/* ===== Mini Button ===== */
+.mini-button { font-family: 'Cinzel', serif; font-size: 10px; padding: 4px 8px; background: var(--surface-strong); color: var(--accent-muted); border: 1px solid var(--border); cursor: pointer; transition: background 0.2s, transform 0.1s; }
+.mini-button:hover { background: var(--mini-button-hover-bg); }
+.mini-button:active { transform: scale(0.97); }
+.mini-button:disabled { opacity: 0.6; cursor: not-allowed; }
+.mini-button.picked { background: var(--accent); color: var(--button-text); border-color: var(--accent); }
+
+/* ===== Box ===== */
 .box { border: 2px solid var(--accent); background: var(--surface); padding: 15px; margin-bottom: 15px; }
 
+/* ===== Labels & Section Titles ===== */
 label { font-family: 'Cinzel', serif; font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }
+.section-title { font-family: 'Cinzel', serif; font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+
+/* ===== Inputs ===== */
 input[type="text"], input[type="number"], input[type="color"], input[type="range"], textarea, select { font-family: 'Crimson Text', serif; font-size: 14px; color: var(--text); background: var(--field-bg); border: none; border-bottom: 1px solid var(--border); padding: 4px 6px; width: 100%; outline: none; }
 input[type="color"] { padding: 0; height: 30px; border: 1px solid var(--border); cursor: pointer; }
 input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0.8; }
 
-.mini-button { font-family: 'Cinzel', serif; font-size: 10px; padding: 4px 8px; background: var(--surface-strong); color: var(--accent-muted); border: 1px solid var(--border); cursor: pointer; transition: background 0.2s; }
-.mini-button:hover { background: var(--mini-button-hover-bg); }
-.mini-button:disabled { opacity: 0.6; cursor: not-allowed; }
-.mini-button.picked { background: var(--accent); color: var(--button-text); border-color: var(--accent); }
-
+/* ===== Divider ===== */
 .divider { display: flex; align-items: center; gap: 6px; margin: 12px 0 8px; }
 .divider-line { flex: 1; border-top: 1px solid var(--border); }
 .divider-title { font-family: 'Cinzel', serif; font-size: 9px; color: var(--accent); letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
@@ -75,9 +99,8 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
 .view { display: none; }
 .view.active { display: block; }
 
-.search-bar { display: flex; gap: 8px; margin-bottom: 14px; }
-
 /* ===== Bibliothek ===== */
+.search-bar { display: flex; gap: 8px; margin-bottom: 14px; }
 .library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
 .notebook-cover { border: 2px solid var(--accent); background: var(--surface-strong); cursor: pointer; padding: 0; overflow: hidden; transition: transform .15s, box-shadow .15s; }
 .notebook-cover:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.25); }
@@ -86,7 +109,8 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
 .notebook-title { font-family: 'Cinzel', serif; font-size: 15px; font-weight: bold; color: var(--accent); line-height: 1.25; word-break: break-word; }
 .notebook-meta { font-size: 12px; color: var(--accent-muted); }
 .notebook-preview { font-size: 12px; opacity: .8; font-style: italic; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-.notebook-actions { display: flex; gap: 6px; margin-top: auto; padding-top: 8px; flex-wrap: wrap; }
+.notebook-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 10px; flex-wrap: wrap; }
+.notebook-actions .mini-button { padding: 6px 12px; font-size: 11px; }
 
 /* ===== Arbeitsbereich ===== */
 .work-layout { display: grid; grid-template-columns: 170px 1fr; gap: 12px; align-items: start; }
@@ -96,12 +120,17 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
 .page-thumb canvas { width: 100%; height: auto; display: block; background: #fffdf6; border: 1px solid var(--border-light); }
 .page-thumb .thumb-label { font-family: 'Cinzel', serif; font-size: 9px; color: var(--accent); margin-top: 4px; }
 
+/* ===== Toolbar ===== */
 .toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
 .toolbar .sep { border-left: 1px solid var(--border); height: 22px; margin: 0 2px; }
 .tool-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tool-group--tools { flex: 1 1 auto; }
+.tool-group--colors { flex: 0 0 auto; }
+.tool-group--actions { flex: 0 0 auto; }
 .tool-group input[type="color"] { width: 38px; }
 .tool-group input[type="range"] { width: 90px; accent-color: var(--accent); }
 
+/* ===== Stage ===== */
 .stage-wrap { display: flex; justify-content: center; }
 .stage { position: relative; width: 100%; max-width: 760px; aspect-ratio: 210 / 297; background-color: #fffdf6; background-image: var(--bg-image); background-blend-mode: multiply; border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--surface-strong), 0 14px 34px rgba(0,0,0,.3); overflow: hidden; touch-action: none; }
 .stage.lined { background-image: linear-gradient(transparent 95%, var(--border-light) 100%), var(--bg-image); background-size: 100% 32px, auto; }
@@ -122,6 +151,7 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
 .img-item img { width: 100%; height: 100%; display: block; }
 .img-handle { position: absolute; right: -10px; bottom: -10px; width: 20px; height: 20px; background: var(--accent); color: var(--button-text); font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: nwse-resize; border-radius: 50%; }
 
+/* ===== Status ===== */
 .status-line { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--accent-muted); margin-top: 8px; }
 
 /* ===== Seiten-Preview-Pop-up ===== */
@@ -133,6 +163,9 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
 /* ===== Cloud-Dialog ===== */
 #cloudOverlay code { font-size: 12px; background: var(--disabled-bg); padding: 0 4px; }
 #cloudPass { font-family: 'Crimson Text', serif; }
+.cloud-status-wrap { font-size: 14px; }
+#cloudStatus { margin-bottom: 4px; }
+#cloudMsg { font-size: 13px; min-height: 18px; margin-top: 8px; }
 
 /* ===== Texteditor-Overlay (1:1 aus DND übernommen) ===== */
 .editor-overlay { position: fixed; inset: 0; background: rgba(15, 10, 5, 0.75); backdrop-filter: blur(2px); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 15px; }
@@ -150,6 +183,7 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
 .rich-field h2, .editor-body h2 { font-size: 17px; }
 .rich-field h3, .editor-body h3 { font-size: 15px; }
 
+/* ===== Responsive ===== */
 @media (max-width: 860px) {
   body { padding: 10px; }
   .header h1 { font-size: 20px; }
@@ -157,13 +191,14 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
   .work-layout { grid-template-columns: 1fr; }
   .page-rail { flex-direction: row; max-height: none; overflow-x: auto; }
   .page-thumb { min-width: 110px; }
-  /* iOS zoomt bei Fokus auf Inputs <16px – darum hier 16px */
   input[type="text"], input[type="number"], input[type="password"], textarea, select { font-size: 16px; }
   .preview-body { padding: 8px; gap: 6px; }
   .preview-nav { padding: 14px 10px; font-size: 18px; }
+  .header-buttons { gap: 6px; }
+  .notebook-actions { gap: 6px; }
 }
 
-/* Größere Touch-Targets auf Handy/iPad (Stift- und Fingerbedienung) */
+/* ===== Touch Targets ===== */
 @media (pointer: coarse) {
   .mini-button { min-height: 40px; padding: 8px 12px; }
   .toolbar .mini-button { min-height: 44px; }
@@ -173,8 +208,10 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
   .page-thumb { min-width: 120px; }
   .preview-nav { min-height: 56px; min-width: 48px; }
   .editor-modal { max-height: 94vh; }
+  .notebook-actions .mini-button { min-height: 44px; }
 }
 
+/* ===== Print ===== */
 @media print {
   body { background: #fff; padding: 0; }
   .header, .toolbar, .page-rail, .buttons, .status-line, .no-print { display: none !important; }

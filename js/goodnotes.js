@@ -29,6 +29,20 @@ var GoodNotes = (function () {
     return -1;
   }
   const BV41 = [0x62, 0x76, 0x34, 0x31]; // 'bv41'
+  /* Lokaler stripHtml-Fallback (app.js definiert global eins mit DOM;
+     für Node-Tests ohne document Tags per Regex entfernen). */
+  function stripHtml(h) {
+    const s = String(h == null ? '' : h);
+    if (typeof document !== 'undefined' && document && typeof document.createElement === 'function') {
+      try {
+        const d = document.createElement('div');
+        d.innerHTML = s;
+        const t = d.textContent;
+        if (typeof t === 'string') return t;
+      } catch { /* fall through to regex */ }
+    }
+    return s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?(p|div|h[1-6]|li|ul|ol|tr)[^>]*>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  }
 
   /* ---------- Protobuf Wire ---------- */
   function readVarint(d, pos) {
@@ -1421,9 +1435,329 @@ var GoodNotes = (function () {
     return { strokes, texts, dim: pg.dim, scale: sc, offY };
   }
 
+
+  /* ==================== EXPORT ==================== */
+
+  /* ---------- Protobuf Encoder ---------- */
+  function wvarint(n) {
+    const out = [];
+    let v = Math.floor(n);
+    do { let b = v % 128; v = Math.floor(v / 128); if (v) b |= 0x80; out.push(b); } while (v);
+    return new Uint8Array(out);
+  }
+  function wfield(n, wt, v) {
+    const key = wvarint(n * 8 + wt);
+    let body;
+    if (wt === 0) body = wvarint(v);
+    else if (wt === 5) { const b = new Uint8Array(4); new DataView(b.buffer).setFloat32(0, v, true); body = b; }
+    else if (wt === 2) body = new Uint8Array([...wvarint(v.length), ...v]);
+    else if (wt === 1) { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(v) << 32n >> 32n, true); body = b; }
+    else throw new Error('wt ' + wt);
+    return new Uint8Array([...key, ...body]);
+  }
+  function wmsg(fields) { return concatU8(fields.map(([n, wt, v]) => wfield(n, wt, v))); }
+  function wdelimited(frames) { return concatU8(frames.map(f => concatU8([wvarint(f.length), f]))); }
+  function concatU8(arr) { const total = arr.reduce((s, a) => s + a.length, 0); const out = new Uint8Array(total); let o = 0; for (const a of arr) { out.set(a, o); o += a.length; } return out; }
+  function strToBytes(s) { return new TextEncoder().encode(s); }
+  function f32bytes(f) { const b = new Uint8Array(4); new DataView(b.buffer).setFloat32(0, f, true); return b; }
+  function f64bytes(f) { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, f, true); return b; }
+  function u32bytes(n) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n >>> 0, true); return b; }
+  function f32bits(f) { return new DataView(f32bytes(f).buffer).getUint32(0, true); }
+
+  /* ---------- TPL Encoder ---------- */
+  function tplEncode(fmt, vals) {
+    const nodes = []; let pos = 0;
+    function grp(term) {
+      const nodes = [];
+      while (pos < fmt.length) {
+        const t = fmt[pos++];
+        if (t === ')') { if (!term) throw new Error('tpl )'); return nodes; }
+        if (t === 'A' || t === 'S') { if (fmt[pos] !== '(') throw new Error('tpl grp'); pos++; nodes.push([t, grp(')')]); }
+        else if ('jviuIUcsfB'.includes(t)) nodes.push(t);
+        else throw new Error('tpl tok ' + t);
+      }
+      if (term) throw new Error('tpl offen');
+      return nodes;
+    }
+    const top = grp(null);
+    function tplVal(node, val) {
+      if (Array.isArray(node)) {
+        const [kind, kids] = node;
+        if (kind === 'S') return concatU8(kids.map((k, i) => tplVal(k, val[i])));
+        const items = val.map(it => kids.length === 1 ? tplVal(kids[0], it) : concatU8(kids.map((k, i) => tplVal(k, it[i]))));
+        return concatU8([u32bytes(val.length), ...items]);
+      }
+      if (node === 'u') return u32bytes(val);
+      if (node === 'v') { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, val, true); return b; }
+      if (node === 'i') { const b = new Uint8Array(4); new DataView(b.buffer).setInt32(0, val, true); return b; }
+      if (node === 'f') return f64bytes(val);
+      if (node === 'c') return new Uint8Array([val & 0xff]);
+      if (node === 'j') { const b = new Uint8Array(2); new DataView(b.buffer).setInt16(0, val, true); return b; }
+      if (node === 'U') return u32bytes(val);
+      throw new Error('tpl node ' + node);
+    }
+    function u32bytes(n) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n >>> 0, true); return b; }
+    const payload = concatU8(top.map((n, i) => tplVal(n, vals[i])));
+    const fmtBytes = strToBytes(fmt);
+    const head = concatU8([new Uint8Array([0x74, 0x70, 0x6c, 0x00]), u32bytes(0), fmtBytes, new Uint8Array([0])]);
+    const total = concatU8([head, payload]);
+    total.set(u32bytes(total.length), 4);
+    return total;
+  }
+
+  /* ---------- LZ4 / Apple LZ4 (bv4) Encoder ---------- */
+  function lz4Literals(raw) {
+    if (!(raw instanceof Uint8Array)) raw = new Uint8Array(raw);
+    const out = []; let rest = raw.length;
+    if (rest < 15) out.push(rest << 4);
+    else { out.push(0xf0); rest -= 15; while (rest >= 255) { out.push(255); rest -= 255; } out.push(rest); }
+    return new Uint8Array([...out, ...raw]);
+  }
+  function bv4n(tplBytes) {
+    const lz = lz4Literals(tplBytes);
+    const h = new Uint8Array(12);
+    h.set([0x62, 0x76, 0x34, 0x31], 0); // 'bv41' (LZ4-block, vom Decoder verstanden)
+    h.set(u32bytes(tplBytes.length), 4);
+    h.set(u32bytes(lz.length), 8);
+    return concatU8([h, lz, new Uint8Array([0x62, 0x76, 0x34, 0x24])]);
+  }
+
+  /* ---------- Stroke TPL from points ---------- */
+  function pointsToTpl(points, width) {
+    const fpts = points.map(p => [p.x != null ? p.x : 0, p.y != null ? p.y : 0]);
+    const pairs = [fpts[0]];
+    const quads = [];
+    for (let i = 1; i < fpts.length; i++) {
+      quads.push([fpts[i - 1][0], fpts[i - 1][1], fpts[i][0], fpts[i][1]]);
+    }
+    const w = width || 2.5;
+    return tplEncode('vuA(v)A(S(uu))A(S(uuuu))vA(f)', [
+      0, f32bits(w), pairs.length ? [1] : [],
+      pairs.map(P => [f32bits(P[0]), f32bits(P[1])]),
+      quads.map(Q => [f32bits(Q[0]), f32bits(Q[1]), f32bits(Q[2]), f32bits(Q[3])]),
+      0, [1.0]
+    ]);
+  }
+
+  /* ---------- Color & Offset ---------- */
+  function parseColor(c) {
+    if (!c || c[0] !== '#' || c.length < 7) return [0, 0, 0, 1];
+    const r = parseInt(c.slice(1, 3), 16) / 255, g = parseInt(c.slice(3, 5), 16) / 255, b = parseInt(c.slice(5, 7), 16) / 255;
+    return [r, g, b, c.length > 7 ? parseInt(c.slice(7, 9), 16) / 255 : 1];
+  }
+  function colorMsg(r, g, b, a) { return wmsg([[1, 5, r], [2, 5, g], [3, 5, b], [4, 5, a]]); }
+  function offsetMsg(dx, dy) { return wmsg([[1, 5, dx || 0], [2, 5, dy || 0]]); }
+
+  /* ---------- Build records ---------- */
+  function strokeRecord(uuid, points, color, width) {
+    const crgb = parseColor(color || '#000000');
+    const tpl = pointsToTpl(points, width || 2.5);
+    const parts = [[1, 2, strToBytes(uuid)], [2, 2, bv4n(tpl)], [4, 2, colorMsg(...crgb)]];
+    const f7 = wmsg(parts);
+    return wmsg([[1, 2, strToBytes(uuid)], [7, 2, f7]]);
+  }
+  function textItemPayload(text, { font = 'Helvetica Neue', size = 24, color = '#000000', align = 'left' } = {}) {
+    const crgb = parseColor(color);
+    const m2 = wmsg([[30, 2, strToBytes(font)], [40, 5, size], [3, 2, colorMsg(...crgb)]]);
+    const al = align === 'center' ? 2 : align === 'right' ? 3 : 1;
+    const m3 = [[4, 0, al]];
+    const item = [[1, 2, strToBytes(text)], [2, 2, m2], [3, 2, wmsg(m3)]];
+    return wmsg(item);
+  }
+  function textRecord(uuid, x, y, w, h, html, runs) {
+    const items = runs.map(r => textItemPayload(r.text, r));
+    const decPayload = concatU8(items.map(it => concatU8([wvarint(1 * 8 + 2), wvarint(it.length), it])));
+    const inner = wmsg([[2, 2, bv4n(decPayload)]]);
+    const dims = wmsg([[1, 5, w], [2, 5, h]]);
+    const f32 = wmsg([[1, 2, inner], [2, 2, dims]]);
+    const f20 = wmsg([[1, 2, wmsg([[1, 5, x], [2, 5, y]])]]);
+    const f21 = wmsg([[20, 2, f20], [32, 2, f32]]);
+    return wmsg([[1, 2, strToBytes(uuid)], [21, 2, f21]]);
+  }
+  function shapeRecord(uuid, points, color, width) {
+    const crgb = parseColor(color || '#1e1b1b');
+    const ptMsg = wmsg([[1, 5, points[0][0]], [2, 5, points[0][1]]]);
+    const container = wmsg([[1, 2, ptMsg], [2, 2, wmsg([[1, 5, width || 1]])]]);
+    const shapeMsg = wmsg([[1, 2, container], [15, 5, width || 1]]);
+    const outer = wmsg([[1, 2, strToBytes(uuid)], [7, 2, wmsg([[9, 2, shapeMsg], [4, 2, colorMsg(...crgb)]])]]);
+    return outer;
+  }
+  function imageRecord(recUuid, attUuid, x, y, w, h) {
+    const pt = (x, y) => wmsg([[1, 5, x], [2, 5, y]]);
+    const wh = wmsg([[1, 2, pt(x, y)], [2, 2, pt(w, h)]]);
+    return wmsg([[1, 2, strToBytes(recUuid)], [7, 2, strToBytes(attUuid)], [8, 2, wmsg([[2, 2, wh]])]]);
+  }
+  function metaRecord(uuid, erased) {
+    const parts = [[1, 2, strToBytes(uuid)]];
+    if (erased) parts.push([3, 0, 1]);
+    return wmsg(parts);
+  }
+
+  /* ---------- ZIP Writer ---------- */
+  function writeZip(files) {
+    const enc = new TextEncoder();
+    const chunks = [], central = [];
+    let offset = 0;
+    for (const [name, data] of files) {
+      const nb = enc.encode(name);
+      if (data instanceof Uint8Array === false) data = new Uint8Array(data);
+      const lh = new Uint8Array(30);
+      const dv = new DataView(lh.buffer);
+      dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true);
+      dv.setUint16(6, 0, true); dv.setUint16(8, 0, true);
+      dv.setUint32(14, 0, true); dv.setUint32(18, data.length, true);
+      dv.setUint32(22, data.length, true);
+      dv.setUint16(26, nb.length, true); dv.setUint16(28, 0, true);
+      chunks.push(lh, nb, data);
+      central.push({ name: nb, len: data.length, offset });
+      offset += 30 + nb.length + data.length;
+    }
+    const cdStart = offset; let cdSize = 0;
+    for (const c of central) {
+      const h = new Uint8Array(46);
+      const dv = new DataView(h.buffer);
+      dv.setUint32(0, 0x02014b50, true); dv.setUint16(4, 20, true); dv.setUint16(6, 20, true);
+      dv.setUint16(8, 0, true); dv.setUint16(10, 0, true);
+      dv.setUint32(16, 0, true); dv.setUint32(20, c.len, true); dv.setUint32(24, c.len, true);
+      dv.setUint16(28, c.name.length, true); dv.setUint16(30, 0, true); dv.setUint16(32, 0, true);
+      dv.setUint32(38, 0, true); dv.setUint32(42, c.offset, true);
+      chunks.push(h, c.name); cdSize += 46 + c.name.length;
+    }
+    const end = new Uint8Array(22);
+    const edv = new DataView(end.buffer);
+    edv.setUint32(0, 0x06054b50, true);
+    edv.setUint16(8, central.length, true); edv.setUint16(10, central.length, true);
+    edv.setUint32(12, cdSize, true); edv.setUint32(16, cdStart, true);
+    chunks.push(end);
+    return concatU8(chunks);
+  }
+
+  /* ---------- Make minimal JPEG ---------- */
+  function makeThumbnail() {
+    const w = 100, h = 75;
+    const raw = new Uint8Array(w * h * 3);
+    for (let i = 0; i < w * h; i++) { raw[i * 3] = 255; raw[i * 3 + 1] = 253; raw[i * 3 + 2] = 246; }
+    const crcTbl = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; crcTbl[n] = c >>> 0; }
+    function crc(b) { let c = 0xffffffff; for (const x of b) c = crcTbl[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+    function chunk(type, data) {
+      const h = new Uint8Array([...u32bytes(data.length), ...strToBytes(type)]);
+      const cb = new Uint8Array(4); new DataView(cb.buffer).setUint32(0, crc(new Uint8Array([...strToBytes(type), ...data])), false);
+      return new Uint8Array([...h, ...data, ...cb]);
+    }
+    function u32bytes(n) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n, false); return b; }
+    const ihdr = new Uint8Array([...u32bytes(13), ...strToBytes('IHDR'), new Uint8Array([0, 0, 0, w, 0, 0, 0, h, 8, 6, 0, 0, 0])]);
+    const idat = new Uint8Array([...u32bytes(raw.length + 2), ...strToBytes('IDAT'), raw]);
+    return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, ...chunk('IHDR', ihdr.subarray(8)), ...chunk('IDAT', idat), ...chunk('IEND', new Uint8Array(0))]);
+  }
+
+  /* ---------- Document protobuf ---------- */
+  function documentPb(title, pageCount) {
+    const inner = wmsg([[1, 2, strToBytes(title)], [2, 2, u32bytes(pageCount)]]);
+    return wdelimited([inner]);
+  }
+  function documentInfoPb(title) {
+    const inner = wmsg([[1, 2, strToBytes(title)]]);
+    return wdelimited([inner]);
+  }
+  function indexNotesPb(pages) {
+    const entries = pages.map((p, i) => {
+      const uuid = p.uuid || ('page' + i);
+      const path = 'notes/page' + (i + 1);
+      return wmsg([[1, 2, strToBytes(uuid)], [2, 2, strToBytes(path)]]);
+    });
+    return wdelimited(entries);
+  }
+  function indexEventsPb(title) {
+    const inner = wmsg([[1, 2, strToBytes(title)], [1, 2, strToBytes('aaaaaaaa-0000-4000-8000-aaaaaaaa0001')]]);
+    return wdelimited([wmsg([[30, 2, wmsg([[1, 2, inner]])]])]);
+  }
+
+  /* ---------- Main export function ---------- */
+  function exportGoodNotes(book) {
+    const title = book.title || 'Grimoire';
+    const pages = book.pages || [];
+    const uuids = pages.map((_, i) => 'aaaaaaaa-0000-4000-8000-' + String(i + 1).padStart(12, '0'));
+    const files = [];
+
+    files.push(['index.notes.pb', indexNotesPb(pages.map((p, i) => ({ uuid: uuids[i], path: 'notes/page' + (i + 1) })))]);
+
+    for (let pi = 0; pi < pages.length; pi++) {
+      const page = pages[pi];
+      const recs = [];
+      recs.push(metaRecord(uuids[pi], false));
+
+      for (let si = 0; si < (page.strokes || []).length; si++) {
+        const s = page.strokes[si];
+        if (!s.points || !s.points.length) continue;
+        const su = 'stroke-' + pi + '-' + si;
+        recs.push(strokeRecord(su, s.points, s.color || '#000000', s.size || 2.5));
+      }
+
+      for (let ti = 0; ti < (page.texts || []).length; ti++) {
+        const t = page.texts[ti];
+        const runs = parseHtmlToRuns(t.html);
+        if (!runs.length) continue;
+        const tx = Math.round((t.x || 0) * 10000) / 10000;
+        const ty = Math.round((t.y || 0) * 10000) / 10000;
+        recs.push(textRecord('text-' + pi + '-' + ti, tx, ty, 200, 100, t.html, runs));
+      }
+
+      for (let ii = 0; ii < (page.images || []).length; ii++) {
+        const im = page.images[ii];
+        const attUuid = 'img-' + pi + '-' + ii;
+        recs.push(imageRecord('imgrec-' + pi + '-' + ii, attUuid, (im.x || 0) * 1000, (im.y || 0) * 1000, (im.w || 0.5) * 1000, 100));
+      }
+
+      if (recs.length) files.push(['notes/page' + (pi + 1), wdelimited(recs)]);
+    }
+
+    files.push(['index.events.pb', indexEventsPb(title)]);
+    files.push(['document.pb', documentPb(title, pages.length)]);
+    files.push(['document.info.pb', documentInfoPb(title)]);
+
+    for (let pi = 0; pi < pages.length; pi++) {
+      for (let ii = 0; ii < (pages[pi].images || []).length; ii++) {
+        const im = pages[pi].images[ii];
+        const attUuid = 'img-' + pi + '-' + ii;
+        let imgData = null;
+        if (im.src) {
+          try {
+            if (im.src.startsWith('data:')) {
+              const comma = im.src.indexOf(',');
+              if (comma >= 0) imgData = Uint8Array.from(atob(im.src.slice(comma + 1)), c => c.charCodeAt(0));
+            }
+          } catch { /* ignore */ }
+        }
+        if (!imgData) imgData = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+        files.push(['attachments/' + attUuid, imgData]);
+      }
+    }
+
+    files.push(['thumbnail.jpg', makeThumbnail()]);
+    files.push(['search/0', new Uint8Array(0)]);
+
+    return writeZip(files);
+  }
+
+  /* ---------- Parse HTML to runs ---------- */
+  function parseHtmlToRuns(html) {
+    if (!html) return [];
+    const runs = [];
+    const text = stripHtml(html || '');
+    if (!text.trim()) return [];
+    let color = '#000000', size = 24;
+    const parts = text.split('\n').filter(s => s.trim());
+    for (const part of parts) {
+      runs.push({ text: part, color, size });
+    }
+    if (!runs.length) runs.push({ text: text || '(leerer Text)', color, size });
+    return runs;
+  }
+
   return {
-    parseDocument, mapPage, runsToHtml,
-    _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9 }
+    parseDocument, mapPage, runsToHtml, exportGoodNotes,
+    _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9, writeZip, strokeRecord, textRecord, imageRecord, metaRecord, indexNotesPb, indexEventsPb, documentPb, documentInfoPb, parseHtmlToRuns, tplEncode, bv4n, lz4Literals, wvarint, wfield, wmsg, wdelimited, concatU8, stripHtml }
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = GoodNotes;
