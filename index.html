@@ -20,16 +20,20 @@
   <div class="container">
     <div class="header">
       <h1>📜 GRIMOIRE</h1>
-      <div class="buttons">
-        <button onclick="exportAllJSON()">⬇ Export</button>
-        <button onclick="document.getElementById('importFile').click()">⬆ JSON</button>
-        <button onclick="document.getElementById('gnFile').click()">📥 GoodNotes</button>
-        <button onclick="GrimoireCloudUI.syncNow()">☁ Sync</button>
-        <button class="inactive" onclick="GrimoireCloudUI.openSettings()">☁⚙</button>
-        <button onclick="window.print()">🖨 Druck / PDF</button>
-        <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none">
-        <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none">
-        <span class="version-tag">v1.5.0 · BUILD 11.09.2026-9</span>
+      <div class="header-buttons">
+        <div class="header-group">
+          <button class="btn-export" onclick="exportAllJSON()" aria-label="Exportiere alle Bücher als JSON">⬇ Export</button>
+          <button class="btn-import" onclick="document.getElementById('importFile').click()" aria-label="Importiere JSON-Dateien">⬆ JSON</button>
+          <button class="btn-import" onclick="document.getElementById('gnFile').click()" aria-label="Importiere GoodNotes-Dateien">📥 GoodNotes</button>
+        </div>
+        <div class="header-group">
+          <button class="btn-cloud" onclick="GrimoireCloudUI.syncNow()" aria-label="Cloud synchronisieren">☁ Sync</button>
+          <button class="btn-cloud" onclick="GrimoireCloudUI.openSettings()" aria-label="Cloud-Einstellungen öffnen" disabled>☁⚙</button>
+          <button class="btn-print" onclick="window.print()" aria-label="Seite drucken oder als PDF speichern">🖨 Druck / PDF</button>
+        </div>
+        <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none" aria-hidden="true">
+        <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none" aria-hidden="true">
+        <span class="version-tag" aria-hidden="true">v1.5.0 · BUILD 11.09.2026-9</span>
       </div>
     </div>
 
@@ -37,62 +41,63 @@
     <div class="view active" id="viewLibrary">
       <div class="box">
         <div class="search-bar no-print">
-          <input type="text" id="librarySearch" placeholder="Grimoire durchsuchen (Titel, Text, Seite)..." oninput="renderLibrary()">
-          <button onclick="createNotebook()" style="white-space:nowrap">+ Neues Buch</button>
+          <input type="text" id="librarySearch" placeholder="Grimoire durchsuchen (Titel, Text, Seite)..." oninput="renderLibrary()" aria-label="Grimoire durchsuchen">
+          <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
         </div>
         <div class="divider"><div class="divider-line"></div><div class="divider-title">Bibliothek</div><div class="divider-line"></div></div>
         <div class="library-grid" id="libraryGrid"></div>
       </div>
       <div class="box">
-        <label>Über dieses Grimoire</label>
+        <div class="section-title">Über dieses Grimoire</div>
         <div style="font-size:14px">Handschrift-Notizbuch im D&D-Papier-Stil: Stift, Marker, Radierer, Textboxen (mit dem Texteditor aus dem DND-Repo), Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ WebDAV-Sync</b> (z. B. Nextcloud), komplett im Browser – siehe ☁⚙.</div>
       </div>
       <div class="box">
-        <label>☁ Cloud-Status</label>
-        <div style="font-size:14px" id="cloudStatus">Cloud nicht eingerichtet – auf ☁⚙ klicken.</div>
-      </div>
+        <div class="section-title">☁ Cloud-Status</div>
+        <div class="cloud-status-wrap">
+          <div id="cloudStatus" aria-live="polite">Cloud nicht eingerichtet – auf ☁⚙ klicken.</div>
+        </div>
       </div>
     </div>
 
     <!-- ARBEITSBEREICH -->
     <div class="view" id="viewBook">
       <div class="box no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="inactive" onclick="showLibrary()">← Bibliothek</button>
-        <input type="text" id="bookTitle" onchange="renameBook(this.value)" style="max-width:260px;flex:1" placeholder="Buchtitel">
-        <select id="paperSelect" onchange="setPaper(this.value)" style="max-width:160px;flex:0 0 auto">
+        <button class="inactive" onclick="showLibrary()" aria-label="Zurück zur Bibliothek">← Bibliothek</button>
+        <input type="text" id="bookTitle" onchange="renameBook(this.value)" style="max-width:260px;flex:1" placeholder="Buchtitel" aria-label="Buchtitel">
+        <select id="paperSelect" onchange="setPaper(this.value)" style="max-width:160px;flex:0 0 auto" aria-label="Papierart wählen">
           <option value="">Blanko</option>
           <option value="lined">Liniert</option>
           <option value="grid">Kariert</option>
         </select>
-        <button class="mini-button" onclick="addPage()">+ Seite</button>
-        <button class="mini-button" onclick="duplicatePage()">Duplizieren</button>
-        <button class="mini-button" onclick="deletePage()">Seite löschen</button>
-        <button class="mini-button" onclick="exportPagePNG()">PNG</button>
-        <button class="mini-button" onclick="clearPageBg()">HG entfernen</button>
+        <button class="mini-button" onclick="addPage()" aria-label="Neue Seite hinzufügen">+ Seite</button>
+        <button class="mini-button" onclick="duplicatePage()" aria-label="Seite duplizieren">Duplizieren</button>
+        <button class="mini-button" onclick="deletePage()" aria-label="Seite löschen">Seite löschen</button>
+        <button class="mini-button" onclick="exportPagePNG()" aria-label="Seite als PNG exportieren">PNG</button>
+        <button class="mini-button" onclick="clearPageBg()" aria-label="Hintergrund entfernen">HG entfernen</button>
       </div>
 
-      <div class="toolbar box no-print">
-        <div class="tool-group" id="toolButtons">
-          <button class="mini-button picked" data-tool="pen" onclick="setTool('pen')">✒ Stift</button>
-          <button class="mini-button" data-tool="marker" onclick="setTool('marker')">🖍 Marker</button>
-          <button class="mini-button" data-tool="eraser" onclick="setTool('eraser')">⌫ Radierer</button>
-          <button class="mini-button" data-tool="text" onclick="setTool('text')">T Text</button>
-          <button class="mini-button" data-tool="move" onclick="setTool('move')">✥ Auswahl</button>
+      <div class="toolbar box no-print" role="toolbar" aria-label="Werkzeugleiste">
+        <div class="tool-group tool-group--tools" id="toolButtons" role="group" aria-label="Werkzeuge">
+          <button class="mini-button picked" data-tool="pen" onclick="setTool('pen')" aria-label="Stift-Werkzeug" aria-pressed="true">✒ Stift</button>
+          <button class="mini-button" data-tool="marker" onclick="setTool('marker')" aria-label="Marker-Werkzeug" aria-pressed="false">🖍 Marker</button>
+          <button class="mini-button" data-tool="eraser" onclick="setTool('eraser')" aria-label="Radierer-Werkzeug" aria-pressed="false">⌫ Radierer</button>
+          <button class="mini-button" data-tool="text" onclick="setTool('text')" aria-label="Text-Werkzeug" aria-pressed="false">T Text</button>
+          <button class="mini-button" data-tool="move" onclick="setTool('move')" aria-label="Auswahl-Werkzeug" aria-pressed="false">✥ Auswahl</button>
         </div>
-        <div class="sep"></div>
-        <div class="tool-group">
-          <input type="color" id="penColor" value="#2a1a0e" onchange="setColor(this.value)" title="Farbe">
-          <input type="range" id="penSize" min="1" max="24" value="3" oninput="setSize(this.value)" title="Stärke">
-          <span id="sizeLabel" style="font-size:12px">3px</span>
+        <div class="sep" role="separator" aria-hidden="true"></div>
+        <div class="tool-group tool-group--colors" role="group" aria-label="Farbe und Stärke">
+          <input type="color" id="penColor" value="#2a1a0e" onchange="setColor(this.value)" title="Farbe" aria-label="Stiftfarbe">
+          <input type="range" id="penSize" min="1" max="24" value="3" oninput="setSize(this.value)" title="Stärke" aria-label="Stiftstärke">
+          <span id="sizeLabel" style="font-size:12px" aria-hidden="true">3px</span>
         </div>
-        <div class="sep"></div>
-        <div class="tool-group">
-          <button class="mini-button" onclick="undo()">↩</button>
-          <button class="mini-button" onclick="redo()">↪</button>
-          <button class="mini-button" onclick="document.getElementById('imgFile').click()">🖼 Bild</button>
-          <input id="imgFile" type="file" accept="image/*" onchange="importImage(event)" style="display:none">
-          <button class="mini-button" onclick="openTextEditorForSelected()">✎ Texteditor</button>
-          <button class="mini-button" onclick="clearPage()">Seite leeren</button>
+        <div class="sep" role="separator" aria-hidden="true"></div>
+        <div class="tool-group tool-group--actions" role="group" aria-label="Aktionen">
+          <button class="mini-button" onclick="undo()" aria-label="Rückgängig machen">↩</button>
+          <button class="mini-button" onclick="redo()" aria-label="Wiederherstellen">↪</button>
+          <button class="mini-button" onclick="document.getElementById('imgFile').click()" aria-label="Bild einfügen">🖼 Bild</button>
+          <input id="imgFile" type="file" accept="image/*" onchange="importImage(event)" style="display:none" aria-hidden="true">
+          <button class="mini-button" onclick="openTextEditorForSelected()" aria-label="Texteditor öffnen">✎ Texteditor</button>
+          <button class="mini-button" onclick="clearPage()" aria-label="Seite leeren">Seite leeren</button>
         </div>
       </div>
 
@@ -123,10 +128,10 @@
     <div class="editor-modal">
       <div class="editor-header">
         <div class="editor-header-title">⚔ TEXTEDITOR: <span id="editorTargetTitle">NOTIZEN</span> ⚔</div>
-        <button type="button" class="mini-button" onclick="closeTextEditor()" style="font-size: 14px; padding: 2px 8px; line-height: 1;">✕</button>
+        <button type="button" class="mini-button" onclick="closeTextEditor()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Texteditor schließen">✕</button>
       </div>
       <div class="editor-toolbar">
-        <select class="editor-select" onchange="applyEditorFormat(this.value); this.selectedIndex = 0;">
+        <select class="editor-select" onchange="applyEditorFormat(this.value); this.selectedIndex = 0;" aria-label="Schriftgröße und Stil">
           <option value="" disabled selected>Schriftgröße / Stil</option>
           <option value="p">Normal (Fließtext)</option>
           <option value="h1">Große Überschrift (H1)</option>
@@ -136,25 +141,25 @@
           <option value="font-5">Großer Text</option>
           <option value="font-6">Sehr großer Text</option>
         </select>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('bold', false, null)" title="Fett"><b>B</b></button>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('italic', false, null)" title="Kursiv"><i>I</i></button>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('underline', false, null)" title="Unterstrichen"><u>U</u></button>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('strikeThrough', false, null)" title="Durchgestrichen"><s>S</s></button>
-        <span class="editor-sep"></span>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertUnorderedList', false, null)" title="Aufzählung">• Liste</button>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertOrderedList', false, null)" title="Nummeriert">1. Liste</button>
-        <span class="editor-sep"></span>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyLeft', false, null)" title="Linksbündig">⫷</button>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyCenter', false, null)" title="Zentriert">≡</button>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyRight', false, null)" title="Rechtsbündig">⫸</button>
-        <span class="editor-sep"></span>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertHorizontalRule', false, null)" title="Trennlinie">— Linie</button>
-        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('removeFormat', false, null)" title="Formatierung entfernen">⌫ Reset</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('bold', false, null)" title="Fett" aria-label="Fett"><b>B</b></button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('italic', false, null)" title="Kursiv" aria-label="Kursiv"><i>I</i></button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('underline', false, null)" title="Unterstrichen" aria-label="Unterstrichen"><u>U</u></button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('strikeThrough', false, null)" title="Durchgestrichen" aria-label="Durchgestrichen"><s>S</s></button>
+        <span class="editor-sep" aria-hidden="true"></span>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertUnorderedList', false, null)" title="Aufzählung" aria-label="Aufzählungsliste">• Liste</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertOrderedList', false, null)" title="Nummeriert" aria-label="Nummerierte Liste">1. Liste</button>
+        <span class="editor-sep" aria-hidden="true"></span>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyLeft', false, null)" title="Linksbündig" aria-label="Linksbündig">⫷</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyCenter', false, null)" title="Zentriert" aria-label="Zentriert">≡</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyRight', false, null)" title="Rechtsbündig" aria-label="Rechtsbündig">⫸</button>
+        <span class="editor-sep" aria-hidden="true"></span>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertHorizontalRule', false, null)" title="Trennlinie" aria-label="Trennlinie einfügen">— Linie</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('removeFormat', false, null)" title="Formatierung entfernen" aria-label="Formatierung zurücksetzen">⌫ Reset</button>
       </div>
-      <div id="editorContent" class="editor-body" contenteditable="true" spellcheck="false"></div>
+      <div id="editorContent" class="editor-body" contenteditable="true" spellcheck="false" aria-label="Textinhalt"></div>
       <div class="editor-footer">
-        <button type="button" class="inactive" onclick="closeTextEditor()">✖ Abbrechen</button>
-        <button type="button" onclick="saveTextEditor()">💾 Übernehmen</button>
+        <button type="button" class="inactive" onclick="closeTextEditor()" aria-label="Abbrechen">✖ Abbrechen</button>
+        <button type="button" onclick="saveTextEditor()" aria-label="Übernehmen">💾 Übernehmen</button>
       </div>
     </div>
   </div>
@@ -164,18 +169,18 @@
     <div class="editor-modal preview-modal">
       <div class="editor-header">
         <div class="editor-header-title">🔍 <span id="previewTitle">SEITE 1</span></div>
-        <button type="button" class="mini-button" onclick="closePagePreview()" style="font-size: 14px; padding: 2px 8px; line-height: 1;">✕</button>
+        <button type="button" class="mini-button" onclick="closePagePreview()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Seitenvorschau schließen">✕</button>
       </div>
       <div class="preview-body">
-        <button type="button" class="mini-button preview-nav" onclick="stepPreview(-1)" title="Vorherige Seite">◀</button>
-        <canvas id="previewCanvas"></canvas>
-        <button type="button" class="mini-button preview-nav" onclick="stepPreview(1)" title="Nächste Seite">▶</button>
+        <button type="button" class="mini-button preview-nav" onclick="stepPreview(-1)" title="Vorherige Seite" aria-label="Vorherige Seite">◀</button>
+        <canvas id="previewCanvas" aria-hidden="true"></canvas>
+        <button type="button" class="mini-button preview-nav" onclick="stepPreview(1)" title="Nächste Seite" aria-label="Nächste Seite">▶</button>
       </div>
       <div class="editor-footer" style="justify-content:space-between">
         <span id="previewMeta" style="font-size:12px;align-self:center"></span>
         <span style="display:flex;gap:8px">
-          <button type="button" class="inactive" onclick="closePagePreview()">Schließen</button>
-          <button type="button" onclick="openPreviewPage()">Seite öffnen →</button>
+          <button type="button" class="inactive" onclick="closePagePreview()" aria-label="Schließen">Schließen</button>
+          <button type="button" onclick="openPreviewPage()" aria-label="Seite öffnen">Seite öffnen →</button>
         </span>
       </div>
     </div>
@@ -186,29 +191,29 @@
     <div class="editor-modal" style="max-width:560px">
       <div class="editor-header">
         <div class="editor-header-title">☁ WEBDAV-SYNC</div>
-        <button type="button" class="mini-button" onclick="GrimoireCloudUI.closeSettings()" style="font-size: 14px; padding: 2px 8px; line-height: 1;">✕</button>
+        <button type="button" class="mini-button" onclick="GrimoireCloudUI.closeSettings()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Cloud-Einstellungen schließen">✕</button>
       </div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
         <div style="font-size:13px">Funktioniert <b>komplett im Browser</b> per <code>fetch()</code> (PUT/GET/PROPFIND) – kein eigener Server nötig. Für Nextcloud ein <b>App-Passwort</b> nutzen (Profil → Sicherheit → App-Passwörter). Server-URL z. B. <code>https://cloud.example.de/remote.php/dav/files/USERNAME</code>.</div>
-        <div><label>WebDAV-Basis-URL</label><input type="text" id="cloudUrl" placeholder="https://cloud.example.de/remote.php/dav/files/USERNAME" autocomplete="off"></div>
+        <div><label for="cloudUrl">WebDAV-Basis-URL</label><input type="text" id="cloudUrl" placeholder="https://cloud.example.de/remote.php/dav/files/USERNAME" autocomplete="off"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <div style="flex:1;min-width:140px"><label>Benutzername</label><input type="text" id="cloudUser" autocomplete="username"></div>
-          <div style="flex:1;min-width:140px"><label>App-Passwort</label><input type="password" id="cloudPass" autocomplete="current-password" style="font-family:'Crimson Text',serif;font-size:14px;color:var(--text);background:var(--field-bg);border:none;border-bottom:1px solid var(--border);padding:4px 6px;width:100%;outline:none"></div>
+          <div style="flex:1;min-width:140px"><label for="cloudUser">Benutzername</label><input type="text" id="cloudUser" autocomplete="username"></div>
+          <div style="flex:1;min-width:140px"><label for="cloudPass">App-Passwort</label><input type="password" id="cloudPass" autocomplete="current-password" style="font-family:'Crimson Text',serif;font-size:14px;color:var(--text);background:var(--field-bg);border:none;border-bottom:1px solid var(--border);padding:4px 6px;width:100%;outline:none"></div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <div style="flex:1;min-width:140px"><label>Ordner</label><input type="text" id="cloudFolder" value="Grimoire"></div>
+          <div style="flex:1;min-width:140px"><label for="cloudFolder">Ordner</label><input type="text" id="cloudFolder" value="Grimoire"></div>
           <div style="flex:1;min-width:140px"><label style="display:flex;gap:6px;align-items:center;margin-top:18px"><input type="checkbox" id="cloudAuto" style="width:auto"> Auto-Sync beim Start</label></div>
         </div>
-        <div id="cloudMsg" style="font-size:13px;min-height:18px"></div>
+        <div id="cloudMsg" style="font-size:13px;min-height:18px" aria-live="polite"></div>
         <div style="font-size:12px;opacity:.85"><b>CORS-Hinweis:</b> Der Server muss deine Grimoire-URL erlauben. Fehler mit „Failed to fetch“ / CORS → Grimoire auf dieselbe Domain legen (z. B. Nextcloud-Ordner hosten), Reverse-Proxy mit <code>Access-Control-Allow-Origin</code> nutzen, oder weiter manuell per ⬇/⬆ JSON arbeiten. Alternative ohne CORS: Nextcloud-Desktop-Client + Browser-Ordner syncen.</div>
       </div>
       <div class="editor-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <button type="button" class="inactive" onclick="GrimoireCloudUI.clear()">Zurücksetzen</button>
+        <button type="button" class="inactive" onclick="GrimoireCloudUI.clear()" aria-label="Einstellungen zurücksetzen">Zurücksetzen</button>
         <span style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="inactive" onclick="GrimoireCloudUI.test()">Testen</button>
-          <button type="button" class="inactive" onclick="GrimoireCloudUI.pull()">⬇ Herunterladen</button>
-          <button type="button" onclick="GrimoireCloudUI.push()">⬆ Hochladen</button>
-          <button type="button" onclick="GrimoireCloudUI.save()">💾 Speichern</button>
+          <button type="button" class="inactive" onclick="GrimoireCloudUI.test()" aria-label="Verbindung testen">Testen</button>
+          <button type="button" class="inactive" onclick="GrimoireCloudUI.pull()" aria-label="Herunterladen">⬇ Herunterladen</button>
+          <button type="button" onclick="GrimoireCloudUI.push()" aria-label="Hochladen">⬆ Hochladen</button>
+          <button type="button" onclick="GrimoireCloudUI.save()" aria-label="Einstellungen speichern">💾 Speichern</button>
         </span>
       </div>
     </div>

@@ -139,6 +139,7 @@ function renderLibrary() {
       + '<div class="notebook-preview">' + preview + '</div>'
       + '<div class="notebook-actions">'
       + '<button class="mini-button" onclick="exportBookJSON(\'' + b.id + '\',event)">Export</button>'
+      + '<button class="mini-button" onclick="exportGoodNotes(\'' + b.id + '\',event)" aria-label="Buch als GoodNotes-Datei exportieren">📤 GoodNotes</button>'
       + '<button class="mini-button" onclick="duplicateBook(\'' + b.id + '\',event)">Duplizieren</button>'
       + '<button class="mini-button" onclick="deleteBook(\'' + b.id + '\',event)">Löschen</button>'
       + '</div></div></div>';
@@ -619,6 +620,24 @@ function exportBookJSON(id, ev) {
     const out = (typeof GrimoireStore !== 'undefined') ? await GrimoireStore.inlineBook(b) : b;
     download('grimoire-' + (b.title || 'buch').replace(/[^\wäöüÄÖÜß-]+/gi, '_') + '.json', JSON.stringify(out, null, 2));
   })().catch(e => alert('Export fehlgeschlagen: ' + e.message));
+}
+function exportGoodNotes(id, ev) {
+  if (ev) ev.stopPropagation();
+  const b = state.books.find(x => x.id === id); if (!b) return;
+  (async () => {
+    try {
+      const zipData = GoodNotes.exportGoodNotes(b);
+      const blob = new Blob([zipData], { type: 'application/zip' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (b.title || 'grimoire').replace(/[^\wäöüÄÖÜß-]+/gi, '_') + '.goodnotes';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      setSaveStatus('✅ .goodnotes exportiert');
+    } catch (e) {
+      alert('GoodNotes-Export fehlgeschlagen: ' + e.message);
+    }
+  })();
 }
 function normalizeBook(obj) {
   if (!obj || typeof obj !== 'object') return null;
