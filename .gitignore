@@ -1,3 +1,5 @@
 tmp/
-dist/
 .DS_Store
+# dist/ wird bewusst eingecheckt: Cloudflare Workers Builds laeuft ohne
+# Dashboard-Build-Command direkt per `wrangler deploy` auf dem Repo-Stand.
+# Nach jeder Aenderung an index.html/css/js/manifest/sw.js/png: `npm run build`.
