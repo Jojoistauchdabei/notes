@@ -52,7 +52,7 @@ function setSaveStatus(t) { const el = $('statusSave'); if (el) el.textContent =
 /* ---------- Modell ---------- */
 function newPage() { return { id: uid(), strokes: [], texts: [], images: [], bg: null }; }
 function newBook(title, withStarter) {
-  const b = { id: uid(), title: title || 'Neues Buch', paper: '', updatedAt: Date.now(), pages: [newPage()] };
+  const b = { id: uid(), title: title || 'Neues Buch', paper: 'grid', updatedAt: Date.now(), pages: [newPage()] };
   if (withStarter) {
     b.pages[0].texts.push({ id: uid(), x: 0.08, y: 0.05, html: '<h2>Willkommen im Grimoire ⚔</h2><p>• <b>Stift/Marker:</b> auf der Seite malen (Maus, Touch, Stylus)<br>• <b>Text:</b> Tool „T Text“ → auf Seite klicken → Doppelklick öffnet den großen Texteditor<br>• <b>Bild:</b> über 🖼 einfügen, in Auswahl-Modus ✥ verschieben &amp; skalieren<br>• <b>Radierer:</b> Striche antippen zum Löschen</p>' });
   }
@@ -626,7 +626,8 @@ function exportGoodNotes(id, ev) {
   const b = state.books.find(x => x.id === id); if (!b) return;
   (async () => {
     try {
-      const zipData = GoodNotes.exportGoodNotes(b);
+      const out = (typeof GrimoireStore !== 'undefined') ? await GrimoireStore.inlineBook(b) : b;
+      const zipData = GoodNotes.exportGoodNotes(out);
       const blob = new Blob([zipData], { type: 'application/zip' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -896,7 +897,7 @@ async function importGoodNotes(ev) {
       ok.push('• ' + book.title + ' (' + book.pages.length + ' S., ' + nStrokes + ' Striche, ' + nImg + ' Bilder, ' + nTexts + ' Texte' + extra + ')');
     } catch (err) {
       console.warn('GoodNotes-Import fehlgeschlagen:', f.name, err);
-      fail.push('• ' + f.name);
+      fail.push('• ' + f.name + ' (' + (err && err.message || 'unbekannt') + ')');
     }
   }
   renderLibrary(); showLibrary();
@@ -912,7 +913,8 @@ function exportPagePNG() {
     const c = document.createElement('canvas');
     c.width = CANVAS_W; c.height = CANVAS_H;
     const g = c.getContext('2d');
-    g.fillStyle = '#fffdf6'; g.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    const _book = openBook();
+    g.fillStyle = (_book && _book.paper === 'grid') ? '#ffffff' : '#fffdf6'; g.fillRect(0, 0, CANVAS_W, CANVAS_H);
     // Hintergrund (bg, blob:-Ref möglich) zuerst
     if (p.bg) {
       const bgSrc = await resolve(p.bg);

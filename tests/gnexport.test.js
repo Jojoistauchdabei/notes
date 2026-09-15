@@ -110,4 +110,48 @@ describe('gnexport', () => {
     assert.ok(I.parseHtmlToRuns('<p>abc</p>').length >= 1);
     assert.deepEqual(I.parseHtmlToRuns(''), []);
   });
+
+  it('CRC-32-Felder in Local-Headern sind non-zero und korrekt', () => {
+    const zip = GoodNotes.exportGoodNotes(smallBook());
+    const dv = new DataView(zip.buffer, zip.byteOffset, zip.length);
+    let p = 0, n = 0;
+    while (p + 30 <= zip.length) {
+      if (dv.getUint32(p, true) !== 0x04034b50) break;
+      const crc = dv.getUint32(p + 14, true);
+      const cSize = dv.getUint32(p + 18, true);
+      const nameLen = dv.getUint16(p + 26, true), extraLen = dv.getUint16(p + 28, true);
+      const start = p + 30 + nameLen + extraLen;
+      const data = zip.subarray(start, start + cSize);
+      assert.equal(crc, I.crc32(data), 'CRC mismatch bei Eintrag ' + n);
+      if (cSize > 0) assert.ok(crc !== 0, 'CRC ist 0 bei nicht-leerem Eintrag ' + n);
+      p = start + cSize; n++;
+    }
+    assert.ok(n >= 5, 'zu wenige Einträge: ' + n);
+  });
+
+  it('thumbnail.jpg ist valides JPEG (FF D8 ... FF D9)', async () => {
+    const zip = GoodNotes.exportGoodNotes(smallBook());
+    const members = await GNZip.readZip(zip);
+    const thumb = members['thumbnail.jpg'];
+    assert.ok(thumb, 'thumbnail.jpg fehlt');
+    assert.equal(thumb[0], 0xff);
+    assert.equal(thumb[1], 0xd8);
+    assert.equal(thumb[thumb.length - 2], 0xff);
+    assert.equal(thumb[thumb.length - 1], 0xd9);
+    assert.ok(thumb.length > 100, 'Thumbnail zu klein: ' + thumb.length);
+  });
+
+  it('dataURL-Bild ergibt Attachment > 100 Bytes', async () => {
+    const raw = I.makeThumbnail();
+    const b64 = Buffer.from(raw).toString('base64');
+    const book = {
+      title: 'Img-DataURL-Test',
+      pages: [{ strokes: [], texts: [], images: [{ x: 0.1, y: 0.1, w: 0.5, src: 'data:image/jpeg;base64,' + b64 }] }]
+    };
+    const zip = GoodNotes.exportGoodNotes(book);
+    const members = await GNZip.readZip(zip);
+    const att = members['attachments/img-0-0'];
+    assert.ok(att, 'attachments/img-0-0 fehlt');
+    assert.ok(att.length > 100, 'Attachment zu klein/korrupt: ' + att.length);
+  });
 });
