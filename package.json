@@ -4,7 +4,7 @@
   "private": true,
   "description": "Handschrift-Notizbuch im D&D-Papier-Stil mit GoodNotes-Import",
   "scripts": {
-    "test": "node --test tests",
+    "test": "node --test tests/*.test.js",
     "build": "rm -rf dist && mkdir -p dist && cp index.html manifest.webmanifest sw.js altes_Papier.png dist/ && cp -r css js icons screenshots dist/ && find dist -type f | sort"
   }
 }
