@@ -41,7 +41,8 @@
     <div class="view active" id="viewLibrary">
       <div class="box">
         <div class="search-bar no-print">
-          <input type="text" id="librarySearch" placeholder="Grimoire durchsuchen (Titel, Text, Seite)..." oninput="renderLibrary()" aria-label="Grimoire durchsuchen">
+          <input type="text" id="librarySearch" placeholder="Suchen: Text, tag:#x, file:Titel, &quot;Phrase&quot;, -aus, A OR B ..." oninput="renderLibrary()" aria-label="Grimoire durchsuchen">
+          <button onclick="openGraphOverlay()" style="white-space:nowrap" aria-label="Graph-Ansicht öffnen">◈ Graph</button>
           <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
         </div>
         <div class="divider"><div class="divider-line"></div><div class="divider-title">Bibliothek</div><div class="divider-line"></div></div>
@@ -238,6 +239,38 @@
     </div>
   </div>
 
+  <!-- GRAPH-OVERLAY: SPEC-09 light V1 (Canvas, statisches Radial-/Kreis-Layout, kein Cloud) -->
+  <div id="graphOverlay" class="editor-overlay" onclick="if (event.target === this) closeGraphOverlay()">
+    <div class="editor-modal" style="max-width:880px">
+      <div class="editor-header">
+        <div class="editor-header-title">◈ GRAPH</div>
+        <button type="button" class="mini-button" onclick="closeGraphOverlay()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Graph-Ansicht schließen">✕</button>
+      </div>
+      <div class="editor-toolbar" role="group" aria-label="Graph-Steuerung">
+        <button type="button" id="graphModeGlobal" class="mini-button picked" onclick="setGraphMode('global')" aria-label="Globalen Graphen zeigen">🌐 Global</button>
+        <button type="button" id="graphModeLocal" class="mini-button" onclick="setGraphMode('local')" aria-label="Lokalen Graphen zeigen">📍 Lokal</button>
+        <span class="editor-sep" aria-hidden="true"></span>
+        <select id="graphBookSelect" class="editor-select" onchange="renderGraph()" aria-label="Startbuch für lokalen Graphen" title="Startbuch (lokal)"></select>
+        <span id="graphDepthWrap" style="display:none;align-items:center;gap:6px">
+          <label for="graphDepth" style="margin:0">Tiefe</label>
+          <input type="range" id="graphDepth" min="1" max="2" value="1" oninput="renderGraph()" style="width:90px" aria-label="Tiefe des lokalen Graphen">
+          <span id="graphDepthLabel" style="font-size:12px" aria-hidden="true">1</span>
+        </span>
+      </div>
+      <div style="position:relative;padding:12px 14px;background:var(--field-bg)">
+        <canvas id="graphCanvas" width="800" height="500" onclick="onGraphClick(event)" onmousemove="onGraphHover(event)" onmouseleave="if(document.getElementById('graphTip'))document.getElementById('graphTip').style.display='none'" aria-label="Notiz-Graph: Klick auf einen Knoten öffnet das Buch"></canvas>
+        <div id="graphTip" style="display:none;position:absolute;pointer-events:none;background:var(--surface-strong);border:1px solid var(--border);padding:2px 8px;font-size:13px;z-index:5"></div>
+      </div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <span id="graphInfo" style="font-size:12px;align-self:center" aria-live="polite"></span>
+        <span style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:11px;opacity:.75">V1: statisches Layout, kein Force/Zoom</span>
+          <button type="button" class="inactive" onclick="closeGraphOverlay()" aria-label="Schließen">Schließen</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
   <script src="js/pencil.js"></script>
   <script src="js/markdown.js"></script>
   <script src="js/editor.js"></script>
@@ -246,6 +279,9 @@
   <script src="js/store.js"></script>
   <script src="js/pages-import.js"></script>
   <script src="js/erase.js"></script>
+  <script src="js/ink-index.js"></script>
+  <script src="js/graph.js"></script>
+  <script src="js/search.js"></script>
   <script src="js/app.js"></script>
   <script src="js/cloud.js"></script>
   <script src="js/cloud-ui.js"></script>

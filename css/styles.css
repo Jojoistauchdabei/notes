@@ -238,3 +238,7 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
 .editor-body ul.task-list, .text-box ul.task-list { list-style: none; padding-left: 4px; }
 .editor-body code, .text-box code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; background: var(--disabled-bg); padding: 0 4px; border-radius: 3px; }
 .editor-body pre, .text-box pre { background: var(--disabled-bg); padding: 8px; overflow-x: auto; border-radius: 4px; font-size: 13px; }
+
+/* ===== Graph-View (SPEC-09 light, V1: Canvas, statisches Layout) ===== */
+#graphCanvas { width: 100%; height: auto; display: block; background: var(--field-bg); border: 1px solid var(--border); }
+#graphDepthWrap { font-size: 12px; }

@@ -74,6 +74,10 @@ function setSaveStatus(t) { const el = $('statusSave'); if (el) el.textContent =
 function newPage() { return { id: uid(), strokes: [], texts: [], images: [], bg: null }; }
 function newBook(title, withStarter) {
   const b = { id: uid(), title: title || 'Neues Buch', paper: 'grid', updatedAt: Date.now(), pages: [newPage()] };
+  // SPEC-31 light: Suchsprache pro Buch (book.lang, Default Gerätesprache/'de').
+  // V1 bewusst ohne UI-Bruch (kein Dialog-Feld); Umstellung später hier im
+  // Buch-Flow, aktuell per GrimoireInkIndex.setBookLang(book, 'en').
+  try { b.lang = (typeof GrimoireInkIndex !== 'undefined' && GrimoireInkIndex.defaultLang) ? GrimoireInkIndex.defaultLang() : 'de'; } catch { b.lang = 'de'; }
   if (withStarter) {
     b.pages[0].texts.push({ id: uid(), x: 0.08, y: 0.05, html: '<h2>Willkommen im Grimoire ⚔</h2><p>• <b>Stift/Marker:</b> auf der Seite malen (Maus, Touch, Stylus)<br>• <b>Text:</b> Tool „T Text“ → auf Seite klicken → Doppelklick öffnet den großen Texteditor<br>• <b>Bild:</b> über 🖼 einfügen, in Auswahl-Modus ✥ verschieben &amp; skalieren<br>• <b>Radierer:</b> Striche antippen zum Löschen</p>' });
   }
@@ -134,30 +138,97 @@ function duplicateBook(id, ev) {
   persistNow(); renderLibrary();
 }
 function renameBook(v) { const b = openBook(); if (!b) return; b.title = v || 'Unbenannt'; touchBook(); persistSoon(); }
+// SPEC-31: book.lang bleibt beim Umbenennen erhalten; Sprachwechsel später
+// im Buch-Dialog (z. B. <select>), V1 nur per GrimoireInkIndex.setBookLang().
 function setPaper(v) { const b = openBook(); if (!b) return; b.paper = v; touchBook(); persistSoon(); applyPaper(); }
 
+/* SPEC-31 light/offline (ehrlich, kein Fake-OCR):
+ * Bibliothekssuche nutzt GrimoireInkIndex (Titel + getippter Text + Tags).
+ * Handschrift-Strokes sind NICHT durchsuchbar (kein Modell/Cloud) – Badges
+ * melden daher nur „Titel"/„Text"/„Tag", nie „Handschrift".
+ * HTR-Andockpunkt (später, z. B. MyScript-ähnlich):
+ *   GrimoireInkIndex.registerHtrProvider('myscript', async (page) => [...woerter]);
+ * Solange kein Provider registriert ist, gilt isHtrAvailable() === false und
+ * die UI zeigt HTR_UNAVAILABLE_MSG („HSR nicht verfügbar (V1: nur getippter
+ * Text durchsuchbar)"). Keine Cloud, keine Dependencies. */
 function renderLibrary() {
-  const q = ($('librarySearch').value || '').toLowerCase();
+  const rawQ = ($('librarySearch').value || '');
+  const q = rawQ.toLowerCase();
   const grid = $('libraryGrid');
-  const books = state.books.filter(b => {
-    if (!q) return true;
-    if (b.title.toLowerCase().includes(q)) return true;
-    return b.pages.some(p => p.texts.some(t => stripHtml(t.html).toLowerCase().includes(q)));
-  });
-  if (!books.length) {
-    grid.innerHTML = '<div style="font-size:14px;opacity:.8">Keine Bücher gefunden. Lege oben ein neues Buch an.</div>';
+  const useIndex = (typeof GrimoireInkIndex !== 'undefined' && GrimoireInkIndex.searchBooks);
+  const useQuery = (typeof GrimoireSearch !== 'undefined' && GrimoireSearch.parseQuery && GrimoireSearch.rankBooks);
+  const searched = !!rawQ.trim();
+  // SPEC-07 light: Query-Sprache (OR/-/""/file:/path:/tag:/task-todo:/task-done:)
+  // filtert + rankt; Badge/Snippet-Anzeige weiter via InkIndex. Reine
+  // Text-Einfachqueries laufen weiter über den Index (unverändert).
+  // Syntaxfehler -> Index-/Fallback-Ergebnis, kein Crash.
+  let parsed = null, queryLang = false;
+  try {
+    if (searched && useQuery) {
+      parsed = GrimoireSearch.parseQuery(rawQ);
+      queryLang = !!(parsed && !parsed.isEmpty &&
+        (parsed.groups.length > 1 || parsed.terms.some(t => t.field !== 'text' || t.negated || t.phrase)));
+    }
+  } catch { parsed = null; queryLang = false; }
+  let matches;
+  if (queryLang) {
+    let ranked = [];
+    try { ranked = GrimoireSearch.rankBooks(state.books, parsed); } catch { ranked = []; }
+    matches = ranked.map(r => {
+      let kind = 'none', snippet = '';
+      try {
+        if (useIndex && GrimoireInkIndex.matchBook) {
+          const t = parsed.terms.find(x => !x.negated && x.field === 'text' && x.value);
+          const mm = GrimoireInkIndex.matchBook(r.book, t ? t.value : '');
+          if (mm && mm.kind && mm.kind !== 'none') { kind = mm.kind; snippet = mm.snippet || ''; }
+        }
+      } catch { /* Anzeige-Only: Badge bleibt aus */ }
+      return { book: r.book, match: kind, snippet };
+    });
+  } else if (useIndex) {
+    try { matches = GrimoireInkIndex.searchBooks(state.books, rawQ); }
+    catch { matches = state.books.map(b => ({ book: b, match: 'none', snippet: '' })); }
+  } else {
+    // Fallback ohne Index-Modul (altes Verhalten: Titel + getippter Text).
+    matches = state.books.filter(b => {
+      if (!q) return true;
+      if ((b.title || '').toLowerCase().includes(q)) return true;
+      return (b.pages || []).some(p => (p.texts || []).some(t => stripHtml(t.html).toLowerCase().includes(q)));
+    }).map(b => ({ book: b, match: 'none', snippet: '' }));
+  }
+  const htrMsg = (useIndex && GrimoireInkIndex.HTR_UNAVAILABLE_MSG)
+    ? GrimoireInkIndex.HTR_UNAVAILABLE_MSG
+    : 'HSR nicht verfügbar (V1: nur getippter Text durchsuchbar)';
+  let htrOn = false;
+  try { htrOn = !!(useIndex && GrimoireInkIndex.isHtrAvailable && GrimoireInkIndex.isHtrAvailable()); } catch { htrOn = false; }
+  const hintHtml = htrOn ? '' : '<div style="font-size:12px;opacity:.75;margin-bottom:8px">' + esc(htrMsg) + '</div>';
+  // SPEC-07 light: Treffer-Zähler bei aktiver Query (klein, im Grid-Header).
+  const counterHtml = searched
+    ? '<div style="font-size:12px;opacity:.75;margin-bottom:8px">' + matches.length + ' Treffer für &bdquo;' + esc(rawQ.trim().slice(0, 80)) + '&ldquo;</div>'
+    : '';
+  if (!matches.length) {
+    grid.innerHTML = hintHtml + counterHtml + '<div style="font-size:14px;opacity:.8">' + (searched ? 'Keine Treffer. Suche ändern oder leeren.' : 'Keine Bücher gefunden. Lege oben ein neues Buch an.') + '</div>';
     return;
   }
-  grid.innerHTML = books.map(b => {
-    const firstText = b.pages.flatMap(p => p.texts)[0];
+  grid.innerHTML = hintHtml + counterHtml + matches.map(({ book: b, match, snippet }) => {
+    const firstText = (b.pages || []).flatMap(p => p.texts || [])[0];
     const preview = firstText ? esc(stripHtml(firstText.html).slice(0, 120)) : 'Leere Seiten – tippen zum Öffnen.';
-    const strokes = b.pages.reduce((n, p) => n + p.strokes.length, 0);
+    const strokes = (b.pages || []).reduce((n, p) => n + (p.strokes || []).length, 0);
+    let badge = '';
+    if (q && match && match !== 'none') {
+      const label = match === 'tag' ? 'Tag' : (match === 'title' ? 'Titel' : 'Text');
+      badge = '<span style="display:inline-block;font-size:11px;border:1px solid currentColor;border-radius:999px;padding:0 8px;margin-left:8px;opacity:.8"'
+        + ' title="Treffer in getipptem Text – keine Handschrift-Erkennung">' + label + '</span>';
+    }
+    const snippetHtml = (q && snippet && match !== 'title')
+      ? '<div style="font-size:12px;opacity:.75;margin-top:2px">' + esc(snippet) + '</div>' : '';
     return '<div class="notebook-cover" onclick="openBookView(\'' + b.id + '\')">'
       + '<div class="notebook-spine"></div>'
       + '<div class="notebook-body">'
-      + '<div class="notebook-title">' + esc(b.title) + '</div>'
-      + '<div class="notebook-meta">' + b.pages.length + ' Seite(n) · ' + strokes + ' Striche · ' + new Date(b.updatedAt).toLocaleDateString('de-DE') + '</div>'
+      + '<div class="notebook-title">' + esc(b.title) + badge + '</div>'
+      + '<div class="notebook-meta">' + (b.pages || []).length + ' Seite(n) · ' + strokes + ' Striche · ' + new Date(b.updatedAt).toLocaleDateString('de-DE') + '</div>'
       + '<div class="notebook-preview">' + preview + '</div>'
+      + snippetHtml
       + '<div class="notebook-actions">'
       + '<button class="mini-button" onclick="exportBookJSON(\'' + b.id + '\',event)">Export</button>'
       + '<button class="mini-button" onclick="exportGoodNotes(\'' + b.id + '\',event)" aria-label="Buch als GoodNotes-Datei exportieren">📤 GoodNotes</button>'
@@ -634,10 +705,54 @@ function renderTextLayer() {
     if (t.color) d.style.color = t.color;
     if (t.align) d.style.textAlign = t.align;
     d.innerHTML = t.html;
+    // SPEC-07 light: ```query-Block als Live-Trefferliste (nur Anzeige).
+    try {
+      if (typeof GrimoireSearch !== 'undefined' && (t.html || '').indexOf('data-lang="query"') !== -1) {
+        renderQueryBlocks(d, state.books);
+      }
+    } catch { /* kaputter Block bleibt Code, kein Crash */ }
     d.onclick = e => { e.stopPropagation(); selectedBox = t.id; selectedImg = null; renderTextLayer(); renderImgLayer(); };
     d.ondblclick = e => { e.stopPropagation(); openTextEditorForBox(t.id, 'Textbox'); };
     if (tool === 'move' || tool === 'text') makeDraggable(d, t, 'text');
     layer.appendChild(d);
+  });
+}
+/* SPEC-07 light: eingebetteter ```query-Block in Textboxen.
+ * Rendert die Query als Live-Trefferliste (Titel + Snippet), max 5 Treffer
+ * (GrimoireSearch.QUERY_MAX_RESULTS). LIMIT (bewusst Anzeige-only):
+ * Klick springt NICHT in die Treffer (kein Cursor/Scroll), keine Historie,
+ * kein Kontext-Snippet mit Zeilennummer – nur Titel + Textanriss.
+ * Betrifft nur die Anzeige (box.html bleibt unverändert, Editor lädt roh). */
+function renderQueryBlocks(container, allBooks) {
+  const blocks = container.querySelectorAll('pre > code[data-lang="query"]');
+  blocks.forEach(code => {
+    const pre = code.parentElement;
+    if (!pre) return;
+    const q = (code.textContent || '').trim();
+    let ranked = [];
+    try {
+      const parsed = GrimoireSearch.parseQuery(q);
+      if (parsed && !parsed.isEmpty) ranked = GrimoireSearch.rankBooks(allBooks || [], parsed);
+    } catch { ranked = []; }
+    const limit = (typeof GrimoireSearch.QUERY_MAX_RESULTS === 'number') ? GrimoireSearch.QUERY_MAX_RESULTS : 5;
+    const top = ranked.slice(0, limit);
+    const box = document.createElement('div');
+    box.className = 'grimoire-query-results';
+    box.style.cssText = 'border:1px dashed #8b5a2b;border-radius:6px;padding:6px 8px;font-size:13px;';
+    let html = '<div style="font-size:12px;opacity:.75;margin-bottom:4px">🔎 <code>query</code>: '
+      + esc(q.slice(0, 80) || '–') + ' · ' + ranked.length + ' Treffer (nur Anzeige, max ' + limit + ' – Klick springt nicht)</div>';
+    if (!top.length) {
+      html += '<div style="opacity:.7">Keine Treffer.</div>';
+    } else {
+      html += top.map(r => {
+        const first = ((r.book.pages || []).flatMap(p => p.texts || []))[0];
+        const snip = first ? stripHtml(first.html).slice(0, 80) : '–';
+        return '<div style="padding:2px 0;border-top:1px solid rgba(139,90,43,.25)">📖 <b>' + esc(r.book.title) + '</b>'
+          + '<span style="opacity:.75"> – ' + esc(snip) + '</span></div>';
+      }).join('');
+    }
+    box.innerHTML = html;
+    pre.replaceWith(box);
   });
 }
 function renderImgLayer() {
@@ -1361,6 +1476,212 @@ if (typeof GrimoireStore !== 'undefined') {
   setTool('pen');
   if (migrated) setSaveStatus('💾 gespeichert (☁ ' + migrated + ' Bild(er) in Bildspeicher migriert)');
 })();
+
+/* ---------- Graph-View (SPEC-09 light, V1) ---------- */
+// V1-Limit (dokumentiert): statisches Radial-/Kreis-Layout, kein Force-Layout,
+// kein Pan/Zoom, keine Filter-/Gruppen-Farben. Knoten = Bücher (Radius nach
+// In-Degree), Kanten = [[Wikilink]]-Treffer (s. js/graph.js, DOM-frei).
+const GRAPH_W = 800, GRAPH_H = 500;
+let graphMode = 'global';
+let graphLayout = []; // [{x, y, r, node}] in GRAPH_W x GRAPH_H-Koordinaten
+
+function openGraphOverlay() {
+  const o = $('graphOverlay'); if (!o) return;
+  const sel = $('graphBookSelect');
+  if (sel) {
+    sel.innerHTML = state.books.map(b => '<option value="' + esc(b.title) + '">' + esc(b.title) + '</option>').join('');
+    const cur = openBook();
+    const want = cur ? cur.title : (state.books[0] && state.books[0].title);
+    if (want != null) sel.value = want;
+  }
+  o.classList.add('active');
+  renderGraph();
+}
+function closeGraphOverlay() {
+  const o = $('graphOverlay');
+  if (o) o.classList.remove('active');
+}
+function setGraphMode(m) {
+  graphMode = (m === 'local') ? 'local' : 'global';
+  renderGraph();
+}
+function graphFullSafe() {
+  if (typeof GrimoireGraph === 'undefined') return { nodes: [], edges: [] };
+  try { return GrimoireGraph.buildGraph(state.books); }
+  catch { return { nodes: [], edges: [] }; }
+}
+function graphNodeAt(ev) {
+  const canvas = $('graphCanvas'); if (!canvas || !graphLayout.length) return null;
+  const r = canvas.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  const x = (ev.clientX - r.left) / r.width * GRAPH_W;
+  const y = (ev.clientY - r.top) / r.height * GRAPH_H;
+  for (let i = graphLayout.length - 1; i >= 0; i--) {
+    const L = graphLayout[i];
+    if (Math.hypot(L.x - x, L.y - y) <= L.r + 5) return L.node;
+  }
+  return null;
+}
+function onGraphClick(ev) {
+  const n = graphNodeAt(ev);
+  if (n && n.bookId) { closeGraphOverlay(); openBookView(n.bookId); }
+}
+function onGraphHover(ev) {
+  const canvas = $('graphCanvas'), tip = $('graphTip');
+  const n = graphNodeAt(ev);
+  if (canvas) {
+    canvas.style.cursor = n ? 'pointer' : 'default';
+    canvas.title = n ? n.title + ' – klicken zum Öffnen' : '';
+  }
+  if (tip) {
+    if (n && canvas) {
+      const r = canvas.getBoundingClientRect();
+      tip.style.display = 'block';
+      tip.textContent = n.title;
+      tip.style.left = (ev.clientX - r.left + 12) + 'px';
+      tip.style.top = (ev.clientY - r.top + 12) + 'px';
+    } else {
+      tip.style.display = 'none';
+    }
+  }
+}
+function renderGraph() {
+  const canvas = $('graphCanvas'), info = $('graphInfo');
+  if (!canvas) return;
+  const setInfo = t => { if (info) info.textContent = t; };
+  if (typeof GrimoireGraph === 'undefined') { setInfo('Graph-Modul nicht geladen.'); return; }
+  const full = graphFullSafe();
+  const bG = $('graphModeGlobal'), bL = $('graphModeLocal'), dw = $('graphDepthWrap');
+  if (bG) bG.classList.toggle('picked', graphMode === 'global');
+  if (bL) bL.classList.toggle('picked', graphMode === 'local');
+  const depthEl = $('graphDepth');
+  const depth = depthEl ? (Math.min(2, Math.max(1, +depthEl.value || 1))) : 1;
+  const dl = $('graphDepthLabel');
+  if (dl) dl.textContent = String(depth);
+  if (dw) dw.style.display = graphMode === 'local' ? '' : 'none';
+  let g = full, centerId = null;
+  if (graphMode === 'local') {
+    const sel = $('graphBookSelect');
+    const title = sel ? sel.value : ((openBook() && openBook().title) || '');
+    try { g = GrimoireGraph.localGraph(full, title || '', depth); }
+    catch { g = { nodes: [], edges: [] }; }
+    const want = String(title || '').trim().toLowerCase();
+    const c = g.nodes.find(n => String(n.title || '').trim().toLowerCase() === want);
+    centerId = c ? c.id : (g.nodes[0] && g.nodes[0].id);
+  }
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = GRAPH_W * dpr; canvas.height = GRAPH_H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, GRAPH_W, GRAPH_H);
+  let cssText = '#2a1a0e';
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--text');
+    if (v && v.trim()) cssText = v.trim();
+  } catch { /* Fallback */ }
+  setInfo(g.nodes.length + ' Knoten · ' + g.edges.length + ' Kanten' +
+    (graphMode === 'local' ? ' · lokal (Tiefe ' + depth + ')' : ' · global'));
+  graphLayout = [];
+  if (!g.nodes.length) {
+    ctx.fillStyle = cssText; ctx.font = '16px serif'; ctx.textAlign = 'center';
+    ctx.fillText(
+      graphMode === 'local' ? 'Kein Startbuch / keine Nachbarn – Buch wählen oder [[Links]] anlegen.' : 'Keine Bücher – lege zuerst ein Buch an.',
+      GRAPH_W / 2, GRAPH_H / 2);
+    return;
+  }
+  // In-Degree (im sichtbaren Teilgraphen) -> Knotenradius
+  const indeg = {};
+  g.nodes.forEach(n => { indeg[n.id] = 0; });
+  g.edges.forEach(e => { if (e.to in indeg) indeg[e.to]++; });
+  const radOf = n => Math.min(30, 12 + 5 * Math.sqrt(indeg[n.id] || 0));
+  // Positionen: global = Kreis, lokal = Zentrum + Ringe nach BFS-Tiefe
+  const pos = {};
+  if (graphMode === 'local' && centerId) {
+    const adj = {};
+    g.nodes.forEach(n => { adj[n.id] = []; });
+    g.edges.forEach(e => {
+      if (adj[e.from] && adj[e.to]) {
+        if (adj[e.from].indexOf(e.to) === -1) adj[e.from].push(e.to);
+        if (adj[e.to].indexOf(e.from) === -1) adj[e.to].push(e.from);
+      }
+    });
+    const dep = {}; dep[centerId] = 0;
+    const q = [centerId];
+    while (q.length) {
+      const c = q.shift();
+      adj[c].forEach(nb => { if (!(nb in dep)) { dep[nb] = dep[c] + 1; q.push(nb); } });
+    }
+    const rings = {};
+    g.nodes.forEach(n => {
+      if (n.id === centerId) return;
+      const dd = dep[n.id] || 1;
+      (rings[dd] = rings[dd] || []).push(n);
+    });
+    pos[centerId] = { x: GRAPH_W / 2, y: GRAPH_H / 2 };
+    Object.keys(rings).map(Number).sort((a, b) => a - b).forEach((dd, ri) => {
+      const ring = rings[dd];
+      const rad = Math.min(150 + ri * 100, Math.min(GRAPH_W, GRAPH_H) / 2 - 40);
+      ring.forEach((n, i) => {
+        const a = (i / ring.length) * Math.PI * 2 - Math.PI / 2;
+        pos[n.id] = {
+          x: GRAPH_W / 2 + Math.cos(a) * rad * 1.5,
+          y: GRAPH_H / 2 + Math.sin(a) * rad * 0.85
+        };
+      });
+    });
+  } else if (g.nodes.length === 1) {
+    pos[g.nodes[0].id] = { x: GRAPH_W / 2, y: GRAPH_H / 2 };
+  } else {
+    const rad = Math.min(GRAPH_W, GRAPH_H) / 2 - 60;
+    g.nodes.forEach((n, i) => {
+      const a = (i / g.nodes.length) * Math.PI * 2 - Math.PI / 2;
+      pos[n.id] = {
+        x: GRAPH_W / 2 + Math.cos(a) * rad * 1.5,
+        y: GRAPH_H / 2 + Math.sin(a) * rad
+      };
+    });
+  }
+  // Kanten (Selbstlink = kleiner Loop über dem Knoten)
+  ctx.strokeStyle = '#c9a87c'; ctx.lineWidth = 1.5;
+  g.edges.forEach(e => {
+    const a = pos[e.from], b = pos[e.to];
+    if (!a || !b) return;
+    ctx.beginPath();
+    if (e.from === e.to) {
+      const nb = g.nodes.find(n => n.id === e.from);
+      const rr = nb ? radOf(nb) : 14;
+      ctx.arc(a.x, a.y - rr - 9, 10, 0, 7);
+    } else {
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+    ctx.stroke();
+  });
+  // Knoten + Labels
+  ctx.textAlign = 'center';
+  g.nodes.forEach(n => {
+    const p = pos[n.id]; if (!p) return;
+    const r = radOf(n);
+    graphLayout.push({ x: p.x, y: p.y, r, node: n });
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7);
+    ctx.fillStyle = (graphMode === 'local' && n.id === centerId) ? '#654321' : '#8b5a2b';
+    ctx.fill();
+    ctx.strokeStyle = '#e5d5c0'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = cssText; ctx.font = '12px serif';
+    const label = n.title.length > 18 ? n.title.slice(0, 17) + '…' : n.title;
+    ctx.fillText(label, p.x, p.y + r + 14);
+  });
+  if (g.nodes.length === 1 && !g.edges.length) {
+    ctx.fillStyle = cssText; ctx.font = '13px serif'; ctx.textAlign = 'center';
+    ctx.fillText('Noch keine [[Links]] – lege Wikilinks zwischen Büchern an.', GRAPH_W / 2, 24);
+  }
+}
+document.addEventListener('keydown', e => {
+  const o = $('graphOverlay');
+  if (!o || !o.classList.contains('active')) return;
+  if ($('editorOverlay') && $('editorOverlay').classList.contains('active')) return;
+  if (e.key === 'Escape') closeGraphOverlay();
+});
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
