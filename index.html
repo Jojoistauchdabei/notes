@@ -91,11 +91,26 @@
           <span id="sizeLabel" style="font-size:12px" aria-hidden="true">3px</span>
         </div>
         <div class="sep" role="separator" aria-hidden="true"></div>
+        <div class="tool-group" title="Radierer-Modi (SPEC-25)" role="group" aria-label="Radierer-Modi">
+          <select id="eraserMode" onchange="setEraserMode(this.value)" title="Radierer-Modus" style="max-width:110px" aria-label="Radierer-Modus">
+            <option value="standard">Radier: Standard</option>
+            <option value="precision">Radier: Precision</option>
+            <option value="stroke">Radier: Stroke</option>
+          </select>
+          <label style="font-size:12px;display:flex;gap:4px;align-items:center" title="Radierer trifft nur Marker, lässt Tinte intakt">
+            <input type="checkbox" id="eraserHLOnly" onchange="setEraserHighlighterOnly(this.checked)" style="width:auto" aria-label="Nur Highlighter löschen"> Nur Highlighter
+          </label>
+        </div>
+        <div class="sep" role="separator" aria-hidden="true"></div>
         <div class="tool-group tool-group--actions" role="group" aria-label="Aktionen">
           <button class="mini-button" onclick="undo()" aria-label="Rückgängig machen">↩</button>
           <button class="mini-button" onclick="redo()" aria-label="Wiederherstellen">↪</button>
           <button class="mini-button" onclick="document.getElementById('imgFile').click()" aria-label="Bild einfügen">🖼 Bild</button>
-          <input id="imgFile" type="file" accept="image/*" onchange="importImage(event)" style="display:none" aria-hidden="true">
+          <input id="imgFile" type="file" accept="image/*" multiple onchange="importImage(event)" style="display:none" aria-hidden="true">
+          <button class="mini-button" onclick="document.getElementById('imgPageFile').click()" aria-label="Bild als neue Seite einfügen">🖼+ Seite</button>
+          <input id="imgPageFile" type="file" accept="image/*" multiple onchange="importImageAsPage(event)" style="display:none" aria-hidden="true">
+          <button class="mini-button" onclick="document.getElementById('pdfPageFile').click()" aria-label="PDF als neue Seiten importieren">📄+ PDF</button>
+          <input id="pdfPageFile" type="file" accept="application/pdf" multiple onchange="importPdfAsPages(event)" style="display:none" aria-hidden="true">
           <button class="mini-button" onclick="openTextEditorForSelected()" aria-label="Texteditor öffnen">✎ Texteditor</button>
           <button class="mini-button" onclick="clearPage()" aria-label="Seite leeren">Seite leeren</button>
         </div>
@@ -131,6 +146,8 @@
         <button type="button" class="mini-button" onclick="closeTextEditor()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Texteditor schließen">✕</button>
       </div>
       <div class="editor-toolbar">
+        <button type="button" id="editorModeToggle" class="mini-button" onmousedown="event.preventDefault()" onclick="toggleEditorMode()" title="Zwischen Rich-Text und Markdown-Quelle wechseln (Strg+E)" aria-label="Editor-Modus wechseln">📝 Rich</button>
+        <span class="editor-sep" aria-hidden="true"></span>
         <select class="editor-select" onchange="applyEditorFormat(this.value); this.selectedIndex = 0;" aria-label="Schriftgröße und Stil">
           <option value="" disabled selected>Schriftgröße / Stil</option>
           <option value="p">Normal (Fließtext)</option>
@@ -157,8 +174,10 @@
         <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('removeFormat', false, null)" title="Formatierung entfernen" aria-label="Formatierung zurücksetzen">⌫ Reset</button>
       </div>
       <div id="editorContent" class="editor-body" contenteditable="true" spellcheck="false" aria-label="Textinhalt"></div>
+      <textarea id="editorSource" class="editor-body editor-source" spellcheck="false" style="display:none" aria-label="Markdown-Quelle" placeholder="Markdown-Quelle (OFM-Subset: # H1, **fett**, *kursiv*, ==mark==, - [ ] Task, > [!note] Callout, [[Wikilink]])"></textarea>
       <div class="editor-footer">
         <button type="button" class="inactive" onclick="closeTextEditor()" aria-label="Abbrechen">✖ Abbrechen</button>
+        <button type="button" class="mini-button" onclick="saveEditorStyleAsDefault()" title="Aktuellen Stil als Standard für neue Textboxen speichern" aria-label="Stil als Standard speichern">★ Als Standard</button>
         <button type="button" onclick="saveTextEditor()" aria-label="Übernehmen">💾 Übernehmen</button>
       </div>
     </div>
@@ -219,10 +238,14 @@
     </div>
   </div>
 
+  <script src="js/pencil.js"></script>
+  <script src="js/markdown.js"></script>
   <script src="js/editor.js"></script>
   <script src="js/gnzip.js"></script>
   <script src="js/goodnotes.js"></script>
   <script src="js/store.js"></script>
+  <script src="js/pages-import.js"></script>
+  <script src="js/erase.js"></script>
   <script src="js/app.js"></script>
   <script src="js/cloud.js"></script>
   <script src="js/cloud-ui.js"></script>

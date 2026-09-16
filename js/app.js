@@ -5,9 +5,30 @@ const CANVAS_W = 1000, CANVAS_H = 1414;
 
 let state = { books: [], openBookId: null, openPageId: null };
 let tool = 'pen', penColor = '#2a1a0e', penSize = 3;
+// SPEC-25: Radierer-Modi + "Nur Highlighter" (persistiert, localStorage grimoireEraserMode)
+let eraserMode = 'standard', eraserHighlighterOnly = false;
+try {
+  if (typeof GrimoireErase !== 'undefined') {
+    const es = GrimoireErase.loadEraserSettings(typeof localStorage !== 'undefined' ? localStorage : null);
+    eraserMode = es.mode; eraserHighlighterOnly = es.highlighterOnly;
+  } else {
+    const raw = localStorage.getItem('grimoireEraserMode');
+    if (raw) { const p = JSON.parse(raw); if (p.mode) eraserMode = p.mode; eraserHighlighterOnly = !!p.highlighterOnly; }
+  }
+} catch { /* ignore */ }
+function saveEraserPrefs() {
+  try {
+    if (typeof GrimoireErase !== 'undefined') GrimoireErase.saveEraserSettings({ mode: eraserMode, highlighterOnly: eraserHighlighterOnly }, typeof localStorage !== 'undefined' ? localStorage : null);
+    else localStorage.setItem('grimoireEraserMode', JSON.stringify({ mode: eraserMode, highlighterOnly: eraserHighlighterOnly }));
+  } catch { /* ignore */ }
+}
+function setEraserMode(v) { eraserMode = (v === 'precision' || v === 'stroke') ? v : 'standard'; saveEraserPrefs(); syncToolbar(); }
+function setEraserHighlighterOnly(v) { eraserHighlighterOnly = !!v; saveEraserPrefs(); syncToolbar(); }
 let undoStack = [], redoStack = [];
 let drawing = null, selectedBox = null, selectedImg = null;
 let saveTimer = null;
+// SPEC-25: Scribble-Trail (Radierer) für Scribble-Erase
+let eraseTrail = null;
 
 const $ = id => document.getElementById(id);
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -307,6 +328,9 @@ function syncToolbar() {
   $('penColor').value = penColor;
   $('penSize').value = penSize;
   $('sizeLabel').textContent = penSize + 'px';
+  const em = $('eraserMode'), eh = $('eraserHLOnly');
+  if (em) em.value = eraserMode;
+  if (eh) eh.checked = eraserHighlighterOnly;
 }
 function openTextEditorForSelected() {
   if (selectedBox) openTextEditorForBox(selectedBox, 'Textbox');
@@ -325,7 +349,13 @@ function fitCanvas() {
 }
 function stagePos(ev) {
   const r = $('stage').getBoundingClientRect();
-  return { x: (ev.clientX - r.left) / r.width * CANVAS_W, y: (ev.clientY - r.top) / r.height * CANVAS_H, nx: (ev.clientX - r.left) / r.width, ny: (ev.clientY - r.top) / r.height };
+  // Apple Pencil Pressure miterfassen (Fallback 0.5 bei 0/unbekannt: Hover, Maus, fehlende Sensorik)
+  let p = 0.5;
+  try {
+    if (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.normalizePressure) p = GrimoirePencil.normalizePressure(ev.pressure);
+    else if (typeof ev.pressure === 'number' && ev.pressure > 0) p = Math.min(1, ev.pressure);
+  } catch { /* Fallback 0.5 */ }
+  return { x: (ev.clientX - r.left) / r.width * CANVAS_W, y: (ev.clientY - r.top) / r.height * CANVAS_H, nx: (ev.clientX - r.left) / r.width, ny: (ev.clientY - r.top) / r.height, p };
 }
 function drawStroke(c, s) {
   if (!s.points.length) return;
@@ -333,11 +363,43 @@ function drawStroke(c, s) {
   c.strokeStyle = s.color;
   c.lineWidth = s.size;
   c.lineCap = 'round'; c.lineJoin = 'round';
-  if (s.tool === 'marker') c.globalAlpha = 0.35;
+  if (s.tool === 'marker') { c.globalAlpha = 0.35; c.globalCompositeOperation = 'multiply'; }
   if (s.alpha != null && s.alpha < 1) c.globalAlpha *= s.alpha;
   if (s.dash && s.dash.length) { try { c.setLineDash(s.dash); } catch { /* ignore */ } }
   const pts = s.points;
   const closed = !!s.closed || (!!s.fill && pts.length > 2);
+  // Pressure-Stift: Punkte mit p -> segweise variable Breite (round caps);
+  // Punkte ohne p (Altbestand, Shapes, Fills, Dashes) -> single size wie bisher.
+  const usePressure = !closed && !(s.dash && s.dash.length) && pts.some(q => q && typeof q.p === 'number');
+  if (usePressure) {
+    const wOf = q => {
+      let pp = 0.5;
+      try {
+        pp = (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.normalizePressure)
+          ? GrimoirePencil.normalizePressure(q.p)
+          : ((typeof q.p === 'number' && q.p > 0) ? Math.min(1, q.p) : 0.5);
+      } catch { pp = 0.5; }
+      try {
+        if (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.pressureWidth) return GrimoirePencil.pressureWidth(s.size, pp);
+      } catch { /* Fallback unten */ }
+      return Math.min(s.size * 3, Math.max(s.size * 0.5, s.size * (0.35 + 0.9 * pp)));
+    };
+    if (pts.length === 1) {
+      c.fillStyle = s.color;
+      c.beginPath(); c.arc(pts[0].x, pts[0].y, wOf(pts[0]) / 2, 0, 7); c.fill();
+      c.restore();
+      return;
+    }
+    for (let i = 1; i < pts.length; i++) {
+      c.lineWidth = (wOf(pts[i - 1]) + wOf(pts[i])) / 2;
+      c.beginPath();
+      c.moveTo(pts[i - 1].x, pts[i - 1].y);
+      c.lineTo(pts[i].x, pts[i].y);
+      c.stroke();
+    }
+    c.restore();
+    return;
+  }
   c.beginPath();
   c.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].x, pts[i].y);
@@ -369,24 +431,57 @@ function previewStroke(points, color, size, toolName) {
   o.clearRect(0, 0, CANVAS_W, CANVAS_H);
   if (points && points.length) drawStroke(o, { tool: toolName, color, size, points });
 }
+// Apple Pencil Hover-Preview: Ghost-Kreis am Cursor, kein Zeichnen (nur pen-Hover, Stift/Marker).
+function drawHoverPreview(pos) {
+  const oc = $('overlayCanvas'); if (!oc) return;
+  const g = oc.getContext('2d');
+  g.clearRect(0, 0, CANVAS_W, CANVAS_H);
+  const base = tool === 'marker' ? penSize * 3 : penSize;
+  g.save();
+  g.strokeStyle = penColor; g.globalAlpha = 0.75; g.lineWidth = 1.5;
+  g.beginPath(); g.arc(pos.x, pos.y, Math.max(3, base / 2), 0, 7); g.stroke();
+  g.globalAlpha = 0.3; g.fillStyle = penColor;
+  g.beginPath(); g.arc(pos.x, pos.y, 2, 0, 7); g.fill();
+  g.restore();
+}
+function clearHoverPreview() {
+  if (drawing) return;
+  const oc = $('overlayCanvas'); if (!oc) return;
+  oc.getContext('2d').clearRect(0, 0, CANVAS_W, CANVAS_H);
+}
 function distToStroke(pt, s, radius) {
   return s.points.some(q => Math.hypot(q.x - pt.x, q.y - pt.y) <= radius + s.size / 2);
 }
 
 function bindStage() {
   const stage = $('stage');
+  const activePointers = new Set();
   stage.addEventListener('pointerdown', ev => {
     if ($('viewBook').classList.contains('active') === false) return;
+    // SPEC-25: Zweit-/Dritt-Finger bricht laufende Ein-Finger-Zeichnung ab
+    // (kein Commit), damit Zwei-/Drei-Finger-Tap kein Undo-Artefakt hinterlässt.
+    if (ev.isPrimary === false) {
+      activePointers.add(ev.pointerId);
+      if (drawing && !drawing.erasing) {
+        drawing = null;
+        try { $('overlayCanvas').getContext('2d').clearRect(0, 0, CANVAS_W, CANVAS_H); } catch { /* ignore */ }
+        undoStack.pop(); // eben genommener Snapshot war leer -> zurückrollen
+      } else if (drawing) { drawing = null; }
+      eraseTrail = null;
+      return;
+    }
+    activePointers.add(ev.pointerId);
     const pos = stagePos(ev);
     const p = currentPage(); if (!p) return;
     if (tool === 'pen' || tool === 'marker') {
       snapshot();
       stage.setPointerCapture(ev.pointerId);
-      drawing = { tool, color: penColor, size: tool === 'marker' ? penSize * 3 : penSize, points: [{ x: pos.x, y: pos.y }] };
+      drawing = { tool, color: penColor, size: tool === 'marker' ? penSize * 3 : penSize, points: [{ x: pos.x, y: pos.y, p: pos.p }] };
       previewStroke(drawing.points, drawing.color, drawing.size, drawing.tool);
     } else if (tool === 'eraser') {
       snapshot();
       drawing = { erasing: true };
+      eraseTrail = [{ x: pos.x, y: pos.y, t: Date.now() }];
       eraseAt(pos);
       stage.setPointerCapture(ev.pointerId);
     } else if (tool === 'text') {
@@ -394,21 +489,59 @@ function bindStage() {
       if (el) return; // Klick auf Box wird dort behandelt
       snapshot();
       const box = { id: uid(), x: pos.nx, y: pos.ny, html: 'Neuer Text – doppelklicken für Editor' };
+      // Textfeld-Upgrade: neue Boxen übernehmen den Default-Stil (grimoireTextDefault).
+      try {
+        if (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.applyDefaultToBox) {
+          GrimoirePencil.applyDefaultToBox(box, GrimoirePencil.getTextDefault());
+        }
+      } catch { /* Default-Stil optional */ }
       p.texts.push(box);
       selectedBox = box.id;
       touchBook(); persistSoon(); renderTextLayer();
     }
   });
   stage.addEventListener('pointermove', ev => {
+    // Apple Pencil Hover (pen, keine Buttons, Stift/Marker): nur Ghost-Vorschau, kein Zeichnen.
+    if (!drawing && ev.pointerType === 'pen' && ev.buttons === 0 && (tool === 'pen' || tool === 'marker')) {
+      drawHoverPreview(stagePos(ev));
+      return;
+    }
     if (!drawing) return;
+    if (ev.isPrimary === false) return;
     const pos = stagePos(ev);
-    if (drawing.erasing) { eraseAt(pos); return; }
-    drawing.points.push({ x: pos.x, y: pos.y });
+    if (drawing.erasing) {
+      if (eraseTrail) {
+        eraseTrail.push({ x: pos.x, y: pos.y, t: Date.now() });
+        if (eraseTrail.length > 60) eraseTrail.splice(0, eraseTrail.length - 60);
+      }
+      eraseAt(pos); return;
+    }
+    drawing.points.push({ x: pos.x, y: pos.y, p: pos.p });
     previewStroke(drawing.points, drawing.color, drawing.size, drawing.tool);
   });
-  const finish = () => {
+  stage.addEventListener('pointerleave', () => { clearHoverPreview(); });
+  const finish = (ev) => {
+    if (ev && ev.pointerId != null) activePointers.delete(ev.pointerId);
     if (!drawing) return;
     const p = currentPage();
+    // SPEC-25 Scribble-Erase: schnelles Hin-und-Her im Radierer löscht alle
+    // berührten Strokes ganz (Stroke-Delete), auch im Precision-Modus.
+    if (drawing.erasing && eraseTrail && p) {
+      try {
+        const isScribble = (typeof GrimoireErase !== 'undefined')
+          ? GrimoireErase.isScribbleGesture(eraseTrail)
+          : false;
+        if (isScribble) {
+          const victims = GrimoireErase.collectScribbleVictims(p.strokes, eraseTrail, undefined, { mode: 'stroke', highlighterOnly: eraserHighlighterOnly });
+          if (victims.length) {
+            const gone = new Set(victims);
+            p.strokes = p.strokes.filter(s => !gone.has(s));
+            touchBook(); persistSoon(); renderCanvas(); renderRail();
+          }
+        }
+      } catch { /* ignore */ }
+      eraseTrail = null;
+    }
     if (!drawing.erasing && drawing.points.length && p) {
       p.strokes.push(drawing);
       touchBook(); persistSoon(); renderCanvas(); renderRail();
@@ -421,9 +554,67 @@ function bindStage() {
 }
 function eraseAt(pos) {
   const p = currentPage(); if (!p) return;
-  const before = p.strokes.length;
-  p.strokes = p.strokes.filter(s => !distToStroke(pos, s, 12));
-  if (p.strokes.length !== before) { touchBook(); persistSoon(); renderCanvas(); renderRail(); }
+  // SPEC-25: Eraser-Modi + "Nur Highlighter" (Fallback ohne Helper = altes Verhalten)
+  if (typeof GrimoireErase === 'undefined') {
+    const before = p.strokes.length;
+    p.strokes = p.strokes.filter(s => !distToStroke(pos, s, 12));
+    if (p.strokes.length !== before) { touchBook(); persistSoon(); renderCanvas(); renderRail(); }
+    return;
+  }
+  const orig = p.strokes;
+  const res = GrimoireErase.filterStrokesForErase(orig, pos, undefined, { mode: eraserMode, highlighterOnly: eraserHighlighterOnly });
+  const changed = res.removed.length > 0 || res.kept.length !== orig.length || res.kept.some(s => orig.indexOf(s) === -1);
+  if (changed) { p.strokes = res.kept; touchBook(); persistSoon(); renderCanvas(); renderRail(); }
+}
+/* SPEC-25: Zwei-Finger-Tap = undo(), Drei-Finger-Tap = redo() (Touch-Handler
+ * auf stage, Dauer <300ms, kaum Bewegung -> kein Konflikt mit Pinch-Zoom).
+ * Buttons bleiben unverändert. */
+function bindTapGestures() {
+  const stage = $('stage');
+  if (!stage || stage._tapGesturesBound) return;
+  stage._tapGesturesBound = true;
+  let startT = 0, maxTouches = 0, maxMove = 0;
+  const centroid = list => {
+    let x = 0, y = 0;
+    for (const t of list) { x += t.clientX; y += t.clientY; }
+    return { x: x / Math.max(1, list.length), y: y / Math.max(1, list.length) };
+  };
+  let startCent = null;
+  stage.addEventListener('touchstart', ev => {
+    if ($('viewBook').classList.contains('active') === false) return;
+    if (ev.touches.length === 1) {
+      startT = Date.now(); maxTouches = 1; maxMove = 0;
+      startCent = centroid(ev.touches);
+    } else if (startT) {
+      maxTouches = Math.max(maxTouches, ev.touches.length);
+      startCent = centroid(ev.touches);
+    }
+  }, { passive: true });
+  stage.addEventListener('touchmove', ev => {
+    if (!startT || !startCent) return;
+    const c = centroid(ev.touches);
+    maxMove = Math.max(maxMove, Math.hypot(c.x - startCent.x, c.y - startCent.y));
+  }, { passive: true });
+  const end = ev => {
+    if (!startT) return;
+    if (ev.touches.length !== 0) return; // erst wenn alle Finger oben sind
+    const dur = Date.now() - startT;
+    const n = maxTouches;
+    startT = 0; maxTouches = 0; startCent = null;
+    if ($('viewBook').classList.contains('active') === false) return;
+    let action = null;
+    try {
+      action = (typeof GrimoireErase !== 'undefined')
+        ? GrimoireErase.gestureActionForTap(n, dur, maxMove)
+        : (dur < 300 && maxMove < 12 ? (n === 2 ? 'undo' : n === 3 ? 'redo' : null) : null);
+    } catch { action = null; }
+    if (drawing) return; // laufende Zeichnung hat Vorrang (kein Tap)
+    // Pinch-Zoom-Schutz: gestureActionForTap liefert nur bei kurz + ruhig
+    if (action === 'undo') { try { ev.preventDefault(); } catch { /* ignore */ } undo(); }
+    else if (action === 'redo') { try { ev.preventDefault(); } catch { /* ignore */ } redo(); }
+  };
+  stage.addEventListener('touchend', end);
+  stage.addEventListener('touchcancel', () => { startT = 0; maxTouches = 0; startCent = null; });
 }
 
 /* ---------- Text- & Bild-Layer ---------- */
@@ -437,6 +628,11 @@ function renderTextLayer() {
     d.style.left = (t.x * 100) + '%';
     d.style.top = (t.y * 100) + '%';
     d.style.maxWidth = '86%';
+    // Textfeld-Upgrade: gespeicherter Box-Stil (Default-Stil) als Inline-Style;
+    // Altboxen ohne Felder rendern unverändert per CSS.
+    if (t.fontSize) d.style.fontSize = t.fontSize + 'px';
+    if (t.color) d.style.color = t.color;
+    if (t.align) d.style.textAlign = t.align;
     d.innerHTML = t.html;
     d.onclick = e => { e.stopPropagation(); selectedBox = t.id; selectedImg = null; renderTextLayer(); renderImgLayer(); };
     d.ondblclick = e => { e.stopPropagation(); openTextEditorForBox(t.id, 'Textbox'); };
@@ -507,8 +703,14 @@ function startResize(e, im) {
   window.addEventListener('pointerup', up);
 }
 function importImage(ev) {
-  const f = ev.target.files && ev.target.files[0]; if (!f) return;
+  const files = ev.target.files && Array.from(ev.target.files); if (!files || !files.length) return;
   const p = currentPage(); if (!p) return;
+  // Rückwärtskompatibel: Einzelfall wie bisher; mehrere Dateien -> mehrere Overlays nacheinander.
+  files.forEach(f => importImageFileAsOverlay(f));
+  ev.target.value = '';
+}
+function importImageFileAsOverlay(f) {
+  const p = currentPage(); if (!p || !f) return;
   const img = new Image();
   img.onload = () => {
     const max = 800;
@@ -523,7 +725,6 @@ function importImage(ev) {
     setTool('move');
   };
   img.src = URL.createObjectURL(f);
-  ev.target.value = '';
   // NOTE: importImageBlob übernimmt push/render (async Blob-Store)
 }
 function importImageBlob(blob) {
@@ -546,6 +747,183 @@ function importImageBlob(blob) {
     r.onload = () => done(r.result);
     r.readAsDataURL(blob);
   }
+}
+
+/* ---------- Import als neue Seite(n) (SPEC-32, ohne Cloud) ---------- */
+// Bild -> neue Seite mit Bild als Hintergrund (bg, Layer-Trennung: Ink liegt darüber).
+// max 1600px lange Kante, JPEG 0.85, danach Sprung auf die neue Seite.
+function importImageAsNewPage(file, opts) {
+  opts = opts || {};
+  const jump = opts.jump !== false;
+  return new Promise(resolve => {
+    const b = openBook(); if (!b || !file) { resolve(null); return; }
+    const needPage = () => currentPage();
+    if (!needPage()) { resolve(null); return; }
+    const finishWithDataUrl = async dataUrl => {
+      try {
+        let src = dataUrl;
+        if (typeof GrimoireStore !== 'undefined' && GrimoireStore.putDataUrl && typeof src === 'string' && src.startsWith('data:')) {
+          src = await GrimoireStore.putDataUrl(src);
+        }
+        const book = openBook(); if (!book) { resolve(null); return; }
+        const mk = (typeof PagesImport !== 'undefined' && PagesImport.buildNewPageModel)
+          ? (bg => { const m = PagesImport.buildNewPageModel({ bg }); m.id = uid(); return { id: m.id, strokes: [], texts: [], images: [], bg: m.bg }; })
+          : (bg => ({ id: uid(), strokes: [], texts: [], images: [], bg }));
+        const page = mk(src || null);
+        const idx = book.pages.findIndex(x => x.id === state.openPageId);
+        book.pages.splice(idx + 1, 0, page);
+        if (jump) state.openPageId = page.id;
+        else if (!opts._bulkFirstId) opts._bulkFirstId = page.id;
+        touchBook(); persistSoon(); renderAll();
+        resolve(page.id);
+      } catch { resolve(null); }
+    };
+    // Datei -> Image-Element -> Canvas (1600px-Limit) -> JPEG-dataURL
+    let objUrl = null;
+    try { objUrl = URL.createObjectURL(file); } catch { resolve(null); return; }
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const lim = (typeof PagesImport !== 'undefined' && PagesImport.MAX_IMAGE_LONG_EDGE) || 1600;
+        const sc = Math.min(1, lim / Math.max(img.width || 1, img.height || 1));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round((img.width || 1) * sc));
+        c.height = Math.max(1, Math.round((img.height || 1) * sc));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        try { URL.revokeObjectURL(objUrl); } catch { /* ignore */ }
+        if (c.toBlob) c.toBlob(blob => {
+          if (!blob) { try { resolve(null); } catch { /* ignore */ } return; }
+          const r = new FileReader();
+          r.onload = () => finishWithDataUrl(r.result);
+          r.onerror = () => resolve(null);
+          r.readAsDataURL(blob);
+        }, 'image/jpeg', 0.85);
+        else {
+          try { finishWithDataUrl(c.toDataURL('image/jpeg', 0.85)); } catch { resolve(null); }
+        }
+      } catch { try { URL.revokeObjectURL(objUrl); } catch { /* ignore */ } resolve(null); }
+    };
+    img.onerror = () => { try { URL.revokeObjectURL(objUrl); } catch { /* ignore */ } resolve(null); };
+    img.src = objUrl;
+  });
+}
+// <input>-Handler (multi-select): pro Bild eine neue Seite, danach Sprung zur ersten neuen Seite.
+function importImageAsPage(ev) {
+  const files = (ev.target.files && Array.from(ev.target.files)) || [];
+  if (!files.length) return;
+  ev.target.value = '';
+  (async () => {
+    const bulk = { jump: false, _bulkFirstId: null };
+    const ids = [];
+    for (let i = 0; i < files.length; i++) {
+      setSaveStatus('Importiere Bild ' + (i + 1) + '/' + files.length + ' …');
+      const id = await importImageAsNewPage(files[i], bulk);
+      if (id) ids.push(id);
+    }
+    const first = bulk._bulkFirstId || ids[0];
+    if (first) { state.openPageId = first; renderAll(); }
+    persistSoon();
+    setSaveStatus(ids.length ? '💾 gespeichert (' + ids.length + ' Bild-Seite(n))' : '💾 gespeichert');
+  })().catch(() => setSaveStatus('💾 gespeichert'));
+}
+// PDF-Seitenzahl via pdf.js (nur Zählen, kein Rendern).
+async function gnGetPdfPageCount(pdfBytes) {
+  const pdfjs = await gnPdfJs();
+  const pdf = await pdfjs.getDocument({ data: pdfBytes.slice() }).promise;
+  try { return pdf.numPages || 0; }
+  finally { try { await pdf.destroy(); } catch { /* ignore */ } }
+}
+// PDF -> pro PDF-Seite eine neue Grimoire-Seite mit bg (sequentiell, lazy-freundlich).
+// pageRangeStr z. B. „1-3,5", leer = alle. Offline -> Hinweis-Textbox statt bg.
+async function importPdfAsNewPages(file, pageRangeStr) {
+  const book = openBook(); if (!book || !file) return [];
+  let pdfBytes;
+  try { pdfBytes = new Uint8Array(await file.arrayBuffer()); }
+  catch { return []; }
+  if (!pdfBytes.length) return [];
+  const fallbackHtml = (pgNo) => {
+    if (typeof PagesImport !== 'undefined' && PagesImport.offlinePdfFallbackHtml) {
+      return PagesImport.offlinePdfFallbackHtml(file.name, pgNo);
+    }
+    return '<p><i>PDF-Hintergrund offline nicht ladbar (' + file.name + ', Seite ' + pgNo + ').</i></p>';
+  };
+  let total = 0;
+  try { total = await gnGetPdfPageCount(pdfBytes); }
+  catch (e) {
+    console.warn('PDF-Seitenzahl nicht lesbar (offline?):', e);
+    total = 0;
+  }
+  const createdIds = [];
+  const insertAfterIdx = () => book.pages.findIndex(x => x.id === state.openPageId);
+  // Offline-Fallback: pdf.js gar nicht ladbar -> eine Hinweis-Seite statt N Seiten.
+  if (!total) {
+    const page = (typeof PagesImport !== 'undefined' && PagesImport.buildNewPageModel)
+      ? (() => { const m = PagesImport.buildNewPageModel({}); m.id = uid(); return { id: m.id, strokes: [], texts: [], images: [], bg: null }; })()
+      : newPage();
+    page.texts.push({ id: uid(), x: 0.06, y: 0.015, html: fallbackHtml(null) });
+    book.pages.splice(insertAfterIdx() + 1, 0, page);
+    createdIds.push(page.id);
+    state.openPageId = page.id;
+    touchBook(); persistSoon(); renderAll();
+    return createdIds;
+  }
+  const wanted = (typeof PagesImport !== 'undefined' && PagesImport.parsePageRange)
+    ? PagesImport.parsePageRange(pageRangeStr, total)
+    : (() => { const a = []; for (let i = 1; i <= total; i++) a.push(i); return a; })();
+  if (!wanted.length) return [];
+  const status = (typeof PagesImport !== 'undefined' && PagesImport.pdfImportStatus)
+    ? PagesImport.pdfImportStatus : ((d, t) => 'Importiere PDF – Seite ' + d + '/' + t + ' …');
+  const firstNewId = { v: null };
+  for (let i = 0; i < wanted.length; i++) {
+    const pgNo = wanted[i];
+    setSaveStatus(status(i + 1, wanted.length, file.name));
+    // UI zwischen Seiten atmen lassen (große PDFs frieren nicht ein)
+    await new Promise(r => setTimeout(r, 0));
+    let bg = null;
+    try {
+      const url = await gnRenderPdfPage(pdfBytes.slice(), pgNo, 1000);
+      bg = (typeof GrimoireStore !== 'undefined' && GrimoireStore.putDataUrl)
+        ? await GrimoireStore.putDataUrl(url) : url;
+    } catch (e) {
+      console.warn('PDF-Hintergrund Seite ' + pgNo + ':', e);
+      bg = null;
+    }
+    const page = (typeof PagesImport !== 'undefined' && PagesImport.buildNewPageModel)
+      ? (() => { const m = PagesImport.buildNewPageModel({ bg }); m.id = uid(); return { id: m.id, strokes: [], texts: [], images: [], bg: m.bg }; })()
+      : (() => { const p = newPage(); p.bg = bg; return p; })();
+    if (!bg) {
+      page.texts.push({ id: uid(), x: 0.06, y: 0.015, html: fallbackHtml(pgNo) });
+    }
+    const at = insertAfterIdx() + 1 + i;
+    book.pages.splice(at, 0, page);
+    createdIds.push(page.id);
+    if (!firstNewId.v) firstNewId.v = page.id;
+    touchBook(); persistSoon();
+    renderRail();
+  }
+  if (firstNewId.v) state.openPageId = firstNewId.v;
+  touchBook(); persistSoon(); renderAll();
+  setSaveStatus('💾 gespeichert (' + createdIds.length + ' PDF-Seite(n))');
+  return createdIds;
+}
+// <input>-Handler für PDF-Import als neue Seiten (Bereich per Prompt wählbar).
+function importPdfAsPages(ev, presetRange) {
+  const files = (ev.target.files && Array.from(ev.target.files)) || [];
+  if (!files.length) return;
+  ev.target.value = '';
+  let range = presetRange;
+  if (range === undefined) {
+    try {
+      const ans = prompt('Seitenbereich (z. B. 1-3,5 – leer = alle Seiten):', '');
+      if (ans === null) return; // Abbrechen -> kein Import
+      range = ans;
+    } catch { range = ''; }
+  }
+  (async () => {
+    for (const f of files) {
+      await importPdfAsNewPages(f, range);
+    }
+  })().catch(e => { console.warn('PDF-Import:', e); setSaveStatus('💾 gespeichert'); });
 }
 
 /* ---------- Rail / Status / Paper ---------- */
@@ -952,6 +1330,7 @@ function exportPagePNG() {
 /* ---------- Init (async: IndexedDB + Legacy-Migration) ---------- */
 window.addEventListener('resize', () => { if (openBook()) renderCanvas(); });
 bindStage();
+bindTapGestures();
 if (typeof GrimoireStore !== 'undefined') {
   // Blob-URLs trudeln asynchron ein -> sichtbare Ebenen nachrendern
   GrimoireStore.subscribe(() => {

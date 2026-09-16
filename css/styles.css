@@ -221,3 +221,20 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
   .stage-wrap { display: block; }
   .stage { width: 100%; max-width: none; margin: 0 auto; box-shadow: none; border: 1px solid #999; }
 }
+
+/* ===== Markdown-Source-Toggle + OFM-Vorschau (SPEC-06/13 light) ===== */
+#editorSource.editor-source { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; line-height: 1.55; resize: vertical; }
+.editor-body mark, .text-box mark { background: rgba(250, 231, 120, 0.7); color: inherit; padding: 0 2px; border-radius: 2px; }
+.editor-body .wikilink, .text-box .wikilink { color: var(--accent); background: var(--disabled-bg); padding: 0 3px; border-radius: 3px; white-space: nowrap; }
+.editor-body blockquote, .text-box blockquote { border-left: 3px solid var(--border); margin: 6px 0; padding: 2px 8px; opacity: 0.9; }
+.editor-body .callout, .text-box .callout { border: 1px solid var(--border); border-left: 4px solid var(--accent); background: var(--surface); border-radius: 4px; margin: 6px 0; overflow: hidden; }
+.editor-body .callout-title, .text-box .callout-title { font-family: 'Cinzel', serif; font-size: 12px; font-weight: bold; color: var(--accent); padding: 4px 8px; background: var(--surface-strong); letter-spacing: 1px; }
+.editor-body .callout-body, .text-box .callout-body { padding: 4px 8px; font-size: 15px; }
+.editor-body .callout-warning, .text-box .callout-warning,
+.editor-body .callout-danger, .text-box .callout-danger,
+.editor-body .callout-caution, .text-box .callout-caution { border-left-color: #a33; }
+.editor-body .callout-tip, .text-box .callout-tip,
+.editor-body .callout-example, .text-box .callout-example { border-left-color: #3a7; }
+.editor-body ul.task-list, .text-box ul.task-list { list-style: none; padding-left: 4px; }
+.editor-body code, .text-box code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; background: var(--disabled-bg); padding: 0 4px; border-radius: 3px; }
+.editor-body pre, .text-box pre { background: var(--disabled-bg); padding: 8px; overflow-x: auto; border-radius: 4px; font-size: 13px; }
