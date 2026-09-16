@@ -26,6 +26,12 @@ Live: https://notes.ponnet.org – deployed wird **ausschließlich über GitHub 
 2. Workflow `Release – Test + Cloudflare Deploy` läuft: erst `npm test` auf dem Release-Tag – nur bei grünen Tests geht es weiter.
 3. Deploy per Wrangler (`wrangler.toml`, Static Assets) auf den Worker `notes`.
 
+Alternative per Automation (Workflow `Auto-Release – Test + Release + Deploy`):
+manuell per `Run workflow` mit Versions-Input (z. B. `v1.7.0`), oder automatisch
+bei Push auf `main` mit `[release]` in der Commit-Message – die Version kommt
+dabei aus `package.json` (vorher erhöhen, sonst bricht der Workflow ab).
+Ablauf jeweils: `npm test` → Tag + Release anlegen → Deploy.
+
 Einmalig nötige Repo-Secrets (Settings → Secrets and variables → Actions):
 
 | Secret | Woher |
