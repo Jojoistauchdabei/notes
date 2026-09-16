@@ -142,12 +142,22 @@ describe('ink-index/indexBook', () => {
 
 describe('ink-index/sprache', () => {
   it('default ist de ohne navigator, get/set pro Buch', () => {
-    assert.equal(IDX.defaultLang(), 'de');
-    const b = bookFixture();
-    assert.equal(IDX.getBookLang(b), 'de');
-    assert.equal(IDX.setBookLang(b, 'en'), 'en');
-    assert.equal(b.lang, 'en');
-    assert.equal(IDX.getBookLang(b), 'en');
+    // „ohne navigator" deterministisch simulieren: Node ≥22 kennt global
+    // navigator (CI-Runner: language en-US → 'en'), Container hier: de-DE.
+    const hadNav = ('navigator' in globalThis);
+    const saved = globalThis.navigator;
+    try {
+      assert.equal(delete globalThis.navigator, true, 'navigator muss ausblendbar sein');
+      assert.equal(typeof globalThis.navigator, 'undefined');
+      assert.equal(IDX.defaultLang(), 'de');
+      const b = bookFixture();
+      assert.equal(IDX.getBookLang(b), 'de');
+      assert.equal(IDX.setBookLang(b, 'en'), 'en');
+      assert.equal(b.lang, 'en');
+      assert.equal(IDX.getBookLang(b), 'en');
+    } finally {
+      if (hadNav) Object.defineProperty(globalThis, 'navigator', { value: saved, configurable: true, writable: true });
+    }
   });
   it('ungültige Sprache ändert nichts', () => {
     const b = bookFixture();
