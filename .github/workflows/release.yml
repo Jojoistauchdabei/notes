@@ -1,8 +1,13 @@
-name: Release – Test + Cloudflare Deploy
+name: Release – Test + Web-ZIP + Cloudflare Deploy
 
 # Läuft, wenn ein GitHub Release veröffentlicht wird:
 # 1. Tests (müssen grün sein, sonst kein Deploy)
-# 2. Deploy des Release-Tags per Wrangler auf den Cloudflare Worker
+# 2. dist/ frisch bauen (wird NICHT eingecheckt, siehe .gitignore) →
+#    Federwerk-<tag>-web.zip ans Release hängen (fertige Cloudflare-Dateien:
+#    entpacken und z. B. per `wrangler deploy` mit assets-Verzeichnis nutzen)
+# 3. Deploy des Release-Tags per Wrangler auf den Cloudflare Worker
+# Die nativen Installer (deb/AppImage/rpm/Windows/APK + latest.json) hängt
+# parallel .github/workflows/tauri.yml an dasselbe Release.
 # Benötigte Repo-Secrets (Settings → Secrets and variables → Actions):
 #   CLOUDFLARE_API_TOKEN  – Token mit Berechtigung „Workers Scripts: Edit“
 #   CLOUDFLARE_ACCOUNT_ID – Account-ID (Cloudflare Dashboard, rechte Seitenleiste)
@@ -12,7 +17,7 @@ name: Release – Test + Cloudflare Deploy
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -33,7 +38,7 @@ jobs:
         run: npm test
 
   deploy:
-    name: Deploy auf Cloudflare
+    name: Web-ZIP + Deploy auf Cloudflare
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -50,13 +55,18 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Secret CLOUDFLARE_API_TOKEN fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Secret CLOUDFLARE_ACCOUNT_ID fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
 
-      - name: Deploy-Verzeichnis bauen (nur öffentliche Dateien)
+      - name: Deploy-Verzeichnis bauen (nur öffentliche Dateien, nicht eingecheckt)
+        run: npm run build
+
+      - name: Web-ZIP bauen + an Release hängen (Cloudflare-Dateien)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          rm -rf dist && mkdir -p dist
-          cp index.html manifest.webmanifest sw.js altes_Papier.png dist/
-          cp -r css js icons screenshots dist/
-          echo "--- dist-Inhalt ---"
-          find dist -type f | sort
+          TAG="${{ github.event.release.tag_name }}"
+          ZIP="Federwerk-${TAG}-web.zip"
+          python3 -c "import shutil; shutil.make_archive('Federwerk-${TAG}-web', 'zip', root_dir='dist')"
+          python3 -m zipfile -l "$ZIP"
+          gh release upload "$TAG" "$ZIP" --clobber
 
       - name: Auf Cloudflare deployen (wrangler.toml → Worker „notes", wrangler@4)
         env:

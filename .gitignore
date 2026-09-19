@@ -1,5 +1,14 @@
 tmp/
 .DS_Store
-# dist/ wird bewusst eingecheckt: Cloudflare Workers Builds laeuft ohne
-# Dashboard-Build-Command direkt per `wrangler deploy` auf dem Repo-Stand.
-# Nach jeder Aenderung an index.html/css/js/manifest/sw.js/png: `npm run build`.
+dist/
+# dist/ ist ein reines Build-Artefakt (npm run build) und wird NICHT
+# eingecheckt: Jedes GitHub Release enthält Federwerk-<version>-web.zip
+# mit den fertigen Cloudflare-Dateien (release.yml baut + lädt hoch),
+# die Desktop-/Android-Installer baut tauri.yml dazu.
+# Tauri: privater Updater-Signierschlüssel (NIE committen – Inhalt als
+# GitHub-Secret TAURI_SIGNING_PRIVATE_KEY hinterlegen) + Build-Artefakte.
+src-tauri/updater-key
+src-tauri/gen/
+src-tauri/target/
+src-tauri/**/*.key
+node_modules/

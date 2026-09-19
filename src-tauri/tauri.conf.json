@@ -1,0 +1,74 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Federwerk",
+  "version": "1.7.2",
+  "identifier": "org.ponnet.federwerk",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Federwerk – Dein digitales Notizbuch",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 360,
+        "minHeight": 600,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Handschrift-Notizbuch im Papier-Stil",
+    "longDescription": "Federwerk: Handschrift-Notizbuch mit Stift, Marker, Texteditor, Bildern, Seiten und GoodNotes-Import. Offline-fähig, Daten bleiben lokal.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "linux": {
+      "deb": {
+        "depends": []
+      },
+      "rpm": {
+        "depends": []
+      },
+      "appImage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "languages": [
+          "German",
+          "English"
+        ]
+      }
+    },
+    "android": {
+      "minSdkVersion": 24
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/Jojoistauchdabei/notes/releases/latest/download/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCODRERDQ3Qzg2MjFCNTYKUldSV0cyTElSOTJFSzdLZmNBWklUMzFmMk1vNU1wVmxyT29Fbk9BL1ltZ3BnVTBXQjlXbEd2OFQK"
+    }
+  }
+}

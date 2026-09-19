@@ -6,6 +6,32 @@ Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Ric
 
 Einfach `index.html` öffnen oder hosten – kein Build, kein Server nötig.
 
+## Releases: Web, Desktop & Android (mit Autoupdate)
+
+`dist/` ist nur ein lokales Build-Artefakt (`npm run build`) und wird nicht
+eingecheckt. Jedes GitHub Release enthält:
+- `Federwerk-vX.Y.Z-web.zip` – fertige Cloudflare-/Web-Dateien (entpacken,
+  z. B. als `wrangler`-Assets-Verzeichnis nutzen),
+- Linux: `.deb`, `.AppImage`, `.rpm` – Windows: `-setup.exe`, `.msi`,
+- Android: universelles `.apk` (GitHub-Verteilung, kein Play Store),
+- `latest.json` + Signaturen fürs Desktop-Autoupdate.
+
+Autoupdate: Desktop prüft beim Start via `latest.json` und installiert still
+(Rust, `src-tauri/`); Android/Web zeigen bei neuer Version einen Banner
+(`js/updater.js`, APK-Download bzw. Neuladen).
+
+Release auslösen: Jeder Push auf `main` legt automatisch ein Release an
+(Version aus `package.json`, belegter Tag → Patch wird hochgezählt; für
+Minor/Major vorher `package.json` erhöhen + `npm run sync-version`),
+manuell via Actions → „Auto-Release", oder Release im Web-UI anlegen.
+Opt-out per Commit: `[skip release]` in der Commit-Message.
+
+Einmalig nötige Secrets (Repo → Settings → Secrets and variables → Actions):
+`TAURI_SIGNING_PRIVATE_KEY` (Inhalt von `src-tauri/updater-key`, nie committen),
+`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`; optional für stabile
+Android-Updatekette: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` (ohne sie: Debug-APK).
+
 ## Speicher (IndexedDB + Bild-Blobs)
 
 Der State (klein) liegt in IndexedDB (`grimoire-db`) plus localStorage-Backup; Bild-Bytes und PDF-Hintergründe liegen als Blobs separat in IndexedDB, im State steht nur eine kurze `blob:<id>`-Referenz. Das 5MB-localStorage-Limit greift damit nicht mehr. Beim ersten Start migriert die App bestehende Daten automatisch (Zähler in der Statuszeile). JSON-Export und WebDAV-Sync enthalten weiter portable dataURLs (`inlineBook`/`extractBook` in `js/store.js`).

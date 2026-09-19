@@ -1,8 +1,9 @@
 # Cloudflare Worker (Static Assets) für Federwerk.
 # Deploy läuft ausschließlich über GitHub Releases:
-# .github/workflows/release.yml baut dist/ (nur öffentliche Dateien,
-# ohne .git/tests/Tools) und deployed per Wrangler auf den Worker.
-# Lokal: erst dist/ bauen (s. README), dann `wrangler deploy`.
+# .github/workflows/release.yml baut dist/ frisch (nur öffentliche Dateien,
+# ohne .git/tests/Tools, NICHT eingecheckt – siehe .gitignore), hängt
+# Federwerk-<tag>-web.zip ans Release und deployed per Wrangler auf den Worker.
+# Lokal: erst `npm run build`, dann `wrangler deploy`.
 name = "notes"
 compatibility_date = "2026-09-11"
 

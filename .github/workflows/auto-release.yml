@@ -2,13 +2,21 @@ name: Auto-Release – Test + Release + Deploy
 
 # Release-Automation (Alternative zum manuellen Release im Web-UI):
 # - Manuell: Actions → „Auto-Release" → Run workflow → Version (z. B. v1.7.0)
-# - Automatisch: Push auf main mit „[release]" in der Commit-Message.
-#   Die Version kommt aus package.json – vor dem Push dort erhöhen,
-#   sonst bricht der Workflow ab (Tag existiert bereits).
-# Ablauf: Tests (Pflicht, sonst Stopp) → Tag + GitHub Release → dist/ → Deploy.
-# Hinweis: Der Release wird mit GITHUB_TOKEN erstellt, daher startet
-# release.yml NICHT zusätzlich (GitHub unterdrückt Workflow-Ketten) –
-# der Deploy passiert direkt hier, keine Doppel-Deploy-Gefahr.
+# - Automatisch: JEDER Push auf main legt ein Release an. Die Version kommt
+#   aus package.json; existiert der Tag bereits, wird Patch automatisch
+#   hochgezählt (v1.7.2 → v1.7.3 …), bis der Tag frei ist. Für Minor/Major
+#   die Version vorher in package.json erhöhen (+ `npm run sync-version`).
+# - Opt-out: Commit-Message mit „[skip release]" oder „[no release]".
+# Ablauf: Tests (Pflicht, sonst Stopp) → Tag + GitHub Release → Web-ZIP → Deploy
+# → Tauri-Installer (als wiederverwendbarer Workflow im selben Lauf).
+# Bei manuell (Web-UI) erstellten Releases laufen automatisch:
+# - release.yml: baut dist/ frisch (nicht eingecheckt), hängt
+#   Federwerk-<tag>-web.zip ans Release und deployed auf Cloudflare.
+# - tauri.yml: hängt Linux- (deb/AppImage/rpm), Windows- und Android-Installer
+#   + latest.json (Desktop-Autoupdate) an dasselbe Release.
+# Hinweis: Ein per GITHUB_TOKEN erstelltes Release startet KEINE weiteren
+# Workflow-Läufe (GitHub unterdrückt Workflow-Ketten) – darum passieren
+# Web-ZIP, Deploy und Tauri-Builds für diesen Weg direkt hier im selben Lauf.
 
 "on":
   workflow_dispatch:
@@ -31,6 +39,9 @@ jobs:
   release:
     name: Test + Release + Deploy
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      released: ${{ steps.publish.outputs.released }}
     steps:
       - name: Release-Tag auschecken (mit Tags)
         uses: actions/checkout@v4
@@ -42,11 +53,11 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "wanted=true" >> "$GITHUB_OUTPUT"
-          elif printf '%s' "${{ github.event.head_commit.message }}" | grep -q '\[release\]'; then
-            echo "wanted=true" >> "$GITHUB_OUTPUT"
-          else
+          elif printf '%s' "${{ github.event.head_commit.message }}" | grep -qiE '\[skip release\]|\[no release\]'; then
             echo "wanted=false" >> "$GITHUB_OUTPUT"
-            echo "Kein [release] in der Commit-Message – kein Release, Workflow endet hier."
+            echo "[skip release] in der Commit-Message – kein Release, Workflow endet hier."
+          else
+            echo "wanted=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Version bestimmen und prüfen
@@ -55,15 +66,25 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
+            echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              || { echo "::error::Ungültige Version '$VERSION' (erwartet vMAJOR.MINOR.PATCH, z. B. v1.7.0)."; exit 1; }
+            git fetch --tags origin
+            if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+              echo "::error::Tag $VERSION existiert bereits – andere Version wählen."
+              exit 1
+            fi
           else
+            git fetch --tags origin
             VERSION="v$(node -p "require('./package.json').version")"
-          fi
-          echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::Ungültige Version '$VERSION' (erwartet vMAJOR.MINOR.PATCH, z. B. v1.7.0)."; exit 1; }
-          git fetch --tags origin
-          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
-            echo "::error::Tag $VERSION existiert bereits – package.json-Version erhöhen oder andere Version wählen."
-            exit 1
+            echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              || { echo "::error::Ungültige Version '$VERSION' in package.json (erwartet MAJOR.MINOR.PATCH)."; exit 1; }
+            # Tag belegt? → Patch hochzählen, bis der Tag frei ist.
+            i=0
+            while git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; do
+              VERSION="$(VERSION="$VERSION" node -e "const v=process.env.VERSION.slice(1).split('.').map(Number); v[2]++; console.log('v'+v.join('.'))")"
+              i=$((i+1))
+              [ "$i" -lt 100 ] || { echo "::error::Kein freier Patch-Tag in Reichweite gefunden."; exit 1; }
+            done
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Release-Version: $VERSION"
@@ -80,6 +101,7 @@ jobs:
 
       - name: Tag + GitHub Release anlegen
         if: steps.gate.outputs.wanted == 'true'
+        id: publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -89,6 +111,7 @@ jobs:
           git tag -a "$VERSION" -m "Release $VERSION"
           git push origin "$VERSION"
           gh release create "$VERSION" --title "$VERSION" --generate-notes --target "$GITHUB_SHA"
+          echo "released=true" >> "$GITHUB_OUTPUT"
 
       - name: Secrets prüfen
         if: steps.gate.outputs.wanted == 'true'
@@ -99,14 +122,9 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Secret CLOUDFLARE_API_TOKEN fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Secret CLOUDFLARE_ACCOUNT_ID fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
 
-      - name: Deploy-Verzeichnis bauen (nur öffentliche Dateien)
+      - name: Deploy-Verzeichnis bauen (nur öffentliche Dateien, nicht eingecheckt)
         if: steps.gate.outputs.wanted == 'true'
-        run: |
-          rm -rf dist && mkdir -p dist
-          cp index.html manifest.webmanifest sw.js altes_Papier.png dist/
-          cp -r css js icons screenshots dist/
-          echo "--- dist-Inhalt ---"
-          find dist -type f | sort
+        run: npm run build
 
       - name: Auf Cloudflare deployen (wrangler.toml → Worker „notes", wrangler@4)
         if: steps.gate.outputs.wanted == 'true'
@@ -114,3 +132,23 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx --yes wrangler@4 deploy
+
+      - name: Web-ZIP bauen + an Release hängen (Cloudflare-Dateien, dist/ ist nicht eingecheckt)
+        if: steps.gate.outputs.wanted == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ZIP="Federwerk-${VERSION}-web.zip"
+          python3 -c "import shutil; shutil.make_archive('Federwerk-${VERSION}-web', 'zip', root_dir='dist')"
+          python3 -m zipfile -l "$ZIP"
+          gh release upload "$VERSION" "$ZIP" --clobber
+
+  tauri-installers:
+    name: Linux / Windows / Android (Tauri)
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    uses: ./.github/workflows/tauri.yml
+    with:
+      tag: ${{ needs.release.outputs.version }}
+    secrets: inherit
