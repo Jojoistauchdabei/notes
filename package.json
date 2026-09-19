@@ -1,6 +1,6 @@
 {
   "name": "federwerk",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "private": true,
   "description": "Handschrift-Notizbuch im D&D-Papier-Stil mit GoodNotes-Import",
   "scripts": {
