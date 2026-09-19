@@ -488,13 +488,15 @@ function restore(json) {
   const b = openBook(); if (!b) return;
   const s = JSON.parse(json);
   if (s.bookId !== b.id) return;
-  if (s.pages) b.pages = s.pages;
-  else {
+  if (s.pages) {
+    b.pages = s.pages;
+    if (!b.pages.some(p => p.id === s.pageId)) s.pageId = (b.pages[0] && b.pages[0].id) || null;
+  } else {
     const idx = b.pages.findIndex(p => p.id === s.pageId);
     if (idx === -1) return;
     b.pages[idx] = s.page;
   }
-  setActivePageId(s.pageId);
+  if (s.pageId) setActivePageId(s.pageId);
   selectedBox = null; selectedImg = null;
   touchBook(); persistSoon(); renderAll();
 }
@@ -502,7 +504,7 @@ function moveHistory(from, to) {
   if (!from.length) return;
   const entry = from[from.length - 1], s = JSON.parse(entry);
   const b = openBook(); if (!b || b.id !== s.bookId) return;
-  const inverse = historyState(!!s.pages, s.pageId); if (!inverse) return;
+  const inverse = historyState(!!s.pages); if (!inverse) return;
   to.push(inverse);
   from.pop();
   restore(entry);
@@ -1125,9 +1127,10 @@ function startResize(e, im) {
   const startX = e.clientX, ow = im.w;
   snapshot();
   const move = me => { im.w = Math.min(.95, Math.max(.05, ow + (me.clientX - startX) / stage.width)); renderImgLayer(); };
-  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); touchBook(); persistSoon(); renderImgLayer(); };
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); touchBook(); persistSoon(); renderImgLayer(); };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
 }
 function importImage(ev) {
   const files = ev.target.files && Array.from(ev.target.files); if (!files || !files.length) return;
