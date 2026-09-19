@@ -1,4 +1,4 @@
-/* Grimoire – GoodNotes-Klon im DND-Stil. LocalStorage, kein Server. */
+/* Federwerk – Handschrift-Notizbuch im Papier-Stil. LocalStorage, kein Server. */
 /* Seitenformat: A4 (210:297), Canvas 1000×1414 */
 const LS_KEY = 'grimoire-dnd-v1';
 const CANVAS_W = 1000, CANVAS_H = 1414;
@@ -93,7 +93,7 @@ function load() {
     if (raw) { const p = JSON.parse(raw); if (p && Array.isArray(p.books)) state = p; }
   } catch { /* ignore */ }
   if (!state.books.length) {
-    const b = newBook('Mein erstes Grimoire', true);
+    const b = newBook('Mein erstes Federwerk-Buch', true);
     state.books.push(b);
     state.openBookId = b.id; state.openPageId = b.pages[0].id;
     persistNow();
@@ -129,7 +129,7 @@ function newBook(title, withStarter) {
   // Buch-Flow, aktuell per GrimoireInkIndex.setBookLang(book, 'en').
   try { b.lang = (typeof GrimoireInkIndex !== 'undefined' && GrimoireInkIndex.defaultLang) ? GrimoireInkIndex.defaultLang() : 'de'; } catch { b.lang = 'de'; }
   if (withStarter) {
-    b.pages[0].texts.push({ id: uid(), x: 0.08, y: 0.05, html: '<h2>Willkommen im Grimoire ⚔</h2><p>• <b>Stift/Marker:</b> auf der Seite malen (Maus, Touch, Stylus)<br>• <b>Text:</b> Tool „T Text“ → auf Seite klicken → Doppelklick öffnet den großen Texteditor<br>• <b>Bild:</b> über 🖼 einfügen, in Auswahl-Modus ✥ verschieben &amp; skalieren<br>• <b>Radierer:</b> Striche antippen zum Löschen</p>' });
+    b.pages[0].texts.push({ id: uid(), x: 0.08, y: 0.05, html: '<h2>Willkommen im Federwerk</h2><p>• <b>Stift/Marker:</b> auf der Seite malen (Maus, Touch, Stylus)<br>• <b>Text:</b> Tool „T Text“ → auf Seite klicken → Doppelklick öffnet den großen Texteditor<br>• <b>Bild:</b> über 🖼 einfügen, in Auswahl-Modus ✥ verschieben &amp; skalieren<br>• <b>Radierer:</b> Striche antippen zum Löschen</p>' });
   }
   return b;
 }
@@ -488,13 +488,15 @@ function restore(json) {
   const b = openBook(); if (!b) return;
   const s = JSON.parse(json);
   if (s.bookId !== b.id) return;
-  if (s.pages) b.pages = s.pages;
-  else {
+  if (s.pages) {
+    b.pages = s.pages;
+    if (!b.pages.some(p => p.id === s.pageId)) s.pageId = (b.pages[0] && b.pages[0].id) || null;
+  } else {
     const idx = b.pages.findIndex(p => p.id === s.pageId);
     if (idx === -1) return;
     b.pages[idx] = s.page;
   }
-  setActivePageId(s.pageId);
+  if (s.pageId) setActivePageId(s.pageId);
   selectedBox = null; selectedImg = null;
   touchBook(); persistSoon(); renderAll();
 }
@@ -502,7 +504,7 @@ function moveHistory(from, to) {
   if (!from.length) return;
   const entry = from[from.length - 1], s = JSON.parse(entry);
   const b = openBook(); if (!b || b.id !== s.bookId) return;
-  const inverse = historyState(!!s.pages, s.pageId); if (!inverse) return;
+  const inverse = historyState(!!s.pages); if (!inverse) return;
   to.push(inverse);
   from.pop();
   restore(entry);
@@ -1125,9 +1127,10 @@ function startResize(e, im) {
   const startX = e.clientX, ow = im.w;
   snapshot();
   const move = me => { im.w = Math.min(.95, Math.max(.05, ow + (me.clientX - startX) / stage.width)); renderImgLayer(); };
-  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); touchBook(); persistSoon(); renderImgLayer(); };
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); touchBook(); persistSoon(); renderImgLayer(); };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
 }
 function importImage(ev) {
   const files = ev.target.files && Array.from(ev.target.files); if (!files || !files.length) return;
@@ -1260,7 +1263,7 @@ async function gnGetPdfPageCount(pdfBytes) {
   try { return pdf.numPages || 0; }
   finally { try { await pdf.destroy(); } catch { /* ignore */ } }
 }
-// PDF -> pro PDF-Seite eine neue Grimoire-Seite mit bg (sequentiell, lazy-freundlich).
+// PDF -> pro PDF-Seite eine neue Federwerk-Seite mit bg (sequentiell, lazy-freundlich).
 // pageRangeStr z. B. „1-3,5", leer = alle. Offline -> Hinweis-Textbox statt bg.
 async function importPdfAsNewPages(file, pageRangeStr) {
   const book = openBook(); if (!book || !file) return [];
@@ -1501,7 +1504,7 @@ function importAllJSON(ev) {
       } catch { /* einzelne defekte Datei ignorieren, Rest zählt */ }
       if (--pending === 0) {
         ev.target.value = '';
-        if (!added.length) { alert('Keine gültige Grimoire-JSON-Datei dabei.'); return; }
+        if (!added.length) { alert('Keine gültige Federwerk-JSON-Datei dabei.'); return; }
         persistNow(); renderLibrary(); showLibrary();
         alert(added.length + ' Dokument(e) importiert:\n• ' + added.join('\n• '));
       }

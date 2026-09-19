@@ -1,9 +1,9 @@
-/* Grimoire Cloud – Option 1: WebDAV (Nextcloud/ownCloud), 100% Browser, kein eigener Server.
+/* Federwerk Cloud – Option 1: WebDAV (Nextcloud/ownCloud), 100% Browser, kein eigener Server.
  *
  * Warum das im Browser geht:
  * WebDAV ist nur HTTP (GET/PUT/DELETE/MKCOL/PROPFIND). fetch() kann das alles.
  * Kein Build, kein Proxy nötig. Einzige Voraussetzung: der Cloud-Server muss
- * CORS für deine Grimoire-URL erlauben (siehe Hinweise im Einstellungs-Dialog).
+ * CORS für deine Federwerk-URL erlauben (siehe Hinweise im Einstellungs-Dialog).
  *
  * Datei-Layout in der Cloud (ein Ordner, ein JSON pro Buch):
  *   <baseUrl>/<folder>/grimoire-index.json
@@ -33,7 +33,7 @@
 
   /* ---------- Config ---------- */
   function defaultConfig() {
-    return { baseUrl: '', username: '', password: '', folder: 'Grimoire', autoSync: false };
+    return { baseUrl: '', username: '', password: '', folder: 'Federwerk', autoSync: false };
   }
   function loadConfig() {
     try {

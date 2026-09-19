@@ -1,4 +1,4 @@
-/* Grimoire – Import-als-neue-Seite Helfer (SPEC-32 + SPEC-15, ohne Cloud).
+/* Federwerk – Import-als-neue-Seite Helfer (SPEC-32 + SPEC-15, ohne Cloud).
  *
  * Reine, DOM-freie Helfer für Bild-/PDF-Import als neue Seite(n).
  * - Kein Build, plain <script> (global `PagesImport`) + Node-export für Tests.

@@ -1,5 +1,5 @@
 /* Texteditor – übernommen aus DND-Character-sheet-generator/js/editor.js
-   Verhalten identisch, nur save() -> persistSoon() für das Grimoire. */
+   Verhalten identisch, nur save() -> persistSoon() für Federwerk. */
 let currentEditorTargetId = null;
 let currentEditorBoxId = null;
 let editorMode = 'rich'; // 'rich' (contenteditable) | 'source' (Markdown-Textarea)

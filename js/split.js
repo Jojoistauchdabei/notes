@@ -1,4 +1,4 @@
-/* Grimoire – Split-Screen-Modell (2 Dokumente in einem Fenster).
+/* Federwerk – Split-Screen-Modell (2 Dokumente in einem Fenster).
  *
  * DOM-freie, testbare Zustandslogik für zwei nebeneinanderliegende
  * Dokumentbereiche (Panes). Das Rendering/DOM lebt in js/app.js + index.html,

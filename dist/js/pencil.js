@@ -1,4 +1,4 @@
-/* Grimoire Pencil-Engine: Apple-Pencil-Pressure + Text-Default-Stil.
+/* Federwerk Pencil-Engine: Apple-Pencil-Pressure + Text-Default-Stil.
    Reine Helper, DOM-frei (kein DOM auf Top-Level), Browser-global + Node-require. */
 var GrimoirePencil = (function () {
   'use strict';

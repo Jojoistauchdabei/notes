@@ -1,4 +1,4 @@
-/* Grimoire Store – IndexedDB-Persistenz + Bild-Blob-Store.
+/* Federwerk Store – IndexedDB-Persistenz + Bild-Blob-Store.
  *
  * Problem: Bilder und PDF-Hintergründe lagen als dataURL direkt im
  * localStorage-JSON (Key 'grimoire-dnd-v1', ~5MB-Limit) -> "Speicher voll".

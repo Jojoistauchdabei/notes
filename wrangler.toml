@@ -1,4 +1,4 @@
-# Cloudflare Worker (Static Assets) für Grimoire.
+# Cloudflare Worker (Static Assets) für Federwerk.
 # Deploy läuft ausschließlich über GitHub Releases:
 # .github/workflows/release.yml baut dist/ (nur öffentliche Dateien,
 # ohne .git/tests/Tools) und deployed per Wrangler auf den Worker.

@@ -1,7 +1,7 @@
 {
-  "name": "Federwerk – Notizbuch im D&D-Stil",
+  "name": "Federwerk – Dein digitales Notizbuch",
   "short_name": "Federwerk",
-  "description": "Handschrift-Notizbuch im D&D-Papier-Stil: Stift, Marker, Texteditor, Bilder, Seiten.",
+  "description": "Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Texteditor, Bilder, Seiten.",
   "lang": "de",
   "version": "1.7.0",
   "start_url": ".",

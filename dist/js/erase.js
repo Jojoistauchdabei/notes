@@ -1,4 +1,4 @@
-/* Grimoire SPEC-25 – reine Helper für Highlighter & Radierer (kein DOM, kein Build).
+/* Federwerk SPEC-25 – reine Helper für Highlighter & Radierer (kein DOM, kein Build).
  *
  * Wird als plain <script> vor app.js geladen (window.GrimoireErase) und ist
  * gleichzeitig per require() in node-Tests nutzbar.

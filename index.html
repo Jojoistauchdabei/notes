@@ -51,7 +51,7 @@
       </div>
       <div class="box">
         <div class="section-title">Über Federwerk</div>
-        <div style="font-size:14px">Handschrift-Notizbuch im D&D-Papier-Stil: Stift, Marker, Radierer, Textboxen (mit dem Texteditor aus dem DND-Repo), Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ WebDAV-Sync</b> (z. B. Nextcloud), komplett im Browser – siehe ☁⚙.</div>
+        <div style="font-size:14px">Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Rich-Text-Editor, Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ WebDAV-Sync</b> (z. B. Nextcloud), komplett im Browser – siehe ☁⚙.</div>
       </div>
       <div class="box">
         <div class="section-title">☁ Cloud-Status</div>
@@ -277,11 +277,11 @@
           <div style="flex:1;min-width:140px"><label for="cloudPass">App-Passwort</label><input type="password" id="cloudPass" autocomplete="current-password" style="font-family:'Crimson Text',serif;font-size:14px;color:var(--text);background:var(--field-bg);border:none;border-bottom:1px solid var(--border);padding:4px 6px;width:100%;outline:none"></div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <div style="flex:1;min-width:140px"><label for="cloudFolder">Ordner</label><input type="text" id="cloudFolder" value="Grimoire"></div>
+          <div style="flex:1;min-width:140px"><label for="cloudFolder">Ordner</label><input type="text" id="cloudFolder" value="Federwerk"></div>
           <div style="flex:1;min-width:140px"><label style="display:flex;gap:6px;align-items:center;margin-top:18px"><input type="checkbox" id="cloudAuto" style="width:auto"> Auto-Sync beim Start</label></div>
         </div>
         <div id="cloudMsg" style="font-size:13px;min-height:18px" aria-live="polite"></div>
-        <div style="font-size:12px;opacity:.85"><b>CORS-Hinweis:</b> Der Server muss deine Grimoire-URL erlauben. Fehler mit „Failed to fetch“ / CORS → Grimoire auf dieselbe Domain legen (z. B. Nextcloud-Ordner hosten), Reverse-Proxy mit <code>Access-Control-Allow-Origin</code> nutzen, oder weiter manuell per ⬇/⬆ JSON arbeiten. Alternative ohne CORS: Nextcloud-Desktop-Client + Browser-Ordner syncen.</div>
+        <div style="font-size:12px;opacity:.85"><b>CORS-Hinweis:</b> Der Server muss deine Federwerk-URL erlauben. Fehler mit „Failed to fetch“ / CORS → Federwerk auf dieselbe Domain legen (z. B. Nextcloud-Ordner hosten), Reverse-Proxy mit <code>Access-Control-Allow-Origin</code> nutzen, oder weiter manuell per ⬇/⬆ JSON arbeiten. Alternative ohne CORS: Nextcloud-Desktop-Client + Browser-Ordner syncen.</div>
       </div>
       <div class="editor-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
         <button type="button" class="inactive" onclick="GrimoireCloudUI.clear()" aria-label="Einstellungen zurücksetzen">Zurücksetzen</button>

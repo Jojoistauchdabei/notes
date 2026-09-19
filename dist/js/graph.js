@@ -1,4 +1,4 @@
-/* Grimoire Graph View light (SPEC-09 light, V1) – lokaler + globaler Graph, kein Cloud.
+/* Federwerk Graph View light (SPEC-09 light, V1) – lokaler + globaler Graph, kein Cloud.
  *
  * - Reine Funktionen, bewusst ohne Browser-APIs: per <script> im Browser
  *   (global GrimoireGraph) und per require() in Node-Tests ladbar.

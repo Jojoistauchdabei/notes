@@ -1,4 +1,4 @@
-/* Grimoire Cloud UI – dünne Schicht über GrimoireCloud (js/cloud.js). */
+/* Federwerk Cloud UI – dünne Schicht über GrimoireCloud (js/cloud.js). */
 (function () {
   'use strict';
 
@@ -9,7 +9,7 @@
       baseUrl: ($('cloudUrl') && $('cloudUrl').value || '').trim(),
       username: ($('cloudUser') && $('cloudUser').value || '').trim(),
       password: ($('cloudPass') && $('cloudPass').value || ''),
-      folder: ($('cloudFolder') && $('cloudFolder').value || 'Grimoire').trim() || 'Grimoire',
+      folder: ($('cloudFolder') && $('cloudFolder').value || 'Federwerk').trim() || 'Federwerk',
       autoSync: !!($('cloudAuto') && $('cloudAuto').checked),
     };
   }
@@ -17,7 +17,7 @@
     if ($('cloudUrl')) $('cloudUrl').value = cfg.baseUrl || '';
     if ($('cloudUser')) $('cloudUser').value = cfg.username || '';
     if ($('cloudPass')) $('cloudPass').value = cfg.password || '';
-    if ($('cloudFolder')) $('cloudFolder').value = cfg.folder || 'Grimoire';
+    if ($('cloudFolder')) $('cloudFolder').value = cfg.folder || 'Federwerk';
     if ($('cloudAuto')) $('cloudAuto').checked = !!cfg.autoSync;
   }
   function msg(t, isErr) {

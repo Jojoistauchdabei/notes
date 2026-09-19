@@ -1,4 +1,4 @@
-/* Grimoire SPEC-07 light – Query-Sprache für die Bibliothekssuche (Vault light).
+/* Federwerk SPEC-07 light – Query-Sprache für die Bibliothekssuche (Vault light).
  *
  * - Reine Funktionen, bewusst ohne Browser-Zugriff: per <script> im Browser
  *   (global GrimoireSearch) und per require() in Node-Tests ladbar.

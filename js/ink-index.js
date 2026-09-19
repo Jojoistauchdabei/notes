@@ -1,4 +1,4 @@
-/* Grimoire SPEC-31 light/offline – getippter-Text-Index, kein Fake-OCR.
+/* Federwerk SPEC-31 light/offline – getippter-Text-Index, kein Fake-OCR.
  *
  * Ehrlichkeit zuerst: echte Handschrift-Erkennung (HTR) ist ohne Modell/Cloud
  * nicht machbar. Dieses Modul behauptet daher NIE, Handschrift zu erkennen.

@@ -1402,7 +1402,7 @@ var GoodNotes = (function () {
     return { title, pages, stats: { shapes: nShapes, texts: nTexts, pdfBg, imgCount } };
   }
 
-  /* ---------- Mapping auf Grimoire-Modell (A4-Canvas 1000×1414) ---------- */
+  /* ---------- Mapping auf Federwerk-Modell (A4-Canvas 1000×1414) ---------- */
   const CW = 1000, CH = 1414, DPI = 132 / 72;
   function mapPage(pg) {
     const iw = pg.dim.w * DPI, ih = pg.dim.h * DPI;
@@ -1702,7 +1702,7 @@ var GoodNotes = (function () {
 
   /* ---------- Main export function ---------- */
   function exportGoodNotes(book) {
-    const title = book.title || 'Grimoire';
+    const title = book.title || 'Federwerk';
     const pages = book.pages || [];
     const uuids = pages.map((_, i) => 'aaaaaaaa-0000-4000-8000-' + String(i + 1).padStart(12, '0'));
     const files = [];

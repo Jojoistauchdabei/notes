@@ -1,4 +1,4 @@
-/* Grimoire Markdown light – OFM-Subset ohne Dependencies, ohne Build.
+/* Federwerk Markdown light – OFM-Subset ohne Dependencies, ohne Build.
  *
  * - Reine Funktionen, bewusst ohne Browser-APIs: per <script> im Browser
  *   (global GrimoireMarkdown) und per require() in Node-Tests ladbar.
