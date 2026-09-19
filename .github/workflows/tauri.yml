@@ -73,7 +73,8 @@ jobs:
       - name: Tag bestimmen
         id: v
         run: |
-          TAG="${{ github.event.release.tag_name || github.event.inputs.tag }}"
+          # TAG kommt aus env (Release-Event, Dispatch-Input oder Call-Input inputs.tag)
+          TAG="$TAG"
           echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' \
             || { echo "::error::Ungültiger Tag '$TAG' (erwartet vMAJOR.MINOR.PATCH)."; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
