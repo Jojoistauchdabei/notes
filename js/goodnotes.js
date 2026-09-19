@@ -1,11 +1,17 @@
-/* GoodNotes .goodnotes Import-Decoder (client-seitig, ohne Abhängigkeiten).
+/* GoodNotes .goodnotes Import/Export (client-seitig, ohne Abhängigkeiten).
    Dekodierlogik portiert aus dem MIT-lizenzierten Parser:
    Kaih1825/parser-for-goodnotes (https://github.com/Kaih1825/parser-for-goodnotes)
    Copyright (c) 2025 Document Parser for GoodNotes contributors, MIT License.
    Abgedeckt: ZIP via GNZip, Protobuf-Wire, Apple-LZ4 (bv41), Troy-Hanson-TPL,
-   Stroke-Punkte, Farben, Lasso-Offsets, Seiten, Bild-Elemente, Titel.
-   v1-Limits: Shapes und getippte Textboxen werden gezählt, aber nicht importiert;
-   PDF-Hintergründe werden erkannt und gemeldet (nicht gerastert). */
+   Stroke-Punkte inkl. Pressure/Dots, Farben, Highlighter (Alpha < 0.95),
+   Lasso-Offsets, Seiten, Shapes (als Vektor-Strokes), getippte Textboxen
+   (Runs mit Stil), Bild-Elemente inkl. Crop/Rotation, Titel, PDF-MediaBox.
+   Export: UUID-Record-IDs, Pfade notes/<uuid>/pageN.pb + attachments/<uuid>
+   (SPEC-34), Marker mit Alpha 0.35, Textstile, Bildmaße (PNG/JPEG),
+   Seiten-Hintergrund als Contain-Bild. Limits: kein Deflate (Stored-ZIP),
+   kein Per-Punkt-Pressure im Export, keine PDF-Vektor-Hintergründe,
+   blob:-Refs und Fremd-URLs werden nicht eingebettet (App lagert vorher aus).
+   GoodNotes-App-Kompatibilität ist ohne echte App nicht verifizierbar. */
 var GoodNotes = (function () {
   'use strict';
 
@@ -15,6 +21,18 @@ var GoodNotes = (function () {
   function looksLikeUuid(s) {
     return typeof s === 'string' && s.length === 36 &&
       s[8] === '-' && s[13] === '-' && s[18] === '-' && s[23] === '-';
+  }
+  // UUIDv4 für Export-Records/Attachments: Import-Seite (erased-Map,
+  // Bild-Referenzen, Shape-Unterdrückung) erkennt nur UUID-förmige IDs.
+  function uuid4() {
+    const b = new Uint8Array(16);
+    try {
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(b);
+      else throw 0;
+    } catch { for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); }
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
   }
   function u32ToF32(u) {
     const b = new ArrayBuffer(4); new DataView(b).setUint32(0, u >>> 0, true);
@@ -332,7 +350,8 @@ var GoodNotes = (function () {
               g.push({ x, y, p: R });
           }
         }
-        if (g.length >= 2) return { groups: [g], width: defaultWidth };
+        // >=1: Einzelpunkt-Strokes (Dots) überleben (vom Renderer als Punkt gezeichnet)
+        if (g.length >= 1) return { groups: [g], width: defaultWidth };
       }
     }
 
@@ -1537,6 +1556,60 @@ var GoodNotes = (function () {
     return concatU8([h, lz, new Uint8Array([0x62, 0x76, 0x34, 0x24])]);
   }
 
+  // Seitenmaß für Export-Geometrie (GoodNotes-pt, vgl. Import-Default in parseDocument)
+  const PAGE_W = 612, PAGE_H = 792;
+
+  // Bildmaße aus Bytes (PNG-IHDR / JPEG-SOF), für seitenrichtige Bild-Rechtecke
+  function imageFileDims(bytes) {
+    if (!bytes || bytes.length < 26) return null;
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+      const w = ((bytes[16] * 256 + bytes[17]) * 256 + bytes[18]) * 256 + bytes[19];
+      const h = ((bytes[20] * 256 + bytes[21]) * 256 + bytes[22]) * 256 + bytes[23];
+      if (w > 0 && h > 0 && w < 20000 && h < 20000) return { w, h };
+      return null;
+    }
+    if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+      let p = 2;
+      while (p + 4 <= bytes.length) {
+        if (bytes[p] !== 0xff) { p++; continue; }
+        let m = bytes[p + 1];
+        while (m === 0xff && p + 2 < bytes.length) { p++; m = bytes[p + 1]; }
+        if (m === 0xd9) break;
+        if (m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { p += 2; continue; }
+        if (p + 4 > bytes.length) break;
+        const len = bytes[p + 2] * 256 + bytes[p + 3];
+        if (len < 2) break;
+        if ((m >= 0xc0 && m <= 0xc3) || (m >= 0xc5 && m <= 0xc7) || (m >= 0xc9 && m <= 0xcb) || (m >= 0xcd && m <= 0xcf)) {
+          if (p + 9 >= bytes.length) break;
+          const h = bytes[p + 5] * 256 + bytes[p + 6], w = bytes[p + 7] * 256 + bytes[p + 8];
+          if (w > 0 && h > 0 && w < 20000 && h < 20000) return { w, h };
+          break;
+        }
+        if (m === 0xda) break;
+        p += 2 + len;
+      }
+      return null;
+    }
+    return null;
+  }
+
+  // dataURL -> { bytes, mime } (nur PNG/JPEG; blob:-Refs und URLs → null)
+  function dataUrlBytes(src) {
+    if (typeof src !== 'string' || !src.startsWith('data:')) return null;
+    const comma = src.indexOf(',');
+    if (comma < 0) return null;
+    const head = src.slice(5, comma).toLowerCase();
+    const mime = head.includes('png') ? 'image/png' : head.includes('jpeg') || head.includes('jpg') ? 'image/jpeg' : null;
+    if (!mime) return null;
+    try {
+      const bin = (typeof atob !== 'undefined') ? atob(src.slice(comma + 1)) : Buffer.from(src.slice(comma + 1), 'base64').toString('binary');
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      if (!bytes.length) return null;
+      return { bytes, mime };
+    } catch { return null; }
+  }
+
   /* ---------- Stroke TPL from points ---------- */
   function pointsToTpl(points, width) {
     const fpts = points.map(p => [p.x != null ? p.x : 0, p.y != null ? p.y : 0]);
@@ -1564,19 +1637,26 @@ var GoodNotes = (function () {
   function offsetMsg(dx, dy) { return wmsg([[1, 5, dx || 0], [2, 5, dy || 0]]); }
 
   /* ---------- Build records ---------- */
-  function strokeRecord(uuid, points, color, width) {
+  // alpha < 1 (Marker: 0.35) → Import erkennt highlighter (alpha < 0.95)
+  function strokeRecord(uuid, points, color, width, alpha) {
     const crgb = parseColor(color || '#000000');
+    if (typeof alpha === 'number' && alpha < 1) crgb[3] = Math.max(0, Math.min(1, alpha));
     const tpl = pointsToTpl(points, width || 2.5);
     const parts = [[1, 2, strToBytes(uuid)], [2, 2, bv4n(tpl)], [4, 2, colorMsg(...crgb)]];
     const f7 = wmsg(parts);
     return wmsg([[1, 2, strToBytes(uuid)], [7, 2, f7]]);
   }
-  function textItemPayload(text, { font = 'Helvetica Neue', size = 24, color = '#000000', align = 'left' } = {}) {
+  function textItemPayload(text, { font = 'Helvetica Neue', size = 24, color = '#000000', align = 'left', bold = false, italic = false, underline = false, strike = false } = {}) {
     const crgb = parseColor(color);
-    const m2 = wmsg([[30, 2, strToBytes(font)], [40, 5, size], [3, 2, colorMsg(...crgb)]]);
+    // Fett als Font-Variante (Import: /bold/ im Fontnamen), Rest als Stil-Flags
+    const ff = (bold && !/bold/i.test(font)) ? font + ' Bold' : font;
+    const m2 = [[30, 2, strToBytes(ff)], [40, 5, size], [3, 2, colorMsg(...crgb)]];
+    if (strike) m2.push([1, 0, 1]);
+    if (underline) m2.push([2, 0, 1]);
+    if (italic) m2.push([50, 0, 1]);
     const al = align === 'center' ? 2 : align === 'right' ? 3 : 1;
     const m3 = [[4, 0, al]];
-    const item = [[1, 2, strToBytes(text)], [2, 2, m2], [3, 2, wmsg(m3)]];
+    const item = [[1, 2, strToBytes(text)], [2, 2, wmsg(m2)], [3, 2, wmsg(m3)]];
     return wmsg(item);
   }
   function textRecord(uuid, x, y, w, h, html, runs) {
@@ -1690,7 +1770,7 @@ var GoodNotes = (function () {
   function indexNotesPb(pages) {
     const entries = pages.map((p, i) => {
       const uuid = p.uuid || ('page' + i);
-      const path = 'notes/page' + (i + 1);
+      const path = p.path || ('notes/page' + (i + 1));
       return wmsg([[1, 2, strToBytes(uuid)], [2, 2, strToBytes(path)]]);
     });
     return wdelimited(entries);
@@ -1704,10 +1784,11 @@ var GoodNotes = (function () {
   function exportGoodNotes(book) {
     const title = book.title || 'Federwerk';
     const pages = book.pages || [];
-    const uuids = pages.map((_, i) => 'aaaaaaaa-0000-4000-8000-' + String(i + 1).padStart(12, '0'));
+    const uuids = pages.map(() => uuid4());
     const files = [];
+    const pagePaths = pages.map((_, i) => 'notes/' + uuids[i] + '/page' + (i + 1) + '.pb');
 
-    files.push(['index.notes.pb', indexNotesPb(pages.map((p, i) => ({ uuid: uuids[i], path: 'notes/page' + (i + 1) })))]);
+    files.push(['index.notes.pb', indexNotesPb(pages.map((p, i) => ({ uuid: uuids[i], path: pagePaths[i] })))]);
 
     for (let pi = 0; pi < pages.length; pi++) {
       const page = pages[pi];
@@ -1717,8 +1798,9 @@ var GoodNotes = (function () {
       for (let si = 0; si < (page.strokes || []).length; si++) {
         const s = page.strokes[si];
         if (!s.points || !s.points.length) continue;
-        const su = 'stroke-' + pi + '-' + si;
-        recs.push(strokeRecord(su, s.points, s.color || '#000000', s.size || 2.5));
+        // Marker → Alpha 0.35 (Import: highlighter bei alpha < 0.95)
+        const alpha = (s.highlighter || s.tool === 'marker') ? 0.35 : (typeof s.alpha === 'number' ? s.alpha : 1);
+        recs.push(strokeRecord(uuid4(), s.points, s.color || '#000000', s.size || 2.5, alpha));
       }
 
       for (let ti = 0; ti < (page.texts || []).length; ti++) {
@@ -1727,39 +1809,42 @@ var GoodNotes = (function () {
         if (!runs.length) continue;
         const tx = Math.round((t.x || 0) * 10000) / 10000;
         const ty = Math.round((t.y || 0) * 10000) / 10000;
-        recs.push(textRecord('text-' + pi + '-' + ti, tx, ty, 200, 100, t.html, runs));
+        recs.push(textRecord(uuid4(), tx, ty, 200, 100, t.html, runs));
       }
 
       for (let ii = 0; ii < (page.images || []).length; ii++) {
         const im = page.images[ii];
-        const attUuid = 'img-' + pi + '-' + ii;
-        recs.push(imageRecord('imgrec-' + pi + '-' + ii, attUuid, (im.x || 0) * 1000, (im.y || 0) * 1000, (im.w || 0.5) * 1000, 100));
+        const data = dataUrlBytes(im.src);
+        const attUuid = uuid4();
+        const iw = (im.w || 0.5) * PAGE_W;
+        let ih = iw * 0.75;
+        const dd = data && imageFileDims(data.bytes);
+        if (dd) ih = iw * dd.h / dd.w;
+        recs.push(imageRecord(uuid4(), attUuid, (im.x || 0) * PAGE_W, (im.y || 0) * PAGE_H, iw, ih));
+        files.push(['attachments/' + attUuid, (data && data.bytes) || new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])]);
       }
 
-      if (recs.length) files.push(['notes/page' + (pi + 1), wdelimited(recs)]);
+      // Seiten-Hintergrund (Bild/PDF-Raster) als seitenfüllendes Bild (Contain)
+      const bg = dataUrlBytes(page.bg);
+      if (bg) {
+        const attUuid = uuid4();
+        let bw = PAGE_W, bh = PAGE_H, bx = 0, by = 0;
+        const dd = imageFileDims(bg.bytes);
+        if (dd) {
+          const s = Math.min(PAGE_W / dd.w, PAGE_H / dd.h);
+          bw = dd.w * s; bh = dd.h * s;
+          bx = (PAGE_W - bw) / 2; by = (PAGE_H - bh) / 2;
+        }
+        recs.push(imageRecord(uuid4(), attUuid, bx, by, bw, bh));
+        files.push(['attachments/' + attUuid, bg.bytes]);
+      }
+
+      if (recs.length) files.push([pagePaths[pi], wdelimited(recs)]);
     }
 
     files.push(['index.events.pb', indexEventsPb(title)]);
     files.push(['document.pb', documentPb(title, pages.length)]);
     files.push(['document.info.pb', documentInfoPb(title)]);
-
-    for (let pi = 0; pi < pages.length; pi++) {
-      for (let ii = 0; ii < (pages[pi].images || []).length; ii++) {
-        const im = pages[pi].images[ii];
-        const attUuid = 'img-' + pi + '-' + ii;
-        let imgData = null;
-        if (im.src) {
-          try {
-            if (im.src.startsWith('data:')) {
-              const comma = im.src.indexOf(',');
-              if (comma >= 0) imgData = Uint8Array.from(atob(im.src.slice(comma + 1)), c => c.charCodeAt(0));
-            }
-          } catch { /* ignore */ }
-        }
-        if (!imgData) imgData = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-        files.push(['attachments/' + attUuid, imgData]);
-      }
-    }
 
     files.push(['thumbnail.jpg', makeThumbnail()]);
     files.push(['search/0', new Uint8Array(0)]);
@@ -1768,23 +1853,103 @@ var GoodNotes = (function () {
   }
 
   /* ---------- Parse HTML to runs ---------- */
+  // Extrahiert pro Block einen Run mit Stil (fett/kursiv/unterstrichen/durchgestrichen,
+  // Farbe, Größe, Ausrichtung) – Gegenstück zu runsToHtml (h1→40, h2→32, h3→28).
   function parseHtmlToRuns(html) {
     if (!html) return [];
     const runs = [];
-    const text = stripHtml(html || '');
-    if (!text.trim()) return [];
-    let color = '#000000', size = 24;
-    const parts = text.split('\n').filter(s => s.trim());
-    for (const part of parts) {
-      runs.push({ text: part, color, size });
+    const decodeEnt = s => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+    const base = { bold: false, italic: false, underline: false, strike: false, color: '#000000', size: 24, align: 'left', list: null };
+    let st = { ...base };
+    const stack = [];
+    let cur = { text: '' };
+    const snap = () => ({ ...st });
+    const flush = () => {
+      const t = cur.text;
+      if (t.trim()) runs.push({ text: t, bold: st.bold, italic: st.italic, underline: st.underline, strike: st.strike, color: st.color, size: st.size, align: st.align, list: st.list, font: 'Helvetica Neue' });
+      cur = { text: '' };
+    };
+    const styleOf = tok => {
+      const m = /style\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/.exec(tok);
+      return ((m && (m[2] || m[3] || m[4] || '')) || '').toLowerCase();
+    };
+    const normColor = s => {
+      let m = /color\s*:\s*#([0-9a-f]{6})/.exec(s);
+      if (m) return '#' + m[1];
+      m = /color\s*:\s*rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/.exec(s);
+      if (m) {
+        const hx = v => Math.min(255, Math.max(0, +v)).toString(16).padStart(2, '0');
+        return '#' + hx(m[1]) + hx(m[2]) + hx(m[3]);
+      }
+      return null;
+    };
+    for (const tok of String(html).split(/(<[^>]+>)/g)) {
+      if (!tok) continue;
+      if (tok[0] !== '<') { cur.text += decodeEnt(tok); continue; }
+      const closing = tok[1] === '/';
+      const name = (tok.replace(/[<>/]/g, '').split(/\s+/)[0] || '').toLowerCase();
+      if (name === 'br') { flush(); continue; }
+      if (name === 'ul' || name === 'ol') {
+        flush();
+        if (!closing) { stack.push(snap()); st.list = name === 'ol' ? 'numbered' : 'bullet'; }
+        else if (stack.length) st = stack.pop();
+        continue;
+      }
+      if (name === 'p' || name === 'div' || name === 'li' || name === 'tr' || /^h[1-6]$/.test(name)) {
+        flush();
+        if (!closing) {
+          stack.push(snap());
+          const css = styleOf(tok);
+          if (css) {
+            const c = normColor(css);
+            if (c) st.color = c;
+            const ta = /text-align\s*:\s*(left|center|right)/.exec(css);
+            if (ta) st.align = ta[1];
+            const fs = /font-size\s*:\s*(\d+)\s*px/.exec(css);
+            if (fs) st.size = Math.min(96, Math.max(8, +fs[1]));
+          }
+          if (name === 'h1') st.size = 40;
+          else if (name === 'h2') st.size = 32;
+          else if (name === 'h3') st.size = 28;
+          if (name === 'li' && !st.list) st.list = 'bullet';
+        } else if (stack.length) st = stack.pop();
+        continue;
+      }
+      if (name === 'b' || name === 'strong' || name === 'i' || name === 'em' ||
+          name === 'u' || name === 's' || name === 'strike' || name === 'del' || name === 'span' || name === 'font') {
+        if (!closing) {
+          flush();
+          stack.push(snap());
+          if (name === 'b' || name === 'strong') st.bold = true;
+          if (name === 'i' || name === 'em') st.italic = true;
+          if (name === 'u') st.underline = true;
+          if (name === 's' || name === 'strike' || name === 'del') st.strike = true;
+          const css = styleOf(tok);
+          if (css) {
+            const c = normColor(css);
+            if (c) st.color = c;
+            if (/font-weight\s*:\s*bold/.test(css)) st.bold = true;
+            if (/font-style\s*:\s*italic/.test(css)) st.italic = true;
+            if (/text-decoration\s*:[^;]*underline/.test(css)) st.underline = true;
+            if (/text-decoration\s*:[^;]*line-through/.test(css)) st.strike = true;
+            const fs = /font-size\s*:\s*(\d+)\s*px/.exec(css);
+            if (fs) st.size = Math.min(96, Math.max(8, +fs[1]));
+          }
+        } else {
+          flush();
+          if (stack.length) st = stack.pop();
+        }
+        continue;
+      }
+      // unbekannte Tags: Text behalten, Markup verwerfen
     }
-    if (!runs.length) runs.push({ text: text || '(leerer Text)', color, size });
+    flush();
     return runs;
   }
 
   return {
     parseDocument, mapPage, runsToHtml, exportGoodNotes,
-    _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9, writeZip, strokeRecord, textRecord, imageRecord, metaRecord, indexNotesPb, indexEventsPb, documentPb, documentInfoPb, parseHtmlToRuns, tplEncode, bv4n, lz4Literals, wvarint, wfield, wmsg, wdelimited, concatU8, stripHtml, crc32, makeThumbnail }
+    _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9, writeZip, strokeRecord, textRecord, imageRecord, metaRecord, indexNotesPb, indexEventsPb, documentPb, documentInfoPb, parseHtmlToRuns, tplEncode, bv4n, lz4Literals, wvarint, wfield, wmsg, wdelimited, concatU8, stripHtml, crc32, makeThumbnail, uuid4, imageFileDims, dataUrlBytes, looksLikeUuid }
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = GoodNotes;

@@ -28,14 +28,16 @@ describe('gnexport', () => {
     assert.equal(zip[1], 0x4b); // 'K'
   });
 
-  it('ZIP enthält document.pb, notes/page1, index.notes.pb', async () => {
+  it('ZIP enthält document.pb, notes/<uuid>/page1.pb, index.notes.pb (SPEC-34)', async () => {
     const zip = GoodNotes.exportGoodNotes(smallBook());
     const members = await GNZip.readZip(zip);
     assert.ok(members['document.pb'], 'document.pb fehlt');
     assert.ok(members['index.notes.pb'], 'index.notes.pb fehlt');
-    const pageKeys = Object.keys(members).filter(k => k.startsWith('notes/page'));
-    assert.ok(pageKeys.length >= 1, 'kein notes/page*');
-    assert.ok(members['notes/page1'].length > 0);
+    const pageKeys = Object.keys(members).filter(k => k.startsWith('notes/') && k.endsWith('.pb'));
+    assert.equal(pageKeys.length, 1);
+    const m = /^notes\/([0-9a-f-]{36})\/page1\.pb$/.exec(pageKeys[0]);
+    assert.ok(m, 'Pfad nicht SPEC-34-förmig: ' + pageKeys[0]);
+    assert.ok(members[pageKeys[0]].length > 0);
   });
 
   it('writeZip roundtrip (local headers + central directory)', async () => {
@@ -96,9 +98,13 @@ describe('gnexport', () => {
     };
     const zip = GoodNotes.exportGoodNotes(book);
     const members = await GNZip.readZip(zip);
-    assert.ok(members['attachments/img-0-0'], 'attachments/img-0-0 fehlt, keys: ' + Object.keys(members).join(','));
-    const pageRaw = Buffer.from(members['notes/page1']).toString('latin1');
-    assert.ok(pageRaw.includes('img-0-0'), 'Record verweist nicht auf img-0-0');
+    const attKeys = Object.keys(members).filter(k => k.startsWith('attachments/'));
+    assert.equal(attKeys.length, 1);
+    const attUuid = attKeys[0].slice('attachments/'.length);
+    assert.ok(/^[0-9a-f-]{36}$/.test(attUuid), 'keine UUID: ' + attUuid);
+    const pageKey = Object.keys(members).find(k => k.startsWith('notes/'));
+    const pageRaw = Buffer.from(members[pageKey]).toString('latin1');
+    assert.ok(pageRaw.includes(attUuid), 'Record verweist nicht auf ' + attUuid);
   });
 
   it('stripHtml-Fallback funktioniert in Node ohne ReferenceError', () => {
@@ -150,8 +156,145 @@ describe('gnexport', () => {
     };
     const zip = GoodNotes.exportGoodNotes(book);
     const members = await GNZip.readZip(zip);
-    const att = members['attachments/img-0-0'];
-    assert.ok(att, 'attachments/img-0-0 fehlt');
-    assert.ok(att.length > 100, 'Attachment zu klein/korrupt: ' + att.length);
+    const attKey = Object.keys(members).find(k => k.startsWith('attachments/'));
+    assert.ok(attKey, 'kein Attachment, keys: ' + Object.keys(members).join(','));
+    assert.ok(members[attKey].length > 100, 'Attachment zu klein/korrupt: ' + members[attKey].length);
+  });
+
+  it('marker bleibt marker (alpha 0.35), stift bleibt stift', async () => {
+    const book = {
+      title: 'Marker-Test',
+      pages: [{
+        strokes: [
+          { points: [{ x: 10, y: 10 }, { x: 20, y: 20 }], color: '#000000', size: 3, tool: 'pen' },
+          { points: [{ x: 30, y: 30 }, { x: 40, y: 40 }], color: '#ffff00', size: 9, tool: 'marker' },
+        ],
+        texts: [], images: [],
+      }]
+    };
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(book));
+    const doc = GoodNotes.parseDocument(members, 'fallback');
+    assert.equal(doc.pages[0].strokes.length, 2);
+    assert.equal(doc.pages[0].strokes[0].highlighter, false);
+    assert.equal(doc.pages[0].strokes[1].highlighter, true);
+    const mapped = GoodNotes.mapPage(doc.pages[0]);
+    assert.equal(mapped.strokes[0].tool, 'pen');
+    assert.equal(mapped.strokes[1].tool, 'marker');
+  });
+
+  it('einzelpunkt-stroke (dot) überlebt export→import', async () => {
+    const book = {
+      title: 'Dot-Test',
+      pages: [{ strokes: [{ points: [{ x: 100, y: 200 }], color: '#000000', size: 2.5 }], texts: [], images: [] }]
+    };
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(book));
+    const doc = GoodNotes.parseDocument(members, 'fallback');
+    assert.equal(doc.pages[0].strokes.length, 1);
+    assert.equal(doc.pages[0].strokes[0].points.length, 1);
+    assert.deepEqual(
+      doc.pages[0].strokes[0].points.map(p => [Math.round(p.x), Math.round(p.y)]),
+      [[100, 200]]);
+  });
+
+  it('record-IDs sind UUID-förmig (erased-map, bild-refs)', async () => {
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(smallBook()));
+    const pageKey = Object.keys(members).find(k => k.startsWith('notes/'));
+    const recs = I.decodeDelimited(members[pageKey]);
+    const ids = [];
+    for (const rec of recs) {
+      for (const f of rec.fields) {
+        if (f.n === 1 && f.v instanceof Uint8Array) {
+          const s = Buffer.from(f.v).toString('utf8');
+          if (s) ids.push(s);
+        }
+      }
+    }
+    assert.ok(ids.length >= 2, 'zu wenige IDs: ' + ids.length);
+    for (const id of ids) assert.ok(I.looksLikeUuid(id), 'keine UUID: ' + id);
+  });
+
+  it('textstil überlebt (fett/größe/farbe/ausrichtung)', async () => {
+    const book = {
+      title: 'Stil-Test',
+      pages: [{
+        strokes: [], images: [],
+        texts: [{ x: 0.1, y: 0.1, html: '<h1>Head</h1><p style="text-align:center"><b>Fett</b> und <span style="color:#ff0000">rot</span></p>' }],
+      }]
+    };
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(book));
+    const doc = GoodNotes.parseDocument(members, 'fallback');
+    const runs = doc.pages[0].textBoxes[0].runs;
+    const byText = Object.fromEntries(runs.map(r => [r.text, r]));
+    assert.equal(byText['Head'].size, 40);
+    assert.equal(byText['Fett'].bold, true);
+    assert.equal(byText['Fett'].align, 'center');
+    assert.equal(byText['rot'].color.toLowerCase(), '#ff0000');
+    assert.equal(byText['rot'].align, 'center');
+  });
+
+  it('bildgeometrie: seitenrichtiges Rechteck, seitenverhältnis aus PNG', async () => {
+    const png2x2 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEElEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const book = {
+      title: 'Geo-Test',
+      pages: [{ strokes: [], texts: [], images: [{ x: 0.1, y: 0.2, w: 0.5, src: png2x2 }] }]
+    };
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(book));
+    const doc = GoodNotes.parseDocument(members, 'fallback');
+    assert.equal(doc.pages[0].images.length, 1);
+    const ie = doc.pages[0].images[0].ie;
+    assert.ok(Math.abs(ie.x - 0.1 * 612) < 0.01, 'x=' + ie.x);
+    assert.ok(Math.abs(ie.y - 0.2 * 792) < 0.01, 'y=' + ie.y);
+    assert.ok(Math.abs(ie.w - 0.5 * 612) < 0.01, 'w=' + ie.w);
+    assert.ok(Math.abs(ie.h - ie.w) < 0.01, 'h=' + ie.h + ' (2x2 quadratisch erwartet)');
+  });
+
+  it('seiten-hintergrund wird als bild exportiert und reimportiert', async () => {
+    const png2x2 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEElEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const book = {
+      title: 'BG-Test',
+      pages: [{ strokes: [], texts: [], images: [], bg: png2x2 }]
+    };
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(book));
+    const doc = GoodNotes.parseDocument(members, 'fallback');
+    assert.equal(doc.pages[0].images.length, 1);
+    const ie = doc.pages[0].images[0].ie;
+    assert.ok(Math.abs(ie.w - 612) < 1, 'bg-Breite seitenfüllend erwartet, ist ' + ie.w);
+    assert.ok(ie.h > 0 && ie.h <= 792);
+  });
+
+  it('mehrseiten: index-pfade lösen alle auf, reihenfolge stabil', async () => {
+    const book = {
+      title: 'Multi-Test',
+      pages: [0, 1, 2].map(i => ({
+        strokes: [{ points: [{ x: 10 + i, y: 10 }, { x: 20, y: 20 }], color: '#000000', size: 2 }],
+        texts: [], images: [],
+      })),
+    };
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(book));
+    const idx = I.decodeDelimited(members['index.notes.pb']);
+    const td = new TextDecoder();
+    const paths = idx.map(rec => {
+      for (const f of rec.fields) {
+        if (f.v instanceof Uint8Array) {
+          const s = td.decode(f.v);
+          if (s.startsWith('notes/')) return s;
+        }
+      }
+      return null;
+    });
+    assert.equal(paths.length, 3);
+    for (const p of paths) assert.ok(members[p], 'Index-Pfad fehlt im ZIP: ' + p);
+    const doc = GoodNotes.parseDocument(members, 'fallback');
+    assert.equal(doc.pages.length, 3);
+    assert.deepEqual(doc.pages.map(p => p.strokes.length), [1, 1, 1]);
+  });
+
+  it('imageFileDims: PNG + JPEG, müll → null', () => {
+    const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEElEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+    assert.deepEqual(I.imageFileDims(png), { w: 2, h: 2 });
+    assert.equal(I.imageFileDims(new Uint8Array([1, 2, 3])), null);
+    assert.equal(I.imageFileDims(null), null);
+    const thumb = I.makeThumbnail();
+    assert.deepEqual(I.imageFileDims(thumb), { w: 1, h: 1 });
   });
 });
