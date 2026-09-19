@@ -56,6 +56,8 @@ describe('Tauri-Releasegerüst', () => {
     assert.ok(!/^  push:/m.test(wf), 'kein Push-Trigger (kein Release pro Commit)');
     assert.ok(wf.includes('workflow_call'), 'wiederverwendbar für auto-release.yml');
     assert.ok(wf.includes('inputs.tag'), 'Tag-Auflösung nutzt inputs.tag (Call-Pfad)');
+    assert.ok(wf.includes('tauri-action@v0'), 'existierende tauri-action-Version (v0)');
+    assert.ok(!wf.includes('tauri-action@v2'), 'keine nichtexistente tauri-action@v2');
     for (const needle of ['deb', 'AppImage', 'rpm', 'windows', 'apk', 'latest.json', 'TAURI_SIGNING_PRIVATE_KEY']) {
       assert.ok(wf.toLowerCase().includes(needle.toLowerCase()), `Workflow enthält ${needle}`);
     }
