@@ -31,7 +31,7 @@ pub fn run() {
                                     return;
                                 }
                                 eprintln!("Federwerk-Update v{version} installiert – starte neu …");
-                                handle.restart();
+                                handle.request_restart();
                             }
                             Ok(None) => eprintln!("Federwerk ist aktuell."),
                             Err(e) => eprintln!("Update-Check fehlgeschlagen (offline?): {e}"),

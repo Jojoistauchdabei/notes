@@ -26,6 +26,17 @@ writeJSON('package.json', (j) => { j.version = version; });
 writeJSON('manifest.webmanifest', (j) => { j.version = version; });
 writeJSON('src-tauri/tauri.conf.json', (j) => { j.version = version; });
 
+// Sichtbarer Versions-Tag in index.html (nur Versionsnummer, BUILD-Datum bleibt)
+{
+  const raw = fs.readFileSync('index.html', 'utf8');
+  const re = /(<span class="version-tag"[^>]*>v)\d+\.\d+\.\d+/;
+  if (!re.test(raw)) {
+    console.error('index.html: kein version-tag gefunden.');
+    process.exit(1);
+  }
+  fs.writeFileSync('index.html', raw.replace(re, `$1${version}`));
+}
+
 let cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
 if (!/^version = ".*"$/m.test(cargo)) {
   console.error('src-tauri/Cargo.toml: keine version-Zeile gefunden.');

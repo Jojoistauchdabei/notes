@@ -122,9 +122,11 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Secret CLOUDFLARE_API_TOKEN fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Secret CLOUDFLARE_ACCOUNT_ID fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
 
-      - name: Deploy-Verzeichnis bauen (nur öffentliche Dateien, nicht eingecheckt)
+      - name: Deploy-Verzeichnis bauen + Version stempeln (nicht eingecheckt)
         if: steps.gate.outputs.wanted == 'true'
-        run: npm run build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: npm run release-web
 
       - name: Auf Cloudflare deployen (wrangler.toml → Worker „notes", wrangler@4)
         if: steps.gate.outputs.wanted == 'true'

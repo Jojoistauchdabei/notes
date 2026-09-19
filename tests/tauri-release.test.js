@@ -67,10 +67,11 @@ describe('Tauri-Releasegerüst', () => {
     const ignore = read('.gitignore');
     assert.ok(/^dist\/$/m.test(ignore), '.gitignore ignoriert dist/');
     const release = read('.github/workflows/release.yml');
-    assert.ok(release.includes('npm run build'), 'release.yml baut dist/ frisch');
+    assert.ok(release.includes('npm run release-web'), 'release.yml baut + stempelt dist/ frisch');
     assert.ok(release.includes('-web.zip'), 'release.yml hängt Web-ZIP ans Release');
     assert.ok(release.includes('gh release upload'), 'release.yml lädt ZIP hoch');
     const auto = read('.github/workflows/auto-release.yml');
+    assert.ok(auto.includes('npm run release-web'), 'auto-release.yml baut + stempelt dist/ frisch');
     assert.ok(auto.includes('-web.zip'), 'auto-release.yml lädt Web-ZIP hoch');
     assert.ok(auto.includes('uses: ./.github/workflows/tauri.yml'), 'auto-release.yml ruft Tauri-Workflow auf');
   });
@@ -81,5 +82,36 @@ describe('Tauri-Releasegerüst', () => {
     assert.ok(!auto.includes('[release]'), 'kein [release]-Marker mehr nötig');
     assert.ok(auto.includes('[skip release]'), 'Opt-out per [skip release]');
     assert.ok(auto.includes('hochzählen') || auto.includes('v[2]++') || auto.includes('v[2]++;'), 'Auto-Patch-Bump bei belegtem Tag');
+  });
+
+  it('Versions-Injektion: release-web stempelt dist/ (Anzeige, Manifest, SW-Cache)', () => {
+    const pkg = JSON.parse(read('package.json'));
+    assert.ok(pkg.scripts['release-web'].includes('inject-version'), 'release-web nutzt inject-version.js');
+    const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
+    assert.equal(conf.build.beforeBuildCommand, 'npm run release-web', 'Tauri baut mit Stempelung');
+    const { execFileSync } = require('node:child_process');
+    const os = require('node:os');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fw-inject-'));
+    const d = path.join(tmp, 'dist');
+    fs.mkdirSync(d);
+    fs.writeFileSync(path.join(d, 'index.html'), '<span class="version-tag">v0.0.0 · BUILD x</span>');
+    fs.writeFileSync(path.join(d, 'manifest.webmanifest'), '{"version": "0.0.0"}');
+    fs.writeFileSync(path.join(d, 'sw.js'), "const CACHE = 'federwerk-v0.0.0';");
+    execFileSync('node', [path.join(root, 'scripts/inject-version.js')], {
+      env: { ...process.env, VERSION: '9.9.9', DIST_DIR: d },
+    });
+    assert.ok(fs.readFileSync(path.join(d, 'index.html'), 'utf8').includes('>v9.9.9 · BUILD x<'), 'version-tag gestempelt');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(d, 'manifest.webmanifest'), 'utf8')).version, '9.9.9', 'manifest gestempelt');
+    assert.ok(fs.readFileSync(path.join(d, 'sw.js'), 'utf8').includes("'federwerk-v9.9.9'"), 'sw-cache gestempelt');
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('tauri.yml: Windows-sicher + Android ohne Fremd-Action', () => {
+    const wf = read('.github/workflows/tauri.yml');
+    assert.ok(wf.includes('shell: bash'), 'Bash-Shell gegen PowerShell-Quoting');
+    assert.ok(wf.includes('npm run sync-version'), 'Versionssync über Skript');
+    assert.ok(!wf.includes('setup-android'), 'kein setup-android (vorinstalliertes SDK)');
+    assert.ok(wf.includes('ANDROID_SDK_ROOT'), 'nutzt vorinstalliertes Android-SDK');
+    assert.ok(wf.includes('npm run release-web'), 'Frontend mit Versionsstempel');
   });
 });

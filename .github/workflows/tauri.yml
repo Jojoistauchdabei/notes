@@ -1,10 +1,9 @@
 name: Tauri – Linux / Windows / Android
 
-# Beste Commit-Logik (kein Release pro Commit):
-# - Normale Commits auf main → nur CI-Tests, KEIN Build hier.
-# - Erst wenn ein GitHub Release veröffentlicht wird (via auto-release.yml:
-#   Push mit [release] oder manueller Dispatch → Tag vX.Y.Z + Release),
-#   hängt dieser Workflow die nativen Installer an dasselbe Release:
+# Release-Logik: Dieser Workflow hängt Installer an ein bestehendes Release –
+# ausgelöst durch ein veröffentlichtes Release, manuell per Dispatch oder als
+# wiederverwendbarer Workflow von auto-release.yml (per GITHUB_TOKEN erstellte
+# Releases lösen sonst keine weiteren Läufe aus; jeder Main-Push erzeugt eins):
 #     Linux: .deb, .AppImage, .rpm (+ Updater-Signaturen)
 #     Windows: -setup.exe (NSIS), .msi (+ Updater-Signaturen)
 #     Android: universelles .apk (GitHub-Verteilung, kein Play Store)
@@ -92,27 +91,18 @@ jobs:
           - platform: windows-latest
             args: ''
     runs-on: ${{ matrix.platform }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - name: Release-Tag auschecken
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.version.outputs.tag }}
 
-      - name: Version synchronisieren (package.json ↔ tauri.conf.json ↔ Cargo.toml)
-        run: |
-          node -e "
-            const fs = require('fs');
-            const v = '${{ needs.version.outputs.version }}';
-            for (const f of ['package.json', 'src-tauri/tauri.conf.json']) {
-              const j = JSON.parse(fs.readFileSync(f, 'utf8'));
-              j.version = v;
-              fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
-            }
-            let cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
-            cargo = cargo.replace(/^version = \".*\"/m, 'version = \"' + v + '\"');
-            fs.writeFileSync('src-tauri/Cargo.toml', cargo);
-            console.log('Version auf ' + v + ' synchronisiert');
-          "
+      # Einheitlich via Skript (kein Inline-JS → kein PowerShell-Quoting-Problem)
+      - name: Version synchronisieren (package.json ↔ Manifest ↔ Tauri ↔ Cargo)
+        shell: bash
+        run: npm run sync-version
 
       - name: Node einrichten
         uses: actions/setup-node@v4
@@ -128,8 +118,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Web-Frontend bauen
-        run: npm run build
+      - name: Web-Frontend bauen + Version stempeln
+        run: npm run release-web
 
       - name: Tauri bauen + an Release hängen (inkl. latest.json für Autoupdate)
         uses: tauri-apps/tauri-action@v0
@@ -150,26 +140,16 @@ jobs:
     name: Android-APK
     needs: version
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - name: Release-Tag auschecken
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.version.outputs.tag }}
 
-      - name: Version synchronisieren
-        run: |
-          node -e "
-            const fs = require('fs');
-            const v = '${{ needs.version.outputs.version }}';
-            for (const f of ['package.json', 'src-tauri/tauri.conf.json']) {
-              const j = JSON.parse(fs.readFileSync(f, 'utf8'));
-              j.version = v;
-              fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
-            }
-            let cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
-            cargo = cargo.replace(/^version = \".*\"/m, 'version = \"' + v + '\"');
-            fs.writeFileSync('src-tauri/Cargo.toml', cargo);
-          "
+      - name: Version synchronisieren (package.json ↔ Manifest ↔ Tauri ↔ Cargo)
+        run: npm run sync-version
 
       - name: Node einrichten
         uses: actions/setup-node@v4
@@ -182,18 +162,29 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Android-SDK einrichten
-        uses: android-actions/setup-android@v3
+      # Keine SDK-Fremd-Action: Das SDK liegt auf ubuntu-Runnern vorinstalliert
+      # vor (ANDROID_SDK_ROOT) – direkt prüfen + benötigte Pakete nachinstallieren.
+      - name: Android-SDK prüfen (vorinstalliert)
+        run: |
+          : "${ANDROID_HOME:=$ANDROID_SDK_ROOT}"
+          test -n "$ANDROID_HOME" || { echo "::error::Kein Android-SDK auf dem Runner gefunden."; exit 1; }
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          echo "PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH" >> "$GITHUB_ENV"
+          echo "--- SDK-Inhalt ---"
+          ls "$ANDROID_HOME/cmdline-tools"
+          which sdkmanager java
 
       - name: Rust-Ziele für Android + NDK
         run: |
           rustup toolchain install stable --profile minimal
           rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          yes | sdkmanager --licenses > /dev/null || true
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.11902868"
-          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.0.11902868" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.11902868" >> "$GITHUB_ENV"
 
-      - name: Web-Frontend bauen
-        run: npm run build
+      - name: Web-Frontend bauen + Version stempeln
+        run: npm run release-web
 
       - name: Android-Projekt initialisieren (falls neu)
         run: |
