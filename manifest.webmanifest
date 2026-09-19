@@ -1,6 +1,6 @@
 {
-  "name": "Grimoire – Notizbuch im D&D-Stil",
-  "short_name": "Grimoire",
+  "name": "Federwerk – Notizbuch im D&D-Stil",
+  "short_name": "Federwerk",
   "description": "Handschrift-Notizbuch im D&D-Papier-Stil: Stift, Marker, Texteditor, Bilder, Seiten.",
   "lang": "de",
   "version": "1.7.0",
@@ -15,7 +15,7 @@
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ],
   "screenshots": [
-    { "src": "screenshots/preview-wide.png", "sizes": "1280x720", "type": "image/png", "form_factor": "wide", "label": "Grimoire – Bibliothek und Notizseite" },
-    { "src": "screenshots/preview-narrow.png", "sizes": "768x1366", "type": "image/png", "form_factor": "narrow", "label": "Grimoire – Notizseite auf dem Smartphone" }
+    { "src": "screenshots/preview-wide.png", "sizes": "1280x720", "type": "image/png", "form_factor": "wide", "label": "Federwerk – Bibliothek und Notizseite" },
+    { "src": "screenshots/preview-narrow.png", "sizes": "768x1366", "type": "image/png", "form_factor": "narrow", "label": "Federwerk – Notizseite auf dem Smartphone" }
   ]
 }

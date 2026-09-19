@@ -8,18 +8,19 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Grimoire">
+  <meta name="apple-mobile-web-app-title" content="Federwerk">
+  <link rel="icon" type="image/svg+xml" href="icons/logo.svg">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>📜 Grimoire – Notizbuch</title>
+  <title>Federwerk – Dein digitales Notizbuch</title>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>📜 GRIMOIRE</h1>
+      <h1><img class="brand-logo" src="icons/logo.svg" alt="" width="52" height="52"><span><span class="brand-name">Federwerk</span><span class="brand-tagline">Gedanken von deiner Hand.</span></span></h1>
       <div class="header-buttons">
         <div class="header-group">
           <button class="btn-export" onclick="exportAllJSON()" aria-label="Exportiere alle Bücher als JSON">⬇ Export</button>
@@ -41,7 +42,7 @@
     <div class="view active" id="viewLibrary">
       <div class="box">
         <div class="search-bar no-print">
-          <input type="text" id="librarySearch" placeholder="Suchen: Text, tag:#x, file:Titel, &quot;Phrase&quot;, -aus, A OR B ..." oninput="renderLibrary()" aria-label="Grimoire durchsuchen">
+          <input type="text" id="librarySearch" placeholder="Suchen: Text, tag:#x, file:Titel, &quot;Phrase&quot;, -aus, A OR B ..." oninput="renderLibrary()" aria-label="Federwerk durchsuchen">
           <button onclick="openGraphOverlay()" style="white-space:nowrap" aria-label="Graph-Ansicht öffnen">◈ Graph</button>
           <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
         </div>
@@ -49,7 +50,7 @@
         <div class="library-grid" id="libraryGrid"></div>
       </div>
       <div class="box">
-        <div class="section-title">Über dieses Grimoire</div>
+        <div class="section-title">Über Federwerk</div>
         <div style="font-size:14px">Handschrift-Notizbuch im D&D-Papier-Stil: Stift, Marker, Radierer, Textboxen (mit dem Texteditor aus dem DND-Repo), Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ WebDAV-Sync</b> (z. B. Nextcloud), komplett im Browser – siehe ☁⚙.</div>
       </div>
       <div class="box">
@@ -60,21 +61,18 @@
       </div>
     </div>
 
-    <!-- ARBEITSBEREICH -->
+    <!-- ARBEITSBEREICH (Split-Screen: 2 Dokumente in einem Fenster) -->
     <div class="view" id="viewBook">
       <div class="box no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="inactive" onclick="showLibrary()" aria-label="Zurück zur Bibliothek">← Bibliothek</button>
-        <input type="text" id="bookTitle" onchange="renameBook(this.value)" style="max-width:260px;flex:1" placeholder="Buchtitel" aria-label="Buchtitel">
-        <select id="paperSelect" onchange="setPaper(this.value)" style="max-width:160px;flex:0 0 auto" aria-label="Papierart wählen">
-          <option value="">Blanko</option>
-          <option value="lined">Liniert</option>
-          <option value="grid">Kariert</option>
-        </select>
-        <button class="mini-button" onclick="addPage()" aria-label="Neue Seite hinzufügen">+ Seite</button>
-        <button class="mini-button" onclick="duplicatePage()" aria-label="Seite duplizieren">Duplizieren</button>
-        <button class="mini-button" onclick="deletePage()" aria-label="Seite löschen">Seite löschen</button>
-        <button class="mini-button" onclick="exportPagePNG()" aria-label="Seite als PNG exportieren">PNG</button>
-        <button class="mini-button" onclick="clearPageBg()" aria-label="Hintergrund entfernen">HG entfernen</button>
+        <span style="flex:1"></span>
+        <button class="mini-button" id="splitToggle" onclick="toggleSplit()" aria-label="Split-Screen umschalten" title="Zweites Dokument daneben öffnen">⇉ Split</button>
+        <button class="mini-button" id="splitSwap" onclick="swapSplitPanes()" aria-label="Panes tauschen" title="Linke/rechte Seite tauschen" style="display:none">⇄ Tauschen</button>
+        <button class="mini-button" id="splitClose" onclick="closeSplit()" aria-label="Split schließen" title="Zweiten Bereich schließen" style="display:none">✕ Split zu</button>
+        <label style="display:none;align-items:center;gap:6px;margin:0" id="splitRatioWrap" title="Breitenverhältnis">
+          <span style="font-size:11px">Breite</span>
+          <input type="range" id="splitRatio" min="20" max="80" value="50" oninput="setSplitRatio(this.value / 100)" style="width:90px" aria-label="Breitenverhältnis der Panes">
+        </label>
       </div>
 
       <div class="toolbar box no-print" role="toolbar" aria-label="Werkzeugleiste">
@@ -117,22 +115,80 @@
         </div>
       </div>
 
-      <div class="work-layout">
-        <div class="page-rail no-print" id="pageRail"></div>
-        <div>
-          <div class="stage-wrap">
-            <div class="stage" id="stage">
-              <div id="bgLayer"></div>
-              <canvas id="drawCanvas"></canvas>
-              <canvas id="overlayCanvas"></canvas>
-              <div class="img-layer" id="imgLayer"></div>
-              <div class="text-layer" id="textLayer"></div>
+      <div class="split-container" id="splitContainer">
+        <div class="split-pane" id="pane0" data-pane="0" onclick="setActivePane(0)">
+          <div class="box no-print pane-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select id="bookSelect" onchange="openBookInPane(this.value, 0)" style="max-width:220px;flex:1" aria-label="Dokument im linken Bereich wählen"></select>
+            <input type="text" id="bookTitle" onchange="renameBook(this.value)" style="max-width:200px;flex:1" placeholder="Buchtitel" aria-label="Buchtitel">
+            <select id="paperSelect" onchange="setPaper(this.value)" style="max-width:130px;flex:0 0 auto" aria-label="Papierart wählen">
+              <option value="">Blanko</option>
+              <option value="lined">Liniert</option>
+              <option value="grid">Kariert</option>
+            </select>
+            <button class="mini-button" onclick="addPageInPane(0,event)" aria-label="Neue Seite hinzufügen">+ Seite</button>
+            <button class="mini-button" onclick="duplicatePageInPane(0,event)" aria-label="Seite duplizieren">Duplizieren</button>
+            <button class="mini-button" onclick="deletePageInPane(0,event)" aria-label="Seite löschen">Seite löschen</button>
+            <button class="mini-button" onclick="exportPagePNGInPane(0,event)" aria-label="Seite als PNG exportieren">PNG</button>
+            <button class="mini-button" onclick="clearPageBgInPane(0,event)" aria-label="Hintergrund entfernen">HG entfernen</button>
+          </div>
+          <div class="work-layout">
+            <div class="page-rail no-print" id="pageRail"></div>
+            <div>
+              <div class="stage-wrap">
+                <div class="stage" id="stage">
+                  <div id="bgLayer"></div>
+                  <canvas id="drawCanvas"></canvas>
+                  <canvas id="overlayCanvas"></canvas>
+                  <div class="img-layer" id="imgLayer"></div>
+                  <div class="text-layer" id="textLayer"></div>
+                </div>
+              </div>
+              <div class="status-line no-print">
+                <span id="statusPage">Seite 1/1</span>
+                <span id="statusTool">✒ Stift</span>
+                <span id="statusSave">💾 gespeichert</span>
+                <span class="pane-badge" id="paneBadge0">● aktiv</span>
+              </div>
             </div>
           </div>
-          <div class="status-line no-print">
-            <span id="statusPage">Seite 1/1</span>
-            <span id="statusTool">✒ Stift</span>
-            <span id="statusSave">💾 gespeichert</span>
+        </div>
+        <div class="split-divider no-print" id="splitDivider" style="display:none" title="Ziehen zum Anpassen der Breite">
+          <div class="split-divider-grip" aria-hidden="true">⋮</div>
+        </div>
+        <div class="split-pane" id="pane1" data-pane="1" onclick="setActivePane(1)" style="display:none">
+          <div class="box no-print pane-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select id="bookSelectB" onchange="openBookInPane(this.value, 1)" style="max-width:220px;flex:1" aria-label="Dokument im rechten Bereich wählen"></select>
+            <input type="text" id="bookTitleB" onchange="renameBookInPane(this.value, 1)" style="max-width:200px;flex:1" placeholder="Buchtitel" aria-label="Buchtitel rechter Bereich">
+            <select id="paperSelectB" onchange="setPaperInPane(this.value, 1)" style="max-width:130px;flex:0 0 auto" aria-label="Papierart wählen rechter Bereich">
+              <option value="">Blanko</option>
+              <option value="lined">Liniert</option>
+              <option value="grid">Kariert</option>
+            </select>
+            <button class="mini-button" onclick="addPageInPane(1,event)" aria-label="Neue Seite hinzufügen rechter Bereich">+ Seite</button>
+            <button class="mini-button" onclick="duplicatePageInPane(1,event)" aria-label="Seite duplizieren rechter Bereich">Duplizieren</button>
+            <button class="mini-button" onclick="deletePageInPane(1,event)" aria-label="Seite löschen rechter Bereich">Seite löschen</button>
+            <button class="mini-button" onclick="exportPagePNGInPane(1,event)" aria-label="Seite als PNG exportieren rechter Bereich">PNG</button>
+            <button class="mini-button" onclick="clearPageBgInPane(1,event)" aria-label="Hintergrund entfernen rechter Bereich">HG entfernen</button>
+            <button class="mini-button" onclick="closeSplit(event)" aria-label="Rechten Bereich schließen">✕</button>
+          </div>
+          <div class="work-layout">
+            <div class="page-rail no-print" id="pageRailB"></div>
+            <div>
+              <div class="stage-wrap">
+                <div class="stage" id="stageB">
+                  <div id="bgLayerB"></div>
+                  <canvas id="drawCanvasB"></canvas>
+                  <canvas id="overlayCanvasB"></canvas>
+                  <div class="img-layer" id="imgLayerB"></div>
+                  <div class="text-layer" id="textLayerB"></div>
+                </div>
+              </div>
+              <div class="status-line no-print">
+                <span id="statusPageB">Seite 1/1</span>
+                <span id="statusToolB">✒ Stift</span>
+                <span class="pane-badge" id="paneBadge1">● aktiv</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -272,6 +328,7 @@
   </div>
 
   <script src="js/pencil.js"></script>
+  <script src="js/split.js"></script>
   <script src="js/markdown.js"></script>
   <script src="js/editor.js"></script>
   <script src="js/gnzip.js"></script>

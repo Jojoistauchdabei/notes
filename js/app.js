@@ -30,6 +30,55 @@ let saveTimer = null;
 // SPEC-25: Scribble-Trail (Radierer) für Scribble-Erase
 let eraseTrail = null;
 
+/* ---------- Split-Screen: 2 Dokumente in einem Fenster ---------- */
+// Aktiver Pane besitzt die globalen undo/selected/drawing-Stapel; beim Wechsel
+// werden sie in paneUI geparkt (sequentielles Editieren, kein Parallel-Draw).
+let split = (typeof GrimoireSplit !== 'undefined')
+  ? GrimoireSplit.createSplitState()
+  : { enabled: false, active: 0, ratio: 0.5, panes: [{ bookId: null, pageId: null }, { bookId: null, pageId: null }] };
+let paneUI = [
+  { undo: [], redo: [], selBox: null, selImg: null },
+  { undo: [], redo: [], selBox: null, selImg: null },
+];
+let editorPaneIdx = 0;
+function splitApi() { return (typeof GrimoireSplit !== 'undefined') ? GrimoireSplit : null; }
+function activePaneIdx() { return (split && split.active === 1) ? 1 : 0; }
+function splitEnabled() { const api = splitApi(); return api ? api.isEnabled(split) : !!split.enabled; }
+function paneSuffix(i) { return i === 1 ? 'B' : ''; }
+function eid(base, idx) { return base + paneSuffix(idx == null ? activePaneIdx() : idx); }
+function paneBookId(i) {
+  const p = split && split.panes && split.panes[i === 1 ? 1 : 0];
+  if (p && p.bookId) return p.bookId;
+  if ((i || 0) === 0) return state.openBookId;
+  return null;
+}
+function panePageId(i) {
+  const p = split && split.panes && split.panes[i === 1 ? 1 : 0];
+  if (p && p.pageId) return p.pageId;
+  if ((i || 0) === 0) return state.openPageId;
+  return null;
+}
+function paneBook(i) {
+  const id = paneBookId(i);
+  return state.books.find(b => b.id === id) || null;
+}
+function panePage(i) {
+  const b = paneBook(i); if (!b) return null;
+  const pid = panePageId(i);
+  return b.pages.find(p => p.id === pid) || b.pages[0] || null;
+}
+function syncSplitToState() {
+  // Pane 0 bleibt die Quelle für state.open* (Kompat: Export, Cloud, alte Pfade).
+  try {
+    if (split && split.panes && split.panes[0]) {
+      if (split.panes[0].bookId) state.openBookId = split.panes[0].bookId;
+      if (split.panes[0].pageId) state.openPageId = split.panes[0].pageId;
+    }
+    const api = splitApi();
+    if (api) state.split = api.serialize(split);
+  } catch { /* ignore */ }
+}
+
 const $ = id => document.getElementById(id);
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -52,6 +101,7 @@ function load() {
 }
 function persistNow() {
   try {
+    syncSplitToState();
     if (typeof GrimoireStore !== 'undefined') {
       GrimoireStore.saveNow(state).catch(() => setSaveStatus('⚠ Speichern fehlgeschlagen'));
       setSaveStatus('💾 gespeichert');
@@ -83,12 +133,15 @@ function newBook(title, withStarter) {
   }
   return b;
 }
-function openBook() { return state.books.find(b => b.id === state.openBookId) || null; }
+function openBook() { return paneBook(activePaneIdx()) || state.books.find(b => b.id === state.openBookId) || null; }
 function currentPage() {
+  const p = panePage(activePaneIdx());
+  if (p) return p;
   const b = openBook(); if (!b) return null;
-  return b.pages.find(p => p.id === state.openPageId) || b.pages[0] || null;
+  return b.pages.find(x => x.id === state.openPageId) || b.pages[0] || null;
 }
 function touchBook() { const b = openBook(); if (b) b.updatedAt = Date.now(); }
+function touchPaneBook(i) { const b = paneBook(i); if (b) b.updatedAt = Date.now(); }
 
 /* ---------- Bibliothek ---------- */
 function showLibrary() {
@@ -96,16 +149,51 @@ function showLibrary() {
   $('viewBook').classList.remove('active');
   renderLibrary();
 }
-function openBookView(id, pageId) {
-  state.openBookId = id;
-  const b = openBook();
-  state.openPageId = pageId || (b.pages[0] && b.pages[0].id);
-  undoStack = []; redoStack = []; selectedBox = null; selectedImg = null;
+function openBookView(id, pageId, paneIdx) {
+  const api = splitApi();
+  const target = (paneIdx === 1 || paneIdx === 0) ? paneIdx : activePaneIdx();
+  const b = state.books.find(x => x.id === id);
+  if (!b) return;
+  const pid = pageId || (b.pages[0] && b.pages[0].id);
+  parkActiveUI();
+  if (api) api.setPaneDoc(split, target, id, pid);
+  else { split.panes[target] = { bookId: id, pageId: pid }; }
+  if (paneUI[target]) { paneUI[target].undo = []; paneUI[target].redo = []; paneUI[target].selBox = null; paneUI[target].selImg = null; }
+  if (target === 0) { state.openBookId = id; state.openPageId = pid; }
+  setActivePane(target, true);
   $('viewLibrary').classList.remove('active');
   $('viewBook').classList.add('active');
-  $('bookTitle').value = b.title;
-  $('paperSelect').value = b.paper || '';
-  syncToolbar(); renderAll();
+  syncSplitToState();
+  syncToolbar(); renderAll(); persistSoon();
+}
+function openBookInPane(id, paneIdx) {
+  if (!id) return;
+  const b = state.books.find(x => x.id === id);
+  if (!b) return;
+  openBookView(id, b.pages[0] && b.pages[0].id, paneIdx === 1 ? 1 : 0);
+}
+/* Bibliothek: Buch direkt im rechten Split-Bereich öffnen (ohne Fenster) */
+function openBookInSplit(id, ev) {
+  if (ev) ev.stopPropagation();
+  const b = state.books.find(x => x.id === id);
+  if (!b) return;
+  const api = splitApi();
+  if (!splitEnabled()) {
+    if (api) api.enableSplit(split, id, b.pages[0] && b.pages[0].id);
+    else { split.enabled = true; split.panes[1] = { bookId: id, pageId: b.pages[0] && b.pages[0].id }; }
+    if (paneUI[1]) { paneUI[1].undo = []; paneUI[1].redo = []; paneUI[1].selBox = null; paneUI[1].selImg = null; }
+    if (!paneBookId(0)) {
+      if (api) api.setPaneDoc(split, 0, state.openBookId, state.openPageId);
+      else split.panes[0] = { bookId: state.openBookId, pageId: state.openPageId };
+    }
+    syncSplitToState();
+    $('viewLibrary').classList.remove('active');
+    $('viewBook').classList.add('active');
+    applySplitLayout(); renderAll(); persistSoon();
+    setActivePane(1, true);
+  } else {
+    openBookView(id, b.pages[0] && b.pages[0].id, 1);
+  }
 }
 function createNotebook() {
   const b = newBook('Neues Buch ' + (state.books.length + 1));
@@ -117,7 +205,17 @@ function deleteBook(id, ev) {
   if (ev) ev.stopPropagation();
   if (!confirm('Buch wirklich löschen?')) return;
   state.books = state.books.filter(b => b.id !== id);
-  persistNow(); renderLibrary();
+  // Split-Panes auf Fallback umhängen (sonst leere Bereiche)
+  try {
+    const api = splitApi();
+    const fb = state.books[0] || null;
+    const fallback = fb ? { bookId: fb.id, pageId: fb.pages[0] && fb.pages[0].id } : { bookId: null, pageId: null };
+    if (api) api.handleBookDeleted(split, id, fallback);
+    else split.panes.forEach(p => { if (p && p.bookId === id) { p.bookId = fallback.bookId; p.pageId = fallback.pageId; } });
+    if (state.openBookId === id) { state.openBookId = fallback.bookId; state.openPageId = fallback.pageId; }
+    syncSplitToState();
+  } catch { /* ignore */ }
+  persistNow(); renderLibrary(); renderAll();
   // Cloud-Propagierung (fire-and-forget, nur wenn konfiguriert)
   try {
     if (typeof GrimoireCloud !== 'undefined' && GrimoireCloud.isConfigured()) {
@@ -137,10 +235,133 @@ function duplicateBook(id, ev) {
   state.books.unshift(copy);
   persistNow(); renderLibrary();
 }
-function renameBook(v) { const b = openBook(); if (!b) return; b.title = v || 'Unbenannt'; touchBook(); persistSoon(); }
+function renameBook(v) { const b = openBook(); if (!b) return; b.title = v || 'Unbenannt'; touchBook(); persistSoon(); syncPaneChrome(activePaneIdx()); syncBookSelects(); }
 // SPEC-31: book.lang bleibt beim Umbenennen erhalten; Sprachwechsel später
 // im Buch-Dialog (z. B. <select>), V1 nur per GrimoireInkIndex.setBookLang().
-function setPaper(v) { const b = openBook(); if (!b) return; b.paper = v; touchBook(); persistSoon(); applyPaper(); }
+function setPaper(v) { const b = openBook(); if (!b) return; b.paper = v; touchBook(); persistSoon(); renderAll(); }
+
+/* ---------- Split-Steuerung (2 Dokumente, 1 Fenster) ---------- */
+function parkActiveUI() {
+  const i = activePaneIdx();
+  if (paneUI[i]) { paneUI[i].undo = undoStack; paneUI[i].redo = redoStack; paneUI[i].selBox = selectedBox; paneUI[i].selImg = selectedImg; }
+}
+function unparkActiveUI() {
+  const i = activePaneIdx();
+  const ui = paneUI[i] || { undo: [], redo: [], selBox: null, selImg: null };
+  undoStack = ui.undo || []; redoStack = ui.redo || [];
+  selectedBox = ui.selBox || null; selectedImg = ui.selImg || null;
+}
+function setActivePane(i, silent) {
+  const next = (i === 1) ? 1 : 0;
+  if (split && split.active === next && !silent) { applySplitLayout(); return next; }
+  if (!splitEnabled() && next === 1) return 0;
+  parkActiveUI();
+  if (splitApi()) splitApi().setActive(split, next);
+  else split.active = next;
+  drawing = null; eraseTrail = null;
+  try { const oc = $('overlayCanvas'); if (oc) oc.getContext('2d').clearRect(0, 0, CANVAS_W, CANVAS_H); } catch { /* ignore */ }
+  try { const ocB = $('overlayCanvasB'); if (ocB) ocB.getContext('2d').clearRect(0, 0, CANVAS_W, CANVAS_H); } catch { /* ignore */ }
+  unparkActiveUI();
+  editorPaneIdx = next;
+  syncSplitToState();
+  applySplitLayout(); syncToolbar(); renderAll();
+  if (!silent) persistSoon();
+  return next;
+}
+function toggleSplit(ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  const api = splitApi();
+  if (!splitEnabled()) {
+    // Zweites Dokument: anderes Buch als Pane 0, sonst aktuelles dupliziert
+    const other = state.books.find(b => b.id !== paneBookId(0)) || paneBook(0);
+    const bid = other ? other.id : null;
+    const bObj = other || null;
+    const pid = bObj ? (bObj.pages[0] && bObj.pages[0].id) : null;
+    if (api) api.enableSplit(split, bid, pid);
+    else { split.enabled = true; split.panes[1] = { bookId: bid, pageId: pid }; }
+    if (paneUI[1]) { paneUI[1].undo = []; paneUI[1].redo = []; paneUI[1].selBox = null; paneUI[1].selImg = null; }
+    syncSplitToState(); applySplitLayout(); renderAll(); persistSoon();
+    setActivePane(1, true);
+  } else {
+    closeSplit(ev);
+  }
+}
+function closeSplit(ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  const api = splitApi();
+  parkActiveUI();
+  // Offenen Pane behalten: wer aktiv ist, überlebt
+  const keep = activePaneIdx();
+  if (api) api.disableSplit(split, keep);
+  else { split.enabled = false; split.active = 0; }
+  // Falls Pane 1 aktiv war, dessen Doku nach Pane 0 übernehmen (disableSplit tut das)
+  if (keep === 0 && split.panes && split.panes[0]) { state.openBookId = split.panes[0].bookId; state.openPageId = split.panes[0].pageId; }
+  else if (split.panes && split.panes[0]) { state.openBookId = split.panes[0].bookId; state.openPageId = split.panes[0].pageId; }
+  if (keep === 1 && paneUI[1]) { paneUI[0] = { undo: paneUI[1].undo || [], redo: paneUI[1].redo || [], selBox: paneUI[1].selBox || null, selImg: paneUI[1].selImg || null }; }
+  unparkActiveUI();
+  // Nach dem Zusammenführen liegt alles in Pane 0
+  if (split.active !== 0) { split.active = 0; unparkActiveUI(); }
+  drawing = null; eraseTrail = null;
+  syncSplitToState(); applySplitLayout(); syncToolbar(); renderAll(); persistSoon();
+}
+function swapSplitPanes(ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  if (!splitEnabled()) return;
+  parkActiveUI();
+  const api = splitApi();
+  if (api) api.swapPanes(split);
+  else { const t = split.panes[0]; split.panes[0] = split.panes[1]; split.panes[1] = t; split.active = split.active === 1 ? 0 : 1; }
+  { const t = paneUI[0]; paneUI[0] = paneUI[1]; paneUI[1] = t; } // Undo-Verlauf wandert mit dem Dokument
+  if (split.panes[0]) { state.openBookId = split.panes[0].bookId; state.openPageId = split.panes[0].pageId; }
+  unparkActiveUI();
+  syncSplitToState(); renderAll(); persistSoon();
+}
+function setSplitRatio(r) {
+  const api = splitApi();
+  const v = api ? api.setRatio(split, Number(r)) : Math.min(0.8, Math.max(0.2, Number(r) || 0.5));
+  split.ratio = v;
+  applySplitLayout(); persistSoon();
+  return v;
+}
+function syncBookSelects() {
+  ['bookSelect', 'bookSelectB'].forEach((id, i) => {
+    const sel = $(id); if (!sel) return;
+    if (document.activeElement === sel) return; // offenes Dropdown nicht zerlegen
+    const cur = paneBookId(i);
+    sel.innerHTML = state.books.map(b => '<option value="' + b.id + '"' + (b.id === cur ? ' selected' : '') + '>' + esc(b.title || 'Unbenannt') + '</option>').join('')
+      || '<option value="">– keine Bücher –</option>';
+    sel.value = cur || '';
+  });
+}
+function syncPaneChrome(i) {
+  const b = paneBook(i);
+  const t = $(i === 1 ? 'bookTitleB' : 'bookTitle');
+  const ps = $(i === 1 ? 'paperSelectB' : 'paperSelect');
+  if (t && document.activeElement !== t) t.value = b ? (b.title || '') : '';
+  if (ps) ps.value = (b && b.paper) || '';
+}
+function applySplitLayout() {
+  const on = splitEnabled();
+  const p0 = $('pane0'), p1 = $('pane1'), div = $('splitDivider');
+  const tgl = $('splitToggle'), swp = $('splitSwap'), cls = $('splitClose'), rw = $('splitRatioWrap');
+  if (p1) p1.style.display = on ? '' : 'none';
+  if (div) div.style.display = on ? '' : 'none';
+  if (swp) swp.style.display = on ? '' : 'none';
+  if (cls) cls.style.display = on ? '' : 'none';
+  if (rw) rw.style.display = on ? '' : 'none';
+  if (tgl) tgl.classList.toggle('picked', on);
+  const ratio = (split && typeof split.ratio === 'number') ? split.ratio : 0.5;
+  if (p0) p0.style.flexGrow = String(Math.round(ratio * 100));
+  if (p1) p1.style.flexGrow = String(Math.round((1 - ratio) * 100));
+  const ratioInput = $('splitRatio');
+  if (ratioInput) ratioInput.value = String(Math.round(ratio * 100));
+  [0, 1].forEach(i => {
+    const el = $(i === 1 ? 'pane1' : 'pane0');
+    if (el) el.classList.toggle('active', activePaneIdx() === i && (i === 0 || on));
+  });
+  syncBookSelects();
+  syncPaneChrome(0); syncPaneChrome(1);
+}
 
 /* SPEC-31 light/offline (ehrlich, kein Fake-OCR):
  * Bibliothekssuche nutzt GrimoireInkIndex (Titel + getippter Text + Tags).
@@ -230,6 +451,7 @@ function renderLibrary() {
       + '<div class="notebook-preview">' + preview + '</div>'
       + snippetHtml
       + '<div class="notebook-actions">'
+      + '<button class="mini-button" onclick="openBookInSplit(\'' + b.id + '\',event)" title="Als zweites Dokument daneben öffnen (Split-Screen, ein Fenster)">⇉ Split</button>'
       + '<button class="mini-button" onclick="exportBookJSON(\'' + b.id + '\',event)">Export</button>'
       + '<button class="mini-button" onclick="exportGoodNotes(\'' + b.id + '\',event)" aria-label="Buch als GoodNotes-Datei exportieren">📤 GoodNotes</button>'
       + '<button class="mini-button" onclick="duplicateBook(\'' + b.id + '\',event)">Duplizieren</button>'
@@ -238,53 +460,91 @@ function renderLibrary() {
   }).join('');
 }
 
-/* ---------- Seiten ---------- */
-function snapshot() {
-  const p = currentPage(); if (!p) return;
-  undoStack.push(JSON.stringify({ strokes: p.strokes, texts: p.texts, images: p.images, bg: p.bg || null }));
+/* ---------- Seiten (pane-bewusst: aktiver Pane) ---------- */
+function activePageId() { return panePageId(activePaneIdx()) || state.openPageId; }
+function setActivePageId(pid) {
+  const i = activePaneIdx();
+  const api = splitApi();
+  const bid = paneBookId(i);
+  if (api) api.setPaneDoc(split, i, bid, pid);
+  else split.panes[i] = { bookId: bid, pageId: pid };
+  if (i === 0) state.openPageId = pid;
+  syncSplitToState();
+}
+function historyState(allPages = false, pageId) {
+  const b = openBook(); if (!b) return null;
+  const pid = pageId || activePageId();
+  if (allPages) return JSON.stringify({ bookId: b.id, pageId: pid, pages: b.pages });
+  const p = b.pages.find(p => p.id === pid); if (!p) return null;
+  return JSON.stringify({ bookId: b.id, pageId: p.id, page: p });
+}
+function snapshot(allPages = false) {
+  const entry = historyState(allPages); if (!entry) return;
+  undoStack.push(entry);
   if (undoStack.length > 60) undoStack.shift();
   redoStack = [];
 }
 function restore(json) {
-  const p = currentPage(); if (!p) return;
+  const b = openBook(); if (!b) return;
   const s = JSON.parse(json);
-  p.strokes = s.strokes; p.texts = s.texts; p.images = s.images; p.bg = s.bg || null;
+  if (s.bookId !== b.id) return;
+  if (s.pages) b.pages = s.pages;
+  else {
+    const idx = b.pages.findIndex(p => p.id === s.pageId);
+    if (idx === -1) return;
+    b.pages[idx] = s.page;
+  }
+  setActivePageId(s.pageId);
   selectedBox = null; selectedImg = null;
   touchBook(); persistSoon(); renderAll();
 }
-function undo() { if (!undoStack.length) return; const p = currentPage(); redoStack.push(JSON.stringify({ strokes: p.strokes, texts: p.texts, images: p.images })); restore(undoStack.pop()); redoStackFix(); }
-function redoStackFix() { /* redoStack bereits gesetzt */ }
-function redo() {
-  if (!redoStack.length) return;
-  const p = currentPage(); if (!p) return;
-  undoStack.push(JSON.stringify({ strokes: p.strokes, texts: p.texts, images: p.images }));
-  restore(redoStack.pop());
+function moveHistory(from, to) {
+  if (!from.length) return;
+  const entry = from[from.length - 1], s = JSON.parse(entry);
+  const b = openBook(); if (!b || b.id !== s.bookId) return;
+  const inverse = historyState(!!s.pages, s.pageId); if (!inverse) return;
+  to.push(inverse);
+  from.pop();
+  restore(entry);
+}
+function undo() { moveHistory(undoStack, redoStack); }
+function redo() { moveHistory(redoStack, undoStack); }
+function setPanePageAndRender(i, pid) {
+  const api = splitApi();
+  const bid = paneBookId(i);
+  if (api) api.setPaneDoc(split, i, bid, pid);
+  else split.panes[i] = { bookId: bid, pageId: pid };
+  if (i === 0) state.openPageId = pid;
+  const ui = paneUI[i];
+  if (ui) { ui.undo = []; ui.redo = []; ui.selBox = null; ui.selImg = null; }
+  if (i === activePaneIdx()) { undoStack = []; redoStack = []; selectedBox = null; selectedImg = null; }
+  syncSplitToState(); persistSoon(); renderAll();
 }
 function addPage() {
   const b = openBook(); if (!b) return;
-  snapshot();
+  snapshot(true);
   const p = newPage();
-  const idx = b.pages.findIndex(x => x.id === state.openPageId);
+  const idx = b.pages.findIndex(x => x.id === activePageId());
   b.pages.splice(idx + 1, 0, p);
-  state.openPageId = p.id;
+  setActivePageId(p.id);
   touchBook(); persistSoon(); renderAll();
 }
 function duplicatePage() {
   const b = openBook(); const p = currentPage(); if (!b || !p) return;
-  snapshot();
+  snapshot(true);
   const copy = JSON.parse(JSON.stringify(p)); copy.id = uid();
   const idx = b.pages.findIndex(x => x.id === p.id);
   b.pages.splice(idx + 1, 0, copy);
-  state.openPageId = copy.id;
+  setActivePageId(copy.id);
   touchBook(); persistSoon(); renderAll();
 }
 function deletePage() {
   const b = openBook(); if (!b || b.pages.length <= 1) { alert('Die letzte Seite kann nicht gelöscht werden.'); return; }
   if (!confirm('Seite löschen?')) return;
-  snapshot();
-  const idx = b.pages.findIndex(x => x.id === state.openPageId);
+  snapshot(true);
+  const idx = b.pages.findIndex(x => x.id === activePageId());
   b.pages.splice(idx, 1);
-  state.openPageId = b.pages[Math.max(0, idx - 1)].id;
+  setActivePageId(b.pages[Math.max(0, idx - 1)].id);
   touchBook(); persistSoon(); renderAll();
 }
 function clearPage() {
@@ -294,13 +554,30 @@ function clearPage() {
   p.strokes = []; p.texts = []; p.images = [];
   touchBook(); persistSoon(); renderAll();
 }
-function gotoPage(id) { state.openPageId = id; undoStack = []; redoStack = []; selectedBox = null; selectedImg = null; renderAll(); }
+function gotoPage(id) { setPanePageAndRender(activePaneIdx(), id); }
+// Pane-Wrapper für die pro-Pane Buttons (aktivieren erst den Pane, dann Aktion)
+function withPane(i, fn, ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  if (i === 1 || i === 0) setActivePane(i, true);
+  return fn();
+}
+function addPageInPane(i, ev) { return withPane(i, addPage, ev); }
+function duplicatePageInPane(i, ev) { return withPane(i, duplicatePage, ev); }
+function deletePageInPane(i, ev) { return withPane(i, deletePage, ev); }
+function clearPageInPane(i, ev) { return withPane(i, clearPage, ev); }
+function gotoPageInPane(id, i) { setActivePane(i === 1 ? 1 : 0, true); gotoPage(id); }
+function exportPagePNGInPane(i, ev) { if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } } setActivePane(i === 1 ? 1 : 0, true); exportPagePNG(); }
+function clearPageBgInPane(i, ev) { if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } } setActivePane(i === 1 ? 1 : 0, true); clearPageBg(); }
+function renameBookInPane(v, i) { setActivePane(i === 1 ? 1 : 0, true); renameBook(v); }
+function setPaperInPane(v, i) { setActivePane(i === 1 ? 1 : 0, true); setPaper(v); }
 
-/* ---------- Seiten-Preview-Pop-up (Klick auf Mini-Thumbnail) ---------- */
+/* ---------- Seiten-Preview-Pop-up (aktiver Pane) ---------- */
 let previewPageId = null;
+let previewPaneIdx = 0;
 function openPagePreview(id) {
-  const b = openBook(); if (!b || !b.pages.length) return;
-  previewPageId = id || state.openPageId;
+  previewPaneIdx = activePaneIdx();
+  const b = paneBook(previewPaneIdx); if (!b || !b.pages.length) return;
+  previewPageId = id || panePageId(previewPaneIdx);
   $('previewOverlay').classList.add('active');
   renderPreview();
 }
@@ -310,15 +587,16 @@ function closePagePreview() {
   previewPageId = null;
 }
 function stepPreview(d) {
-  const b = openBook(); if (!b || !b.pages.length) return;
+  const b = paneBook(previewPaneIdx); if (!b || !b.pages.length) return;
   const idx = Math.max(0, b.pages.findIndex(p => p.id === previewPageId));
   previewPageId = b.pages[(idx + d + b.pages.length) % b.pages.length].id;
   renderPreview();
 }
 function openPreviewPage() {
   const id = previewPageId;
+  const pi = previewPaneIdx;
   closePagePreview();
-  if (id) gotoPage(id);
+  if (id) { setActivePane(pi, true); gotoPage(id); }
 }
 function drawPreviewImg(g, src, x, y, w, h) {
   return new Promise(res => {
@@ -328,7 +606,7 @@ function drawPreviewImg(g, src, x, y, w, h) {
   });
 }
 async function renderPreview() {
-  const b = openBook(); if (!b) return;
+  const b = paneBook(previewPaneIdx); if (!b) return;
   const p = b.pages.find(x => x.id === previewPageId) || b.pages[0];
   if (!p) return;
   previewPageId = p.id;
@@ -387,10 +665,16 @@ document.addEventListener('keydown', e => {
 /* ---------- Toolbar ---------- */
 function setTool(t) {
   tool = t; selectedBox = null; selectedImg = null;
+  parkActiveUI();
   syncToolbar(); renderTextLayer(); renderImgLayer();
   const names = { pen: '✒ Stift', marker: '🖍 Marker', eraser: '⌫ Radierer', text: 'T Text', move: '✥ Auswahl' };
-  $('statusTool').textContent = names[t] || t;
-  $('stage').style.cursor = t === 'text' ? 'text' : t === 'move' ? 'move' : 'crosshair';
+  const st0 = $('statusTool'), st1 = $('statusToolB');
+  if (st0) st0.textContent = names[t] || t;
+  if (st1) st1.textContent = names[t] || t;
+  const s0 = $('stage'), s1 = $('stageB');
+  const cur = t === 'text' ? 'text' : t === 'move' ? 'move' : 'crosshair';
+  if (s0) s0.style.cursor = cur;
+  if (s1) s1.style.cursor = cur;
 }
 function setColor(v) { penColor = v; }
 function setSize(v) { penSize = +v; $('sizeLabel').textContent = v + 'px'; }
@@ -404,22 +688,25 @@ function syncToolbar() {
   if (eh) eh.checked = eraserHighlighterOnly;
 }
 function openTextEditorForSelected() {
-  if (selectedBox) openTextEditorForBox(selectedBox, 'Textbox');
+  if (selectedBox) { editorPaneIdx = activePaneIdx(); openTextEditorForBox(selectedBox, 'Textbox'); }
   else alert('Erst eine Textbox anklicken (Tool „T Text“ oder „✥ Auswahl“).');
 }
 
-/* ---------- Canvas ---------- */
-function canvas() { return $('drawCanvas'); }
-function ctx2d() { return canvas().getContext('2d'); }
-function fitCanvas() {
-  const c = canvas(), o = $('overlayCanvas');
+/* ---------- Canvas (pane-bewusst, Suffix '' / 'B') ---------- */
+function canvas(idx) { return $(eid('drawCanvas', idx)); }
+function ctx2d(idx) { const c = canvas(idx); return c ? c.getContext('2d') : null; }
+function overlayEl(idx) { return $(eid('overlayCanvas', idx)); }
+function fitCanvasFor(idx) {
+  const c = $(eid('drawCanvas', idx)), o = $(eid('overlayCanvas', idx));
+  if (!c || !o) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   [c, o].forEach(x => { x.width = CANVAS_W * dpr; x.height = CANVAS_H * dpr; });
   c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
   o.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-function stagePos(ev) {
-  const r = $('stage').getBoundingClientRect();
+function fitCanvas() { fitCanvasFor(activePaneIdx()); }
+function stagePosFor(ev, idx) {
+  const r = $(eid('stage', idx)).getBoundingClientRect();
   // Apple Pencil Pressure miterfassen (Fallback 0.5 bei 0/unbekannt: Hover, Maus, fehlende Sensorik)
   let p = 0.5;
   try {
@@ -428,6 +715,7 @@ function stagePos(ev) {
   } catch { /* Fallback 0.5 */ }
   return { x: (ev.clientX - r.left) / r.width * CANVAS_W, y: (ev.clientY - r.top) / r.height * CANVAS_H, nx: (ev.clientX - r.left) / r.width, ny: (ev.clientY - r.top) / r.height, p };
 }
+function stagePos(ev) { return stagePosFor(ev, activePaneIdx()); }
 function drawStroke(c, s) {
   if (!s.points.length) return;
   c.save();
@@ -490,21 +778,24 @@ function drawStroke(c, s) {
   }
   c.restore();
 }
-function renderCanvas() {
-  fitCanvas();
-  const c = ctx2d();
+function renderCanvasFor(idx) {
+  fitCanvasFor(idx);
+  const c = ctx2d(idx);
+  if (!c) return;
   c.clearRect(0, 0, CANVAS_W, CANVAS_H);
-  const p = currentPage(); if (!p) return;
+  const p = panePage(idx); if (!p) return;
   p.strokes.forEach(s => drawStroke(c, s));
 }
+function renderCanvas() { renderCanvasFor(activePaneIdx()); }
 function previewStroke(points, color, size, toolName) {
-  const o = $('overlayCanvas').getContext('2d');
+  const oc = overlayEl(activePaneIdx()); if (!oc) return;
+  const o = oc.getContext('2d');
   o.clearRect(0, 0, CANVAS_W, CANVAS_H);
   if (points && points.length) drawStroke(o, { tool: toolName, color, size, points });
 }
 // Apple Pencil Hover-Preview: Ghost-Kreis am Cursor, kein Zeichnen (nur pen-Hover, Stift/Marker).
 function drawHoverPreview(pos) {
-  const oc = $('overlayCanvas'); if (!oc) return;
+  const oc = overlayEl(activePaneIdx()); if (!oc) return;
   const g = oc.getContext('2d');
   g.clearRect(0, 0, CANVAS_W, CANVAS_H);
   const base = tool === 'marker' ? penSize * 3 : penSize;
@@ -517,32 +808,35 @@ function drawHoverPreview(pos) {
 }
 function clearHoverPreview() {
   if (drawing) return;
-  const oc = $('overlayCanvas'); if (!oc) return;
+  const oc = overlayEl(activePaneIdx()); if (!oc) return;
   oc.getContext('2d').clearRect(0, 0, CANVAS_W, CANVAS_H);
 }
 function distToStroke(pt, s, radius) {
   return s.points.some(q => Math.hypot(q.x - pt.x, q.y - pt.y) <= radius + s.size / 2);
 }
 
-function bindStage() {
-  const stage = $('stage');
+function bindStageFor(idx) {
+  const stage = $(eid('stage', idx));
+  if (!stage || stage._splitBound) return;
+  stage._splitBound = true;
   const activePointers = new Set();
   stage.addEventListener('pointerdown', ev => {
     if ($('viewBook').classList.contains('active') === false) return;
+    if (activePaneIdx() !== idx) setActivePane(idx, true);
     // SPEC-25: Zweit-/Dritt-Finger bricht laufende Ein-Finger-Zeichnung ab
     // (kein Commit), damit Zwei-/Drei-Finger-Tap kein Undo-Artefakt hinterlässt.
     if (ev.isPrimary === false) {
       activePointers.add(ev.pointerId);
       if (drawing && !drawing.erasing) {
         drawing = null;
-        try { $('overlayCanvas').getContext('2d').clearRect(0, 0, CANVAS_W, CANVAS_H); } catch { /* ignore */ }
+        try { overlayEl(idx).getContext('2d').clearRect(0, 0, CANVAS_W, CANVAS_H); } catch { /* ignore */ }
         undoStack.pop(); // eben genommener Snapshot war leer -> zurückrollen
       } else if (drawing) { drawing = null; }
       eraseTrail = null;
       return;
     }
     activePointers.add(ev.pointerId);
-    const pos = stagePos(ev);
+    const pos = stagePosFor(ev, idx);
     const p = currentPage(); if (!p) return;
     if (tool === 'pen' || tool === 'marker') {
       snapshot();
@@ -574,12 +868,12 @@ function bindStage() {
   stage.addEventListener('pointermove', ev => {
     // Apple Pencil Hover (pen, keine Buttons, Stift/Marker): nur Ghost-Vorschau, kein Zeichnen.
     if (!drawing && ev.pointerType === 'pen' && ev.buttons === 0 && (tool === 'pen' || tool === 'marker')) {
-      drawHoverPreview(stagePos(ev));
+      drawHoverPreview(stagePosFor(ev, idx));
       return;
     }
     if (!drawing) return;
     if (ev.isPrimary === false) return;
-    const pos = stagePos(ev);
+    const pos = stagePosFor(ev, idx);
     if (drawing.erasing) {
       if (eraseTrail) {
         eraseTrail.push({ x: pos.x, y: pos.y, t: Date.now() });
@@ -618,11 +912,12 @@ function bindStage() {
       touchBook(); persistSoon(); renderCanvas(); renderRail();
     }
     drawing = null;
-    $('overlayCanvas').getContext('2d').clearRect(0, 0, CANVAS_W, CANVAS_H);
+    try { overlayEl(activePaneIdx()).getContext('2d').clearRect(0, 0, CANVAS_W, CANVAS_H); } catch { /* ignore */ }
   };
   stage.addEventListener('pointerup', finish);
   stage.addEventListener('pointercancel', finish);
 }
+function bindStage() { bindStageFor(0); bindStageFor(1); }
 function eraseAt(pos) {
   const p = currentPage(); if (!p) return;
   // SPEC-25: Eraser-Modi + "Nur Highlighter" (Fallback ohne Helper = altes Verhalten)
@@ -640,8 +935,8 @@ function eraseAt(pos) {
 /* SPEC-25: Zwei-Finger-Tap = undo(), Drei-Finger-Tap = redo() (Touch-Handler
  * auf stage, Dauer <300ms, kaum Bewegung -> kein Konflikt mit Pinch-Zoom).
  * Buttons bleiben unverändert. */
-function bindTapGestures() {
-  const stage = $('stage');
+function bindTapGesturesFor(idx) {
+  const stage = $(eid('stage', idx));
   if (!stage || stage._tapGesturesBound) return;
   stage._tapGesturesBound = true;
   let startT = 0, maxTouches = 0, maxMove = 0;
@@ -687,15 +982,20 @@ function bindTapGestures() {
   stage.addEventListener('touchend', end);
   stage.addEventListener('touchcancel', () => { startT = 0; maxTouches = 0; startCent = null; });
 }
+function bindTapGestures() { bindTapGesturesFor(0); bindTapGesturesFor(1); }
 
-/* ---------- Text- & Bild-Layer ---------- */
-function renderTextLayer() {
-  const layer = $('textLayer');
-  const p = currentPage(); if (!p) { layer.innerHTML = ''; return; }
+/* ---------- Text- & Bild-Layer (pro Pane, Suffix '' / 'B') ---------- */
+function renderTextLayerFor(idx) {
+  const layer = $(eid('textLayer', idx));
+  if (!layer) return;
+  const p = panePage(idx);
+  const ui = paneUI[idx] || {};
+  const sel = (idx === activePaneIdx()) ? selectedBox : (ui.selBox || null);
+  if (!p) { layer.innerHTML = ''; return; }
   layer.innerHTML = '';
   p.texts.forEach(t => {
     const d = document.createElement('div');
-    d.className = 'text-box' + (t.id === selectedBox ? ' selected' : '');
+    d.className = 'text-box' + (t.id === sel ? ' selected' : '');
     d.style.left = (t.x * 100) + '%';
     d.style.top = (t.y * 100) + '%';
     d.style.maxWidth = '86%';
@@ -711,12 +1011,13 @@ function renderTextLayer() {
         renderQueryBlocks(d, state.books);
       }
     } catch { /* kaputter Block bleibt Code, kein Crash */ }
-    d.onclick = e => { e.stopPropagation(); selectedBox = t.id; selectedImg = null; renderTextLayer(); renderImgLayer(); };
-    d.ondblclick = e => { e.stopPropagation(); openTextEditorForBox(t.id, 'Textbox'); };
+    d.onclick = e => { e.stopPropagation(); setActivePane(idx, true); selectedBox = t.id; selectedImg = null; parkActiveUI(); renderAll(); };
+    d.ondblclick = e => { e.stopPropagation(); setActivePane(idx, true); openTextEditorForBox(t.id, 'Textbox'); };
     if (tool === 'move' || tool === 'text') makeDraggable(d, t, 'text');
     layer.appendChild(d);
   });
 }
+function renderTextLayer() { renderTextLayerFor(activePaneIdx()); }
 /* SPEC-07 light: eingebetteter ```query-Block in Textboxen.
  * Rendert die Query als Live-Trefferliste (Titel + Snippet), max 5 Treffer
  * (GrimoireSearch.QUERY_MAX_RESULTS). LIMIT (bewusst Anzeige-only):
@@ -755,13 +1056,17 @@ function renderQueryBlocks(container, allBooks) {
     pre.replaceWith(box);
   });
 }
-function renderImgLayer() {
-  const layer = $('imgLayer');
-  const p = currentPage(); if (!p) { layer.innerHTML = ''; return; }
+function renderImgLayerFor(idx) {
+  const layer = $(eid('imgLayer', idx));
+  if (!layer) return;
+  const p = panePage(idx);
+  const ui = paneUI[idx] || {};
+  const sel = (idx === activePaneIdx()) ? selectedImg : (ui.selImg || null);
+  if (!p) { layer.innerHTML = ''; return; }
   layer.innerHTML = '';
   p.images.forEach(im => {
     const d = document.createElement('div');
-    d.className = 'img-item' + (im.id === selectedImg ? ' selected' : '');
+    d.className = 'img-item' + (im.id === sel ? ' selected' : '');
     d.style.left = (im.x * 100) + '%';
     d.style.top = (im.y * 100) + '%';
     d.style.width = (im.w * 100) + '%';
@@ -774,28 +1079,34 @@ function renderImgLayer() {
     d.appendChild(img);
     const h = document.createElement('div');
     h.className = 'img-handle'; h.textContent = '⤡';
-    h.onpointerdown = e => { e.stopPropagation(); e.preventDefault(); startResize(e, im); };
+    h.onpointerdown = e => { e.stopPropagation(); e.preventDefault(); setActivePane(idx, true); startResize(e, im); };
     d.appendChild(h);
-    d.onclick = e => { e.stopPropagation(); selectedImg = im.id; selectedBox = null; renderImgLayer(); renderTextLayer(); };
-    d.ondblclick = e => { e.stopPropagation(); if (confirm('Bild entfernen?')) { snapshot(); p.images = p.images.filter(x => x.id !== im.id); selectedImg = null; touchBook(); persistSoon(); renderAll(); } };
+    d.onclick = e => { e.stopPropagation(); setActivePane(idx, true); selectedImg = im.id; selectedBox = null; parkActiveUI(); renderAll(); };
+    d.ondblclick = e => { e.stopPropagation(); setActivePane(idx, true); if (confirm('Bild entfernen?')) { snapshot(); const pg = currentPage(); pg.images = pg.images.filter(x => x.id !== im.id); selectedImg = null; touchBook(); persistSoon(); renderAll(); } };
     if (tool === 'move') makeDraggable(d, im, 'img');
     layer.appendChild(d);
   });
 }
+function renderImgLayer() { renderImgLayerFor(activePaneIdx()); }
 function makeDraggable(el, obj, kind) {
   el.onpointerdown = e => {
     if (tool !== 'move' && !(kind === 'text' && tool === 'text')) return;
     if (e.target.classList && e.target.classList.contains('img-handle')) return;
     e.preventDefault();
-    const stage = $('stage').getBoundingClientRect();
+    const stage = $(eid('stage', activePaneIdx())).getBoundingClientRect();
     const startX = e.clientX, startY = e.clientY, ox = obj.x, oy = obj.y;
-    if (kind === 'text') { selectedBox = obj.id; renderTextLayer(); return dragText(e, obj, stage, startX, startY, ox, oy); }
-    selectedImg = obj.id; renderImgLayer();
+    e.stopPropagation();
+    selectedBox = kind === 'text' ? obj.id : null;
+    selectedImg = kind === 'img' ? obj.id : null;
+    document.querySelectorAll('.text-box.selected, .img-item.selected').forEach(node => node.classList.remove('selected'));
+    el.classList.add('selected');
+    if (kind === 'text') return dragText(e, obj, stage, startX, startY, ox, oy);
     const move = me => { obj.x = Math.min(.95, Math.max(0, ox + (me.clientX - startX) / stage.width)); obj.y = Math.min(.95, Math.max(0, oy + (me.clientY - startY) / stage.height)); el.style.left = obj.x * 100 + '%'; el.style.top = obj.y * 100 + '%'; };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); touchBook(); persistSoon(); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); touchBook(); persistSoon(); };
     snapshotOnceDrag();
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   };
 }
 let dragSnapshotTaken = false;
@@ -804,12 +1115,13 @@ function dragText(e, obj, stage, startX, startY, ox, oy) {
   snapshotOnceDrag();
   const el = e.currentTarget;
   const move = me => { obj.x = Math.min(.9, Math.max(0, ox + (me.clientX - startX) / stage.width)); obj.y = Math.min(.95, Math.max(0, oy + (me.clientY - startY) / stage.height)); el.style.left = obj.x * 100 + '%'; el.style.top = obj.y * 100 + '%'; };
-  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); touchBook(); persistSoon(); };
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); touchBook(); persistSoon(); };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
 }
 function startResize(e, im) {
-  const stage = $('stage').getBoundingClientRect();
+  const stage = $(eid('stage', activePaneIdx())).getBoundingClientRect();
   const startX = e.clientX, ow = im.w;
   snapshot();
   const move = me => { im.w = Math.min(.95, Math.max(.05, ow + (me.clientX - startX) / stage.width)); renderImgLayer(); };
@@ -885,9 +1197,9 @@ function importImageAsNewPage(file, opts) {
           ? (bg => { const m = PagesImport.buildNewPageModel({ bg }); m.id = uid(); return { id: m.id, strokes: [], texts: [], images: [], bg: m.bg }; })
           : (bg => ({ id: uid(), strokes: [], texts: [], images: [], bg }));
         const page = mk(src || null);
-        const idx = book.pages.findIndex(x => x.id === state.openPageId);
+        const idx = book.pages.findIndex(x => x.id === activePageId());
         book.pages.splice(idx + 1, 0, page);
-        if (jump) state.openPageId = page.id;
+        if (jump) setActivePageId(page.id);
         else if (!opts._bulkFirstId) opts._bulkFirstId = page.id;
         touchBook(); persistSoon(); renderAll();
         resolve(page.id);
@@ -936,7 +1248,7 @@ function importImageAsPage(ev) {
       if (id) ids.push(id);
     }
     const first = bulk._bulkFirstId || ids[0];
-    if (first) { state.openPageId = first; renderAll(); }
+    if (first) { setActivePageId(first); renderAll(); }
     persistSoon();
     setSaveStatus(ids.length ? '💾 gespeichert (' + ids.length + ' Bild-Seite(n))' : '💾 gespeichert');
   })().catch(() => setSaveStatus('💾 gespeichert'));
@@ -969,7 +1281,7 @@ async function importPdfAsNewPages(file, pageRangeStr) {
     total = 0;
   }
   const createdIds = [];
-  const insertAfterIdx = () => book.pages.findIndex(x => x.id === state.openPageId);
+  const insertAfterIdx = () => book.pages.findIndex(x => x.id === activePageId());
   // Offline-Fallback: pdf.js gar nicht ladbar -> eine Hinweis-Seite statt N Seiten.
   if (!total) {
     const page = (typeof PagesImport !== 'undefined' && PagesImport.buildNewPageModel)
@@ -978,7 +1290,7 @@ async function importPdfAsNewPages(file, pageRangeStr) {
     page.texts.push({ id: uid(), x: 0.06, y: 0.015, html: fallbackHtml(null) });
     book.pages.splice(insertAfterIdx() + 1, 0, page);
     createdIds.push(page.id);
-    state.openPageId = page.id;
+    setActivePageId(page.id);
     touchBook(); persistSoon(); renderAll();
     return createdIds;
   }
@@ -1016,7 +1328,7 @@ async function importPdfAsNewPages(file, pageRangeStr) {
     touchBook(); persistSoon();
     renderRail();
   }
-  if (firstNewId.v) state.openPageId = firstNewId.v;
+  if (firstNewId.v) setActivePageId(firstNewId.v);
   touchBook(); persistSoon(); renderAll();
   setSaveStatus('💾 gespeichert (' + createdIds.length + ' PDF-Seite(n))');
   return createdIds;
@@ -1041,14 +1353,16 @@ function importPdfAsPages(ev, presetRange) {
   })().catch(e => { console.warn('PDF-Import:', e); setSaveStatus('💾 gespeichert'); });
 }
 
-/* ---------- Rail / Status / Paper ---------- */
-function renderRail() {
-  const rail = $('pageRail');
-  const b = openBook(); if (!b) return;
+/* ---------- Rail / Status / Paper (pro Pane) ---------- */
+function renderRailFor(idx) {
+  const rail = $(eid('pageRail', idx));
+  if (!rail) return;
+  const b = paneBook(idx); if (!b) { rail.innerHTML = ''; return; }
+  const curPid = panePageId(idx);
   rail.innerHTML = '';
   b.pages.forEach((p, i) => {
     const d = document.createElement('div');
-    d.className = 'page-thumb' + (p.id === state.openPageId ? ' selected' : '');
+    d.className = 'page-thumb' + (p.id === curPid ? ' selected' : '');
     const c = document.createElement('canvas');
     c.width = 140; c.height = 198; // A4-Mini (210:297)
     const g = c.getContext('2d');
@@ -1060,34 +1374,49 @@ function renderRail() {
     label.className = 'thumb-label';
     label.textContent = 'Seite ' + (i + 1);
     d.appendChild(c); d.appendChild(label);
-    d.title = 'Vorschau öffnen';
-    d.onclick = () => openPagePreview(p.id);
+    d.title = 'Vorschau öffnen (Doppelklick: direkt öffnen)';
+    d.onclick = () => { setActivePane(idx, true); openPagePreview(p.id); };
+    d.ondblclick = (e) => { if (e) e.stopPropagation(); gotoPageInPane(p.id, idx); };
     rail.appendChild(d);
   });
-  const idx = b.pages.findIndex(p => p.id === state.openPageId);
-  $('statusPage').textContent = 'Seite ' + (idx + 1) + '/' + b.pages.length;
+  const pos = b.pages.findIndex(p => p.id === curPid);
+  const st = $(eid('statusPage', idx));
+  if (st) st.textContent = 'Seite ' + (pos + 1) + '/' + b.pages.length;
 }
-function applyPaper() {
-  const b = openBook();
-  const st = $('stage');
+function renderRail() { renderRailFor(activePaneIdx()); }
+function applyPaperFor(idx) {
+  const b = paneBook(idx);
+  const st = $(eid('stage', idx));
+  if (!st) return;
   st.classList.remove('lined', 'grid');
   if (b && b.paper) st.classList.add(b.paper);
 }
-function applyBg() {
-  const p = currentPage();
-  const bg = $('bgLayer');
+function applyPaper() { applyPaperFor(activePaneIdx()); }
+function applyBgFor(idx) {
+  const p = panePage(idx);
+  const bg = $(eid('bgLayer', idx));
   if (!bg) return;
   let src = (p && p.bg) || null;
   if (src && typeof GrimoireStore !== 'undefined') src = GrimoireStore.url(src) || null;
   bg.style.backgroundImage = src ? 'url("' + src + '")' : 'none';
 }
+function applyBg() { applyBgFor(activePaneIdx()); }
 function clearPageBg() {
   const p = currentPage(); if (!p || !p.bg) return;
   snapshot();
   p.bg = null;
   touchBook(); persistSoon(); renderAll();
 }
-function renderAll() { applyPaper(); applyBg(); renderCanvas(); renderTextLayer(); renderImgLayer(); renderRail(); }
+function renderAllFor(idx) {
+  applyPaperFor(idx); applyBgFor(idx); renderCanvasFor(idx);
+  renderTextLayerFor(idx); renderImgLayerFor(idx); renderRailFor(idx);
+  syncPaneChrome(idx);
+}
+function renderAll() {
+  applySplitLayout();
+  renderAllFor(0);
+  if (splitEnabled()) renderAllFor(1);
+}
 
 /* ---------- Export / Import ---------- */
 function download(filename, text, type) {
@@ -1348,8 +1677,10 @@ async function gnRenderPdfPageLazy(pdfBytes, pageNo, bookId, pageId) {
     }
     touchBookLazy(bookId);
     persistSoon();
-    if (state.openBookId === bookId && state.openPageId === pageId) renderAll();
-    else if (state.openBookId === bookId) renderRail();
+    const visible = [0, 1].some(i => paneBookId(i) === bookId && panePageId(i) === pageId);
+    const inBook = [0, 1].some(i => paneBookId(i) === bookId);
+    if (visible) renderAll();
+    else if (inBook) renderAll();
   };
   const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('pdf-timeout')), 25000));
   try {
@@ -1442,16 +1773,115 @@ function exportPagePNG() {
   })().catch(e => alert('PNG-Export fehlgeschlagen: ' + e.message));
 }
 
-/* ---------- Init (async: IndexedDB + Legacy-Migration) ---------- */
-window.addEventListener('resize', () => { if (openBook()) renderCanvas(); });
+/* ---------- Init (async: IndexedDB + Legacy-Migration + Split-Restore) ---------- */
+function restoreSplitFromState() {
+  try {
+    const api = splitApi();
+    if (api && state.split) {
+      split = api.restore(state.split);
+    } else if (state.split && typeof state.split === 'object') {
+      split = {
+        enabled: !!state.split.enabled,
+        active: state.split.active === 1 ? 1 : 0,
+        ratio: typeof state.split.ratio === 'number' ? state.split.ratio : 0.5,
+        panes: Array.isArray(state.split.panes) ? state.split.panes : [{ bookId: null, pageId: null }, { bookId: null, pageId: null }],
+      };
+    }
+    // Ungültige Buch-IDs (gelöscht) auf vorhandene Bücher zurücksetzen
+    const valid = id => state.books.some(b => b.id === id);
+    [0, 1].forEach(i => {
+      const p = split.panes && split.panes[i];
+      if (!p) return;
+      if (p.bookId && !valid(p.bookId)) { p.bookId = null; p.pageId = null; }
+      if (p.bookId) {
+        const b = state.books.find(x => x.id === p.bookId);
+        if (b && !b.pages.some(x => x.id === p.pageId)) p.pageId = b.pages[0] && b.pages[0].id;
+      }
+    });
+    if (!split.panes[0] || !split.panes[0].bookId) {
+      split.panes[0] = { bookId: state.openBookId, pageId: state.openPageId };
+    }
+    if (!splitEnabled()) split.active = 0;
+    paneUI = [
+      { undo: [], redo: [], selBox: null, selImg: null },
+      { undo: [], redo: [], selBox: null, selImg: null },
+    ];
+    undoStack = []; redoStack = []; selectedBox = null; selectedImg = null;
+    unparkActiveUI();
+    editorPaneIdx = activePaneIdx();
+  } catch { /* Split-Restore optional */ }
+}
+function bindSplitDivider() {
+  const div = $('splitDivider');
+  const cont = $('splitContainer');
+  if (!div || !cont || div._splitDragBound) return;
+  div._splitDragBound = true;
+  let dragging = false;
+  const ratioFromEvent = (ev) => {
+    const r = cont.getBoundingClientRect();
+    if (!r.width) return null;
+    const vertical = window.innerWidth <= 860;
+    if (vertical) {
+      if (!r.height) return null;
+      return (ev.clientY - r.top) / r.height;
+    }
+    return (ev.clientX - r.left) / r.width;
+  };
+  const move = (ev) => {
+    if (!dragging) return;
+    const v = ratioFromEvent(ev);
+    if (v == null) return;
+    try { ev.preventDefault(); } catch { /* ignore */ }
+    setSplitRatio(v);
+  };
+  const up = () => {
+    if (!dragging) return;
+    dragging = false;
+    try { div.releasePointerCapture && div.hasPointerCapture && div.hasPointerCapture(1); } catch { /* ignore */ }
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+  };
+  div.addEventListener('pointerdown', (ev) => {
+    if (!splitEnabled()) return;
+    dragging = true;
+    try { div.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    try { ev.preventDefault(); } catch { /* ignore */ }
+  });
+}
+window.addEventListener('resize', () => { if (openBook()) { renderCanvasFor(0); if (splitEnabled()) renderCanvasFor(1); } });
 bindStage();
 bindTapGestures();
+bindSplitDivider();
 if (typeof GrimoireStore !== 'undefined') {
   // Blob-URLs trudeln asynchron ein -> sichtbare Ebenen nachrendern
   GrimoireStore.subscribe(() => {
-    if ($('viewBook') && $('viewBook').classList.contains('active')) { renderImgLayer(); applyBg(); }
+    if ($('viewBook') && $('viewBook').classList.contains('active')) { renderImgLayerFor(0); applyBgFor(0); if (splitEnabled()) { renderImgLayerFor(1); applyBgFor(1); } }
   });
 }
+document.addEventListener('keydown', e => {
+  // Split-Shortcuts (nur in Buchansicht, ohne Editor/Overlays/Input-Fokus)
+  try {
+    const tag = (document.activeElement && document.activeElement.tagName) || '';
+    const typing = /INPUT|TEXTAREA|SELECT/.test(tag) || (document.activeElement && document.activeElement.isContentEditable);
+    const overlayOpen = ($('editorOverlay') && $('editorOverlay').classList.contains('active'))
+      || ($('previewOverlay') && $('previewOverlay').classList.contains('active'))
+      || ($('graphOverlay') && $('graphOverlay').classList.contains('active'))
+      || ($('cloudOverlay') && $('cloudOverlay').classList.contains('active'));
+    if (!typing && !overlayOpen && $('viewBook') && $('viewBook').classList.contains('active')) {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'b' && e.shiftKey) { e.preventDefault(); toggleSplit(); return; }
+      if (mod && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        setActivePane(e.key === 'ArrowRight' ? 1 : 0, true);
+        return;
+      }
+    }
+  } catch { /* Shortcuts optional */ }
+});
 (async function boot() {
   let migrated = 0;
   try {
@@ -1471,7 +1901,10 @@ if (typeof GrimoireStore !== 'undefined') {
     try { load(); } catch { /* ignore */ }
   }
   renderLibrary();
-  if (state.openBookId && openBook()) openBookView(state.openBookId, state.openPageId);
+  restoreSplitFromState();
+  bindStage(); bindTapGestures(); bindSplitDivider();
+  if (state.openBookId && state.books.some(b => b.id === state.openBookId)) openBookView(state.openBookId, state.openPageId, 0);
+  else if (state.books.length) openBookView(state.books[0].id, state.books[0].pages[0] && state.books[0].pages[0].id, 0);
   else showLibrary();
   setTool('pen');
   if (migrated) setSaveStatus('💾 gespeichert (☁ ' + migrated + ' Bild(er) in Bildspeicher migriert)');

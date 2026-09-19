@@ -22,7 +22,7 @@ jobs:
       - name: Release-Tag auschecken
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: refs/tags/${{ inputs.tag || github.event.release.tag_name }}
 
       - name: Node einrichten
         uses: actions/setup-node@v4
@@ -40,7 +40,7 @@ jobs:
       - name: Release-Tag auschecken
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: refs/tags/${{ inputs.tag || github.event.release.tag_name }}
 
       - name: Secrets prüfen
         env:

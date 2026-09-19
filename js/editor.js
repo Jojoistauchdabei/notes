@@ -20,12 +20,17 @@ function openTextEditor(targetId, title) {
   }
 }
 
-/* Variante für dynamische Textboxen (GoodNotes-Seiten): Ziel ist eine Box-ID statt DOM-ID */
+/* Variante für dynamische Textboxen (GoodNotes-Seiten): Ziel ist eine Box-ID statt DOM-ID.
+   Split-Screen: merkt sich den Pane (editorPaneIdx), damit Speichern auch nach
+   Pane-Wechsel während des Editierens in die richtige Seite schreibt. */
 function openTextEditorForBox(boxId, title) {
-  const page = currentPage();
+  const paneIdx = (typeof activePaneIdx === 'function') ? activePaneIdx() : 0;
+  const page = (typeof panePage === 'function') ? panePage(paneIdx) : currentPage();
   if (!page) return;
   const box = page.texts.find(t => t.id === boxId);
   if (!box) return;
+  try { if (typeof editorPaneIdx !== 'undefined') editorPaneIdx = paneIdx; } catch { /* ignore */ }
+  if (typeof window !== 'undefined') { try { window._editorPaneIdx = paneIdx; } catch { /* ignore */ } }
   currentEditorTargetId = null;
   currentEditorBoxId = boxId;
   const overlay = document.getElementById('editorOverlay');
@@ -71,7 +76,13 @@ function saveTextEditor() {
   syncSourceToRich(); // Source-Ansicht erst nach HTML zurueckwandeln
   const editorContent = document.getElementById('editorContent');
   if (currentEditorBoxId && editorContent) {
-    const page = currentPage();
+    let paneIdx = 0;
+    try {
+      if (typeof editorPaneIdx === 'number') paneIdx = editorPaneIdx;
+      else if (typeof window !== 'undefined' && typeof window._editorPaneIdx === 'number') paneIdx = window._editorPaneIdx;
+      else if (typeof activePaneIdx === 'function') paneIdx = activePaneIdx();
+    } catch { /* Fallback aktiver Pane */ }
+    const page = (typeof panePage === 'function') ? panePage(paneIdx) : currentPage();
     const box = page ? page.texts.find(t => t.id === currentEditorBoxId) : null;
     if (box) {
       box.html = editorContent.innerHTML;
@@ -79,7 +90,8 @@ function saveTextEditor() {
       const st = collectEditorStyle();
       if (st) { box.fontSize = st.fontSize; box.color = st.color; box.align = st.align; }
       persistSoon();
-      renderTextLayer();
+      if (typeof renderTextLayerFor === 'function') renderTextLayerFor(paneIdx);
+      else renderTextLayer();
       renderRail();
     }
   } else if (currentEditorTargetId && editorContent) {

@@ -1,4 +1,4 @@
-# 📜 Grimoire
+# Federwerk
 
 [![CI – Tests](https://github.com/Jojoistauchdabei/notes/actions/workflows/ci.yml/badge.svg)](https://github.com/Jojoistauchdabei/notes/actions/workflows/ci.yml)
 

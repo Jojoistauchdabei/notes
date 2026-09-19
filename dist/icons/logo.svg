@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Federwerk – Buch und Schreibfeder</title>
+  <rect width="512" height="512" rx="112" fill="#2a1a0e"/>
+  <rect x="32" y="32" width="448" height="448" rx="86" fill="none" stroke="#c9a87c" stroke-width="3"/>
+  <path d="M112 196c53-14 100-3 144 25 44-28 91-39 144-25v156c-53-14-100-3-144 25-44-28-91-39-144-25Z" fill="#faf6ee"/>
+  <path d="M256 224v150M139 376c43-5 81 3 117 24 36-21 74-29 117-24" fill="none" stroke="#c9a87c" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M146 242c25 0 48 5 69 15m-69 23c25 0 48 5 69 15m-69 23c25 0 48 5 69 15" fill="none" stroke="#c9a87c" stroke-width="8" stroke-linecap="round"/>
+  <path d="M274 280c-14-79 11-137 98-173 13 82-16 146-98 173Z" fill="#c9a87c" stroke="#2a1a0e" stroke-width="10" stroke-linejoin="round"/>
+  <path d="m264 314 83-161m-61 118 45-13m-30-17-7-37m25 1 32-11" fill="none" stroke="#2a1a0e" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

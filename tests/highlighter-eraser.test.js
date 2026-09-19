@@ -112,9 +112,33 @@ describe('SPEC-25 eraser-filter', () => {
     assert.equal(std.removed.length, 1); // ganz weg
     const pre = E.filterStrokesForErase([long], pt, 12, { mode: 'precision' });
     assert.equal(pre.removed.length, 0); // nichts komplett weg
-    assert.equal(pre.kept.length, 1);
-    assert.ok(pre.kept[0].points.length < long.points.length); // nur treffer-punkte raus
-    assert.ok(pre.kept[0].points.length >= 1);
+    assert.deepEqual(pre.kept.map(s => s.points), [[P(0, 0)], [P(500, 500)]]);
+    assert.deepEqual(long.points, [P(0, 0), P(55, 50), P(500, 500)]);
+  });
+
+  it('precision trennt mehrere Lücken und erhält Druck und Stil', () => {
+    const points = [P(0, 0), P(2, 0), P(50, 0), P(52, 0), P(0, 0), P(80, 0)];
+    points[2].p = 0.8;
+    const stroke = { ...marker(points), closed: true, fill: '#ffff00', alpha: 0.4 };
+    const before = JSON.stringify(stroke);
+    const res = E.filterStrokesForErase([stroke], P(0, 0), undefined, { mode: 'precision' });
+    assert.deepEqual(res.kept.map(s => s.points), [points.slice(2, 4), points.slice(5)]);
+    for (const part of res.kept) {
+      assert.equal(part.closed, false);
+      assert.equal(part.fill, null);
+      assert.equal(part.color, stroke.color);
+      assert.equal(part.alpha, 0.4);
+      assert.equal(part.tool, 'marker');
+    }
+    assert.equal(JSON.stringify(stroke), before);
+  });
+
+  it('precision behält unberührte Striche und entfernt vollständige Treffer', () => {
+    const res = E.filterStrokesForErase([ink, far], pt, undefined, { mode: 'precision' });
+    assert.deepEqual(res.removed, [ink]);
+    assert.equal(res.kept[0], far);
+    const protectedInk = E.filterStrokesForErase([ink], pt, undefined, { mode: 'precision', highlighterOnly: true });
+    assert.equal(protectedInk.kept[0], ink);
   });
 
   it('alte strokes ohne tool-flag: standard löscht, highlighter-only schont', () => {
