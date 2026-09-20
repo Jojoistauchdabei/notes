@@ -113,6 +113,11 @@ describe('Tauri-Releasegerüst', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it('Build-Skript ist plattformübergreifend (kein rm/cp/mkdir/find-Shell-Mix)', () => {
+    const pkg = JSON.parse(read('package.json'));
+    assert.equal(pkg.scripts.build, 'node scripts/build-dist.js', 'build nutzt node-basiertes Skript');
+  });
+
   it('tauri.yml: Windows-sicher + Android ohne Fremd-Action', () => {
     const wf = read('.github/workflows/tauri.yml');
     assert.ok(wf.includes('shell: bash'), 'Bash-Shell gegen PowerShell-Quoting');

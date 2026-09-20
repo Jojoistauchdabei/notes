@@ -5,7 +5,7 @@
   "description": "Handschrift-Notizbuch im Papier-Stil mit GoodNotes-Import",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "build": "rm -rf dist && mkdir -p dist && cp index.html manifest.webmanifest sw.js altes_Papier.png dist/ && cp -r css js icons screenshots dist/ && find dist -type f | sort",
+    "build": "node scripts/build-dist.js",
     "release-web": "npm run build && node scripts/inject-version.js",
     "tauri": "tauri",
     "sync-version": "node scripts/sync-version.js"
