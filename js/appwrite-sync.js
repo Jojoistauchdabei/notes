@@ -170,7 +170,11 @@
   }
   async function tablesRest(cfg, method, path, body) {
     if (typeof fetch === 'undefined') throw new Error('kein fetch');
-    let headers = { 'X-Appwrite-Project': cfg.projectId, 'Content-Type': 'application/json' };
+    let headers = {
+      'X-Appwrite-Project': cfg.projectId,
+      'X-Appwrite-Response-Format': '2.0.0',
+      'Content-Type': 'application/json',
+    };
     try {
       const F = (typeof window !== 'undefined' && window.FederwerkFiles) ? window.FederwerkFiles : null;
       if (F && typeof F.authHeaders === 'function') {
@@ -192,15 +196,23 @@
     }
     return j;
   }
+  // Query-Bauer im JSON-Format (Appwrite 2.x, wie js/appwrite-files.js).
+  const Q = {
+    limit: n => JSON.stringify({ method: 'limit', values: [n] }),
+    orderAsc: a => JSON.stringify({ method: 'orderAsc', attribute: a }),
+    equal: (a, v) => JSON.stringify({ method: 'equal', attribute: a, values: [v] }),
+    greaterThan: (a, v) => JSON.stringify({ method: 'greaterThan', attribute: a, values: [v] }),
+    cursorAfter: id => JSON.stringify({ method: 'cursorAfter', values: [id] }),
+  };
   function q(params) {
-    return '?' + params.map(p => 'queries[]=' + encodeURIComponent(p)).join('&');
+    return '?' + params.map((p, i) => 'queries[' + i + ']=' + encodeURIComponent(p)).join('&');
   }
   async function listRows(cfg, table, queries) {
     const out = [];
     let cursor = null;
     for (let page = 0; page < 20; page++) {
-      const params = ['limit(100)', ...(queries || [])];
-      if (cursor) params.push(`cursorAfter("${cursor}")`);
+      const params = [Q.limit(100), ...(queries || [])];
+      if (cursor) params.push(Q.cursorAfter(cursor));
       const j = await tablesRest(cfg, 'GET', `/tablesdb/${cfg.databaseId}/tables/${table}/rows${q(params)}`);
       const rows = (j && (j.rows || j.documents)) || [];
       for (const r of rows) out.push(r);
@@ -342,7 +354,7 @@
   }
 
   const Sync = {
-    ROWMAP_KEY, LASTPULL_KEY, FOLDERS_KEY, OFFLOAD_BYTES,
+    ROWMAP_KEY, LASTPULL_KEY, FOLDERS_KEY, OFFLOAD_BYTES, Q,
     msToIso, isoToMs, rowIdForBook, isAwFileRef, hashFromAwRef,
     rewriteRefs, bookContentJson, parseContentJson, folderHash,
     planRows, makeConflictTitle, rowToNoteMeta,
@@ -366,9 +378,9 @@
 
       // --- Remote-Delta holen ---
       say('Frage Cloud-Stand ab …');
-      const userQ = [`equal("userId", "${userId}")`];
-      if (lastPull.notes) userQ.push(`greaterThan("updatedAt", "${lastPull.notes}")`);
-      const rows = await listRows(cfg, 'notes', [...userQ, 'orderAsc("updatedAt")']);
+      const userQ = [Q.equal('userId', userId)];
+      if (lastPull.notes) userQ.push(Q.greaterThan('updatedAt', lastPull.notes));
+      const rows = await listRows(cfg, 'notes', [...userQ, Q.orderAsc('updatedAt')]);
       const remote = {};
       let maxSeen = lastPull.notes || null;
       for (const r of rows) {
@@ -539,7 +551,7 @@
       say = typeof say === 'function' ? say : () => {};
       const mirror = loadFolders();
       const fmeta = loadFolderMeta();
-      const rows = await listRows(cfg, 'folders', [`equal("userId", "${userId}")`, 'orderAsc("updatedAt")']);
+      const rows = await listRows(cfg, 'folders', [Q.equal('userId', userId), Q.orderAsc('updatedAt')]);
       const remote = {};
       for (const r of rows) remote[r.$id] = r;
       // Pull: remote neuer/ unbekannt
@@ -604,35 +616,51 @@
       const st = Sync._rt;
       st.onChange = typeof onChange === 'function' ? onChange : null;
       if (typeof WebSocket === 'undefined') throw new Error('kein WebSocket');
-      // Session als Query-Param mitschicken (Tauri: Cookies fallen evtl. weg).
-      // Unbekannte Params ignoriert der Server; Cookie-Flow bleibt unberührt.
-      let url = cfg.endpoint.replace(/^http/, 'ws') + `/realtime?project=${cfg.projectId}`;
-      try {
-        const sess = (F && typeof F.loadSession === 'function' && F.loadSession()) || null;
-        if (sess && sess.secret) url += `&session=${encodeURIComponent(sess.secret)}`;
-      } catch { /* ignore */ }
+      // URL trägt nur das Projekt (SDK-Muster); Auth läuft als Message.
+      const url = cfg.endpoint.replace(/^http/, 'ws') + `/realtime?project=${cfg.projectId}`;
       const ws = new WebSocket(url);
       st.ws = ws;
-      let deb = null;
+      let deb = null, hb = null;
       const fire = () => {
         clearTimeout(deb);
         deb = setTimeout(() => { try { st.onChange && st.onChange(); } catch { /* ignore */ } }, 2500);
       };
+      const secret = (() => {
+        try { return (F && typeof F.loadSession === 'function' && (F.loadSession() || {}).secret) || null; }
+        catch { return null; }
+      })();
       ws.onopen = () => {
         st.connected = true;
-        try { ws.send(JSON.stringify({ type: 'subscribe', data: { channels: Sync.rtChannels(cfg) } })); }
-        catch { /* ignore */ }
+        try {
+          clearInterval(hb);
+          hb = setInterval(() => { try { ws.send(JSON.stringify({ type: 'ping' })); } catch { /* ignore */ } }, 20000);
+        } catch { /* ignore */ }
       };
       ws.onmessage = (ev) => {
         try {
           const m = JSON.parse(ev.data);
-          if (m && m.type === 'event') fire();
+          if (!m) return;
+          if (m.type === 'connected') {
+            // SDK-Muster: Session nachliefern, falls Server keinen User sieht.
+            if (secret && !(m.data && m.data.user)) {
+              try { ws.send(JSON.stringify({ type: 'authentication', data: { session: secret } })); }
+              catch { /* ignore */ }
+            }
+            try {
+              ws.send(JSON.stringify({
+                type: 'subscribe',
+                data: [{ subscriptionId: 'fw-' + Date.now().toString(36), channels: Sync.rtChannels(cfg), queries: [] }],
+              }));
+            } catch { /* ignore */ }
+          } else if (m.type === 'event') fire();
+          else if (m.type === 'error' && typeof console !== 'undefined') console.warn('realtime:', m.data);
         } catch { /* ignore */ }
       };
       ws.onerror = () => { /* still, weiter manuell */ };
       ws.onclose = () => {
         st.connected = false;
         st.ws = null;
+        try { clearInterval(hb); } catch { /* ignore */ }
         clearTimeout(st.retry);
         st.retry = setTimeout(() => {
           if (st.onChange) { try { Sync.startRealtime(st.onChange); } catch { /* ignore */ } }

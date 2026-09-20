@@ -150,6 +150,34 @@ describe('appwrite-files/collect', () => {
   });
 });
 
+describe('appwrite-files/queries', () => {
+  it('baut JSON-Queries im 2.x-Format', () => {
+    assert.deepEqual(JSON.parse(F.Q.limit(100)), { method: 'limit', values: [100] });
+    assert.deepEqual(JSON.parse(F.Q.orderAsc('$createdAt')), { method: 'orderAsc', attribute: '$createdAt' });
+    assert.deepEqual(JSON.parse(F.Q.equal('userId', 'u1')), { method: 'equal', attribute: 'userId', values: ['u1'] });
+    assert.deepEqual(JSON.parse(F.Q.greaterThan('updatedAt', 'iso')), { method: 'greaterThan', attribute: 'updatedAt', values: ['iso'] });
+    assert.deepEqual(JSON.parse(F.Q.cursorAfter('abc')), { method: 'cursorAfter', values: ['abc'] });
+  });
+  it('Fallback-Cookie-Roundtrip', () => {
+    const mem = new Map();
+    F._internals._setLsBackend({
+      getItem: k => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => { mem.set(k, String(v)); },
+      removeItem: k => { mem.delete(k); },
+    });
+    try {
+      mem.clear();
+      assert.equal(F.loadFallback(), null);
+      F.saveFallback('a_session=x');
+      assert.equal(F.authHeaders({ projectId: 'p' })['X-Fallback-Cookies'], 'a_session=x');
+      F.clearFallback();
+      assert.equal(F.loadFallback(), null);
+    } finally {
+      F._internals._resetLs();
+    }
+  });
+});
+
 describe('appwrite-files/session', () => {
   const mem = new Map();
   const backend = {
@@ -162,7 +190,10 @@ describe('appwrite-files/session', () => {
     try {
       mem.clear();
       assert.equal(F.loadSession(), null);
-      assert.deepEqual(F.authHeaders({ projectId: 'p' }), { 'X-Appwrite-Project': 'p' });
+      const base = F.authHeaders({ projectId: 'p' });
+      assert.equal(base['X-Appwrite-Project'], 'p');
+      assert.equal(base['X-Appwrite-Response-Format'], '2.0.0');
+      assert.equal(base['X-Appwrite-Session'], undefined);
       F.saveSession({ secret: 's3cr3t', userId: 'u1', at: 'x' });
       assert.equal(F.loadSession().secret, 's3cr3t');
       assert.equal(F.authHeaders({ projectId: 'p' })['X-Appwrite-Session'], 's3cr3t');

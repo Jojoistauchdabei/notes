@@ -23,6 +23,16 @@ describe('appwrite-sync/datei', () => {
   });
 });
 
+describe('appwrite-sync/queries', () => {
+  it('baut JSON-Queries im 2.x-Format', () => {
+    assert.deepEqual(JSON.parse(S.Q.limit(100)), { method: 'limit', values: [100] });
+    assert.deepEqual(JSON.parse(S.Q.orderAsc('updatedAt')), { method: 'orderAsc', attribute: 'updatedAt' });
+    assert.deepEqual(JSON.parse(S.Q.equal('userId', 'u1')), { method: 'equal', attribute: 'userId', values: ['u1'] });
+    assert.deepEqual(JSON.parse(S.Q.greaterThan('updatedAt', 'iso')), { method: 'greaterThan', attribute: 'updatedAt', values: ['iso'] });
+    assert.deepEqual(JSON.parse(S.Q.cursorAfter('abc')), { method: 'cursorAfter', values: ['abc'] });
+  });
+});
+
 describe('appwrite-sync/zeit-und-ids', () => {
   it('ISO roundtrip, robust bei Müll', () => {
     assert.equal(S.isoToMs(S.msToIso(1700000000000)), 1700000000000);

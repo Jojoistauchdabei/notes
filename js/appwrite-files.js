@@ -190,11 +190,25 @@
     if (!s) return;
     try { s.removeItem(SESSION_KEY); } catch { /* ignore */ }
   }
-  // Header-Bauer (rein, testbar): Secret ergänzt Cookie-Auth (Tauri-Fix).
+  // Cookie-Fallback für Cross-Domain (SDK-Muster: X-Fallback-Cookies).
+  const FALLBACK_KEY = 'federwerkCookieFallbackV1';
+  function loadFallback() { return lsGet(FALLBACK_KEY, null); }
+  function saveFallback(v) { if (v) lsSet(FALLBACK_KEY, v); }
+  function clearFallback() {
+    const s = ls();
+    if (!s) return;
+    try { s.removeItem(FALLBACK_KEY); } catch { /* ignore */ }
+  }
+  // Header-Bauer (rein, testbar): Secret + Fallback ergänzen Cookie-Auth (Tauri-Fix).
   function authHeaders(cfg, session) {
-    const h = { 'X-Appwrite-Project': cfg.projectId };
+    const h = {
+      'X-Appwrite-Project': cfg.projectId,
+      'X-Appwrite-Response-Format': '2.0.0',
+    };
     const sec = (session && session.secret) || (loadSession() || {}).secret;
     if (sec) h['X-Appwrite-Session'] = sec;
+    const fb = loadFallback();
+    if (fb) h['X-Fallback-Cookies'] = fb;
     return h;
   }
 
@@ -212,6 +226,10 @@
       method, headers, credentials: 'include',
       body: opts.body instanceof FormData ? opts.body : (opts.body ? JSON.stringify(opts.body) : undefined),
     });
+    try {
+      const fb = r.headers && r.headers.get('x-fallback-cookies');
+      if (fb) saveFallback(fb);
+    } catch { /* ignore */ }
     if (r.status === 204 || r.status === 205) return null;
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
@@ -221,15 +239,26 @@
     }
     return j;
   }
+  // Query-Bauer im JSON-Format (Appwrite 2.x, vgl. SDK Query-Klasse).
+  // Transport als indizierte Params: queries[0]=...&queries[1]=...
+  const Q = {
+    limit: n => JSON.stringify({ method: 'limit', values: [n] }),
+    offset: n => JSON.stringify({ method: 'offset', values: [n] }),
+    orderAsc: a => JSON.stringify({ method: 'orderAsc', attribute: a }),
+    orderDesc: a => JSON.stringify({ method: 'orderDesc', attribute: a }),
+    equal: (a, v) => JSON.stringify({ method: 'equal', attribute: a, values: [v] }),
+    greaterThan: (a, v) => JSON.stringify({ method: 'greaterThan', attribute: a, values: [v] }),
+    cursorAfter: id => JSON.stringify({ method: 'cursorAfter', values: [id] }),
+  };
   function q(params) {
-    return '?' + params.map(p => 'queries[]=' + encodeURIComponent(p)).join('&');
+    return '?' + params.map((p, i) => 'queries[' + i + ']=' + encodeURIComponent(p)).join('&');
   }
   async function listAllFiles(cfg) {
     const out = [];
     let cursor = null;
     for (let page = 0; page < 50; page++) {
-      const params = ['limit(100)', 'orderAsc("$createdAt")'];
-      if (cursor) params.push(`cursorAfter("${cursor}")`);
+      const params = [Q.limit(100), Q.orderAsc('$createdAt')];
+      if (cursor) params.push(Q.cursorAfter(cursor));
       const j = await rest(cfg, 'GET', `/storage/buckets/${cfg.bucketId}/files${q(params)}`);
       const files = (j && j.files) || [];
       for (const f of files) out.push({ fileId: f.$id, size: f.sizeOriginal || 0, mime: f.mimeType || '' });
@@ -373,9 +402,10 @@
   }
 
   const Files = {
-    DEFAULTS, FILE_PREFIX, MAX_LONG_EDGE,
+    DEFAULTS, FILE_PREFIX, MAX_LONG_EDGE, Q,
     loadConfig, saveConfig, loadMap, saveMap, loadQueue, saveQueue,
     loadSession, saveSession, clearSession, authHeaders,
+    loadFallback, saveFallback, clearFallback,
     normalizeMime, extForMime, fileIdForHash, hashFromFileId, sha256Hex,
     dataUrlToBytes, bytesToBase64, base64ToBytes, pickTarget,
     planFileSync, findOrphans, storageReport, queueAdd, queueNext,
@@ -400,6 +430,7 @@
       const cfg = loadConfig();
       try { await rest(cfg, 'DELETE', '/account/sessions/current'); } catch { /* ignore */ }
       clearSession();
+      clearFallback();
     },
     // Voller Datei-Sync: Upload fehlender, Download fehlender, Map+Queue pflegen.
     async syncNow(progress) {
