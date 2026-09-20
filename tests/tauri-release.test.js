@@ -151,4 +151,21 @@ describe('Tauri-Releasegerüst', () => {
     const def = JSON.parse(read('src-tauri/capabilities/default.json'));
     assert.ok((def.platforms || []).includes('linux'), 'default.json auf Desktop begrenzt');
   });
+
+  it('Android trägt Federwerk-Logo (kein Tauri-Standard im APK)', () => {
+    // Regressionstest: `android init` erzeugt ein frisches gen-Projekt mit
+    // Tauri-Standard-Icons – die CI muss danach `tauri icon` laufen lassen,
+    // sonst zeigt das APK das Tauri-Logo statt unseres Logos.
+    const wf = read('.github/workflows/tauri.yml');
+    assert.ok(wf.includes('android init'), 'Android-Init vorhanden');
+    const initPos = wf.indexOf('android init');
+    const iconPos = wf.indexOf('tauri-apps/cli icon');
+    assert.ok(iconPos > initPos, '`tauri icon` läuft nach `android init` (gen-Icons überschreiben)');
+    assert.ok(wf.includes('src-tauri/icons/icon.png'), 'Icon-Quelle ist unser Federwerk-Icon');
+    // Adaptive-Icon-Hintergrund: Ecken des Foregrounds sind transparent –
+    // Marken-Dunkelbraun statt Weiß (sonst weiße Ecken ums dunkle Icon).
+    const bg = read('src-tauri/icons/android/values/ic_launcher_background.xml');
+    assert.ok(bg.includes('#2a1a0e'), 'Launcher-Hintergrund ist Marken-Dunkelbraun');
+    assert.ok(!bg.includes('#fff'), 'kein Weiß-Hintergrund');
+  });
 });

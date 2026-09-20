@@ -241,6 +241,22 @@ jobs:
             npx --yes @tauri-apps/cli android init --ci
           fi
 
+      # WICHTIG: `android init` erzeugt ein frisches gen-Projekt mit den
+      # Tauri-Standard-Icons. `tauri icon` schreibt unsere Federwerk-Icons aus
+      # src-tauri/icons/icon.png danach ins gen-Projekt
+      # (src-tauri/gen/android/.../res/mipmap-*/...), sonst trägt das APK das
+      # Tauri-Logo statt unseres Logos.
+      - name: App-Icons ins Android-Projekt übernehmen (statt Tauri-Standard)
+        run: |
+          npx --yes @tauri-apps/cli icon src-tauri/icons/icon.png
+          # Adaptive-Icon-Hintergrund auf Marken-Dunkelbraun setzen (Ecken des
+          # Foregrounds sind transparent; `tauri icon` setzt hier sonst #fff,
+          # was weiße Ecken um das dunkle Icon gäbe).
+          BG='<?xml version="1.0" encoding="utf-8"?><resources><color name="ic_launcher_background">#2a1a0e</color></resources>'
+          printf '%s' "$BG" > src-tauri/icons/android/values/ic_launcher_background.xml
+          GEN_BG='src-tauri/gen/android/app/src/main/res/values/ic_launcher_background.xml'
+          if [ -f "$GEN_BG" ]; then printf '%s' "$BG" > "$GEN_BG"; fi
+
       - name: Keystore vorbereiten (Release-Signatur, falls Secrets vorhanden)
         id: keystore
         env:
