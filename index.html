@@ -23,18 +23,18 @@
       <h1><img class="brand-logo" src="icons/logo.svg" alt="" width="52" height="52"><span><span class="brand-name">Federwerk</span><span class="brand-tagline">Gedanken von deiner Hand.</span></span></h1>
       <div class="header-buttons">
         <div class="header-group">
-          <button class="btn-export" onclick="exportAllJSON()" aria-label="Exportiere alle Bücher als JSON">⬇ Export</button>
-          <button class="btn-import" onclick="document.getElementById('importFile').click()" aria-label="Importiere JSON-Dateien">⬆ JSON</button>
+          <button class="btn-export" onclick="exportAllJSON()" aria-label="Exportiere alle Bücher als JSON">⬇ Export JSON</button>
+          <button class="btn-import" onclick="document.getElementById('importFile').click()" aria-label="Importiere JSON-Dateien">⬆ Import JSON</button>
           <button class="btn-import" onclick="document.getElementById('gnFile').click()" aria-label="Importiere GoodNotes-Dateien">📥 GoodNotes</button>
         </div>
         <div class="header-group">
           <button class="btn-cloud" onclick="GrimoireCloudUI.syncNow()" aria-label="Cloud synchronisieren">☁ Sync</button>
-          <button class="btn-cloud" onclick="GrimoireCloudUI.openSettings()" aria-label="Cloud-Einstellungen öffnen" disabled>☁⚙</button>
+          <button class="btn-cloud" onclick="GrimoireCloudUI.openSettings()" aria-label="Cloud-Einstellungen öffnen">☁⚙</button>
           <button class="btn-print" onclick="window.print()" aria-label="Seite drucken oder als PDF speichern">🖨 Druck / PDF</button>
         </div>
         <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none" aria-hidden="true">
         <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none" aria-hidden="true">
-        <span class="version-tag" aria-hidden="true">v1.7.2 · BUILD 19.09.2026-1</span>
+        <span class="version-tag" aria-hidden="true">v1.7.11 · BUILD 19.09.2026-1</span>
       </div>
     </div>
 
@@ -42,7 +42,7 @@
     <div class="view active" id="viewLibrary">
       <div class="box">
         <div class="search-bar no-print">
-          <input type="text" id="librarySearch" placeholder="Suchen: Text, tag:#x, file:Titel, &quot;Phrase&quot;, -aus, A OR B ..." oninput="renderLibrary()" aria-label="Federwerk durchsuchen">
+          <input type="text" id="librarySearch" placeholder="Suchen: Text, tag:#x, file:Titel, &quot;Phrase&quot;, -aus, A OR B ..." oninput="renderLibrary()" aria-label="Federwerk durchsuchen" title="Syntax: Text | tag:#name | file:Titel | &quot;exakte Phrase&quot; | -ausschluss | A OR B">
           <button onclick="openGraphOverlay()" style="white-space:nowrap" aria-label="Graph-Ansicht öffnen">◈ Graph</button>
           <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
         </div>
@@ -195,11 +195,11 @@
     </div>
   </div>
 
-  <!-- TEXTEDITOR-OVERLAY: 1:1 aus DND-Character-sheet-generator/index.html übernommen -->
+  <!-- TEXTEDITOR-OVERLAY -->
   <div id="editorOverlay" class="editor-overlay" onclick="if (event.target === this) closeTextEditor()">
     <div class="editor-modal">
       <div class="editor-header">
-        <div class="editor-header-title">⚔ TEXTEDITOR: <span id="editorTargetTitle">NOTIZEN</span> ⚔</div>
+        <div class="editor-header-title">✎ TEXTEDITOR: <span id="editorTargetTitle">NOTIZEN</span></div>
         <button type="button" class="mini-button" onclick="closeTextEditor()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Texteditor schließen">✕</button>
       </div>
       <div class="editor-toolbar">
