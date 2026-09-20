@@ -4,13 +4,18 @@
    Copyright (c) 2025 Document Parser for GoodNotes contributors, MIT License.
    Abgedeckt: ZIP via GNZip, Protobuf-Wire, Apple-LZ4 (bv41), Troy-Hanson-TPL,
    Stroke-Punkte inkl. Pressure/Dots, Farben, Highlighter (Alpha < 0.95),
-   Lasso-Offsets, Seiten, Shapes (als Vektor-Strokes), getippte Textboxen
-   (Runs mit Stil), Bild-Elemente inkl. Crop/Rotation, Titel, PDF-MediaBox.
+   Lasso-Offsets, Seiten, Shapes (Typ 31/35 + F9-Rechtecke, Export als
+   Typ-35-Polygon mit Farbe/Füllung/Dash), getippte Textboxen (Runs mit Stil,
+   inkl. Zeilenumbrüchen) mit Canvas-Roundtrip (normiert ↔ GoodNotes-pt),
+   Sticky Notes, Bild-Elemente inkl. Crop/Rotation, Titel, PDF-MediaBox.
    Export: UUID-Record-IDs, Pfade notes/<uuid>/pageN.pb + attachments/<uuid>
    (SPEC-34), Marker mit Alpha 0.35, Textstile, Bildmaße (PNG/JPEG),
-   Seiten-Hintergrund als Contain-Bild. Limits: kein Deflate (Stored-ZIP),
-   kein Per-Punkt-Pressure im Export, keine PDF-Vektor-Hintergründe,
-   blob:-Refs und Fremd-URLs werden nicht eingebettet (App lagert vorher aus).
+   Seiten-Hintergrund als Contain-Bild, Canvas→pt-Sync (Kehrwert von mapPage,
+   Strokes/Texte/Bilder/Breiten maßstabsgetreu). Limits: kein Deflate
+   (Stored-ZIP), kein Per-Punkt-Pressure im Export (eine Breite pro Stroke),
+   keine PDF-Vektor-Hintergründe (Import rastern, Export Bild), blob:-Refs
+   und Fremd-URLs werden übersprungen statt korrupt eingebettet (App lagert
+   vorher via inlineBook aus).
    GoodNotes-App-Kompatibilität ist ohne echte App nicht verifizierbar. */
 var GoodNotes = (function () {
   'use strict';
@@ -1557,7 +1562,19 @@ var GoodNotes = (function () {
   }
 
   // Seitenmaß für Export-Geometrie (GoodNotes-pt, vgl. Import-Default in parseDocument)
+  // Export-Koordinaten sind die Umkehrung von mapPage (CW=1000, CH=1414):
+  // canvas_x = pt_x * EX_SC, canvas_y = pt_y * EX_SC + EX_OFFY,
+  // canvas_Breite = pt_Breite * EX_WSC. Damit überlebt ein
+  // Federwerk→GoodNotes→Federwerk-Roundtrip die exakten Canvas-Maße.
   const PAGE_W = 612, PAGE_H = 792;
+  const EX_DPI = 132 / 72, EX_CW = 1000, EX_CH = 1414;
+  const EX_IW = PAGE_W * EX_DPI, EX_IH = PAGE_H * EX_DPI;
+  const EX_SC = EX_CW / EX_IW;
+  const EX_OFFY = (EX_CH - EX_IH * EX_SC) / 2;
+  const EX_WSC = EX_CW / PAGE_W;
+  function canvasToPt(x, y) { return [x / EX_SC, (y - EX_OFFY) / EX_SC]; }
+  function normToPt(nx, ny) { return canvasToPt((nx || 0) * EX_CW, (ny || 0) * EX_CH); }
+  function canvasSizeToPt(s) { return (s || 0) / EX_WSC; }
 
   // Bildmaße aus Bytes (PNG-IHDR / JPEG-SOF), für seitenrichtige Bild-Rechtecke
   function imageFileDims(bytes) {
@@ -1669,13 +1686,41 @@ var GoodNotes = (function () {
     const f21 = wmsg([[20, 2, f20], [32, 2, f32]]);
     return wmsg([[1, 2, strToBytes(uuid)], [21, 2, f21]]);
   }
-  function shapeRecord(uuid, points, color, width) {
+  // Typ-35-Polygon (rundtrip-fähig durch type35Shape): f20 = Pos (links oben),
+  // f21 = Größe, f22/f3/f1/f1 = normierte Punkte, f30 = Farbe/Füllung,
+  // f31 = Breite/Dash/Alpha. Unbefüllte Shapes bekommen Alpha 0, damit die
+  // Strichfarbe erhalten bleibt (filled = fillAlpha > 0).
+  function shapeRecord(uuid, points, color, width, opts) {
+    opts = opts || {};
     const crgb = parseColor(color || '#1e1b1b');
-    const ptMsg = wmsg([[1, 5, points[0][0]], [2, 5, points[0][1]]]);
-    const container = wmsg([[1, 2, ptMsg], [2, 2, wmsg([[1, 5, width || 1]])]]);
-    const shapeMsg = wmsg([[1, 2, container], [15, 5, width || 1]]);
-    const outer = wmsg([[1, 2, strToBytes(uuid)], [7, 2, wmsg([[9, 2, shapeMsg], [4, 2, colorMsg(...crgb)]])]]);
-    return outer;
+    const pts = (points || []).map(p => Array.isArray(p) ? [p[0], p[1]] : [p.x, p.y]);
+    if (pts.length < 2) return null;
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const px = Math.min(...xs), py = Math.min(...ys);
+    let w = Math.max(...xs) - px, h = Math.max(...ys) - py;
+    if (!(w > 0)) w = 1; if (!(h > 0)) h = 1;
+    const norm = pts.map(p => [(p[0] - px) / w, (p[1] - py) / h]);
+    const items = norm.map(n => [1, 2, wmsg([[1, 2, wmsg([[1, 5, n[0]], [2, 5, n[1]]])]])]);
+    const m22 = wmsg([[3, 2, wmsg([[1, 2, wmsg(items)]])]]);
+    const fillA = opts.fill ? Math.max(0, Math.min(1, opts.fillAlpha == null ? 0.3 : opts.fillAlpha)) : 0;
+    const fillC = opts.fill || color || '#1e1b1b';
+    const frgb = parseColor(fillC); frgb[3] = fillA;
+    const m30 = wmsg([[1, 2, wmsg([[1, 2, colorMsg(...frgb)]])]]);
+    const m31parts = [[1, 5, width || 1]];
+    if (opts.dash && opts.dash.length) {
+      const md = wmsg(opts.dash.map((d, i) => [i + 1, 5, d]));
+      m31parts.push([2, 2, wmsg([[2, 2, md]])]);
+    }
+    const alpha = Math.max(0, Math.min(1, typeof opts.alpha === 'number' ? opts.alpha : 1));
+    m31parts.push([3, 2, wmsg([[1, 2, wmsg([[4, 5, alpha]])]])]);
+    const m21 = wmsg([
+      [20, 2, wmsg([[1, 2, wmsg([[1, 5, px], [2, 5, py]])]])],
+      [21, 2, wmsg([[2, 2, wmsg([[1, 5, w], [2, 5, h]])]])],
+      [22, 2, m22],
+      [30, 2, m30],
+      [31, 2, wmsg(m31parts)],
+    ]);
+    return wmsg([[1, 2, strToBytes(uuid)], [21, 2, m21]]);
   }
   function imageRecord(recUuid, attUuid, x, y, w, h) {
     const pt = (x, y) => wmsg([[1, 5, x], [2, 5, y]]);
@@ -1800,28 +1845,49 @@ var GoodNotes = (function () {
         if (!s.points || !s.points.length) continue;
         // Marker → Alpha 0.35 (Import: highlighter bei alpha < 0.95)
         const alpha = (s.highlighter || s.tool === 'marker') ? 0.35 : (typeof s.alpha === 'number' ? s.alpha : 1);
-        recs.push(strokeRecord(uuid4(), s.points, s.color || '#000000', s.size || 2.5, alpha));
+        // Federwerk-Canvas (1000×1414) → GoodNotes-pt (Umkehrung von mapPage),
+        // Breite über EX_WSC, damit der Reimport maßstabsgetreu ist.
+        const ptsPt = s.points.map(p => {
+          const q = canvasToPt(p.x != null ? p.x : 0, p.y != null ? p.y : 0);
+          return { x: q[0], y: q[1] };
+        });
+        const wPt = Math.max(0.1, canvasSizeToPt(s.size || 2.5));
+        const isShape = !!(s.closed || s.fill || (Array.isArray(s.dash) && s.dash.length));
+        if (isShape && ptsPt.length >= 2) {
+          const dashPt = Array.isArray(s.dash) ? s.dash.map(d => Math.max(0, canvasSizeToPt(d))).filter(d => d > 0) : null;
+          const rec = shapeRecord(uuid4(), ptsPt, s.color || '#000000', wPt, {
+            dash: dashPt && dashPt.length ? dashPt : null,
+            fill: s.fill || null, fillAlpha: s.fillAlpha || 0, alpha,
+          });
+          if (rec) { recs.push(rec); continue; }
+          // Fallback: als Stroke (falls entartet)
+        }
+        recs.push(strokeRecord(uuid4(), ptsPt, s.color || '#000000', wPt, alpha));
       }
 
       for (let ti = 0; ti < (page.texts || []).length; ti++) {
         const t = page.texts[ti];
         const runs = parseHtmlToRuns(t.html);
         if (!runs.length) continue;
-        const tx = Math.round((t.x || 0) * 10000) / 10000;
-        const ty = Math.round((t.y || 0) * 10000) / 10000;
-        recs.push(textRecord(uuid4(), tx, ty, 200, 100, t.html, runs));
+        // normierte Federwerk-Koords (0..1) → Canvas → GoodNotes-pt
+        const q = normToPt(t.x || 0, t.y || 0);
+        recs.push(textRecord(uuid4(), Math.round(q[0] * 1000) / 1000, Math.round(q[1] * 1000) / 1000, 200, 100, t.html, runs));
       }
 
       for (let ii = 0; ii < (page.images || []).length; ii++) {
         const im = page.images[ii];
         const data = dataUrlBytes(im.src);
+        // blob:-Refs / Fremd-URLs / kaputte Chunks: kein korruptes Attachment
+        // schreiben, sondern Bild überspringen (wird im Report gezählt).
+        if (!data) continue;
         const attUuid = uuid4();
-        const iw = (im.w || 0.5) * PAGE_W;
+        const iw = (im.w || 0.5) * EX_IW;
         let ih = iw * 0.75;
-        const dd = data && imageFileDims(data.bytes);
+        const dd = imageFileDims(data.bytes);
         if (dd) ih = iw * dd.h / dd.w;
-        recs.push(imageRecord(uuid4(), attUuid, (im.x || 0) * PAGE_W, (im.y || 0) * PAGE_H, iw, ih));
-        files.push(['attachments/' + attUuid, (data && data.bytes) || new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])]);
+        const q = normToPt(im.x || 0, im.y || 0);
+        recs.push(imageRecord(uuid4(), attUuid, q[0], q[1], iw, ih));
+        files.push(['attachments/' + attUuid, data.bytes]);
       }
 
       // Seiten-Hintergrund (Bild/PDF-Raster) als seitenfüllendes Bild (Contain)
@@ -1888,14 +1954,16 @@ var GoodNotes = (function () {
       if (tok[0] !== '<') { cur.text += decodeEnt(tok); continue; }
       const closing = tok[1] === '/';
       const name = (tok.replace(/[<>/]/g, '').split(/\s+/)[0] || '').toLowerCase();
-      if (name === 'br') { flush(); continue; }
+      if (name === 'br') { cur.text += '\n'; continue; }
       if (name === 'ul' || name === 'ol') {
+        if (cur.text && !cur.text.endsWith('\n')) cur.text += '\n';
         flush();
         if (!closing) { stack.push(snap()); st.list = name === 'ol' ? 'numbered' : 'bullet'; }
-        else if (stack.length) st = stack.pop();
+        else if (stack.length) { st = stack.pop(); cur.text += '\n'; }
         continue;
       }
       if (name === 'p' || name === 'div' || name === 'li' || name === 'tr' || /^h[1-6]$/.test(name)) {
+        if (!closing && cur.text && !cur.text.endsWith('\n')) cur.text += '\n';
         flush();
         if (!closing) {
           stack.push(snap());
@@ -1912,7 +1980,7 @@ var GoodNotes = (function () {
           else if (name === 'h2') st.size = 32;
           else if (name === 'h3') st.size = 28;
           if (name === 'li' && !st.list) st.list = 'bullet';
-        } else if (stack.length) st = stack.pop();
+        } else if (stack.length) { st = stack.pop(); cur.text += '\n'; }
         continue;
       }
       if (name === 'b' || name === 'strong' || name === 'i' || name === 'em' ||
@@ -1949,7 +2017,8 @@ var GoodNotes = (function () {
 
   return {
     parseDocument, mapPage, runsToHtml, exportGoodNotes,
-    _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9, writeZip, strokeRecord, textRecord, imageRecord, metaRecord, indexNotesPb, indexEventsPb, documentPb, documentInfoPb, parseHtmlToRuns, tplEncode, bv4n, lz4Literals, wvarint, wfield, wmsg, wdelimited, concatU8, stripHtml, crc32, makeThumbnail, uuid4, imageFileDims, dataUrlBytes, looksLikeUuid }
+    _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9, writeZip, strokeRecord, textRecord, imageRecord, metaRecord, indexNotesPb, indexEventsPb, documentPb, documentInfoPb, parseHtmlToRuns, tplEncode, bv4n, lz4Literals, wvarint, wfield, wmsg, wdelimited, concatU8, stripHtml, crc32, makeThumbnail, uuid4, imageFileDims, dataUrlBytes, looksLikeUuid,
+      exportGeom: { PAGE_W, PAGE_H, EX_DPI, EX_IW, EX_IH, EX_SC, EX_OFFY, EX_WSC }, canvasToPt, normToPt, canvasSizeToPt }
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = GoodNotes;

@@ -32,7 +32,7 @@
         </div>
         <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none" aria-hidden="true">
         <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none" aria-hidden="true">
-        <span class="version-tag" aria-hidden="true">v1.7.11 · BUILD 19.09.2026-1</span>
+        <span class="version-tag" aria-hidden="true">v1.8.0 · BUILD 20.09.2026-1</span>
       </div>
     </div>
 
@@ -44,8 +44,21 @@
           <button onclick="openGraphOverlay()" style="white-space:nowrap" aria-label="Graph-Ansicht öffnen">◈ Graph</button>
           <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
         </div>
-        <div class="divider"><div class="divider-line"></div><div class="divider-title">Bibliothek</div><div class="divider-line"></div></div>
-        <div class="library-grid" id="libraryGrid"></div>
+        <div class="folder-chips no-print" id="folderChips" role="tablist" aria-label="Ordner-Filter (mobil)"></div>
+        <div class="library-layout">
+          <aside class="folder-sidebar no-print" aria-label="Ordner">
+            <div class="folder-sidebar-head">
+              <span class="section-title" style="margin:0">Ordner</span>
+              <button class="mini-button" onclick="createFolderUI()" aria-label="Neuen Ordner erstellen" title="Neuen Ordner erstellen">+ Neu</button>
+            </div>
+            <nav class="folder-nav" id="folderNav" aria-label="Ordner-Liste"></nav>
+            <div class="folder-hint">Bücher per 📁-Menü auf der Karte verschieben. Ordner löschen behält die Bücher (→ Unsortiert) und synct via Appwrite.</div>
+          </aside>
+          <section class="library-main" aria-live="polite">
+            <div class="divider"><div class="divider-line"></div><div class="divider-title" id="libraryFolderTitle">Alle Bücher</div><div class="divider-line"></div></div>
+            <div class="library-grid" id="libraryGrid"></div>
+          </section>
+        </div>
       </div>
       <div class="box">
         <div class="section-title">Über Federwerk</div>
@@ -339,6 +352,7 @@
   </div>
 
   <script src="js/pencil.js"></script>
+  <script src="js/folders.js"></script>
   <script src="js/split.js"></script>
   <script src="js/markdown.js"></script>
   <script src="js/editor.js"></script>

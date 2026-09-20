@@ -86,15 +86,21 @@ describe('gnexport', () => {
     const pg = doc.pages[0];
     assert.equal(pg.strokes.length, 1);
     assert.ok(pg.strokes[0].points.length >= 3);
-    assert.deepEqual(pg.strokes[0].points.map(p => [Math.round(p.x), Math.round(p.y)]), [[100, 200], [150, 250], [180, 300]]);
+    // Export rechnet Federwerk-Canvas → GoodNotes-pt um (Kehrwert von mapPage);
+    // der Canvas-Roundtrip über mapPage muss die Originalmaße treffen.
+    const mapped = GoodNotes.mapPage(pg);
+    assert.equal(mapped.strokes.length, 1);
+    assert.deepEqual(mapped.strokes[0].points.map(p => [Math.round(p.x), Math.round(p.y)]), [[100, 200], [150, 250], [180, 300]]);
     assert.equal(pg.textBoxes.length, 1);
     assert.match(pg.textBoxes[0].runs.map(r => r.text).join(' '), /Hallo Export/);
   });
 
   it('attachment-UUID von Record und Datei stimmen überein', async () => {
+    const raw = I.makeThumbnail();
+    const b64 = Buffer.from(raw).toString('base64');
     const book = {
       title: 'Img-Test',
-      pages: [{ strokes: [], texts: [], images: [{ x: 0.1, y: 0.1, w: 0.5, src: null }] }]
+      pages: [{ strokes: [], texts: [], images: [{ x: 0.1, y: 0.1, w: 0.5, src: 'data:image/jpeg;base64,' + b64 }] }]
     };
     const zip = GoodNotes.exportGoodNotes(book);
     const members = await GNZip.readZip(zip);
@@ -191,8 +197,9 @@ describe('gnexport', () => {
     const doc = GoodNotes.parseDocument(members, 'fallback');
     assert.equal(doc.pages[0].strokes.length, 1);
     assert.equal(doc.pages[0].strokes[0].points.length, 1);
+    const mapped = GoodNotes.mapPage(doc.pages[0]);
     assert.deepEqual(
-      doc.pages[0].strokes[0].points.map(p => [Math.round(p.x), Math.round(p.y)]),
+      mapped.strokes[0].points.map(p => [Math.round(p.x), Math.round(p.y)]),
       [[100, 200]]);
   });
 
@@ -242,10 +249,13 @@ describe('gnexport', () => {
     const doc = GoodNotes.parseDocument(members, 'fallback');
     assert.equal(doc.pages[0].images.length, 1);
     const ie = doc.pages[0].images[0].ie;
-    assert.ok(Math.abs(ie.x - 0.1 * 612) < 0.01, 'x=' + ie.x);
-    assert.ok(Math.abs(ie.y - 0.2 * 792) < 0.01, 'y=' + ie.y);
-    assert.ok(Math.abs(ie.w - 0.5 * 612) < 0.01, 'w=' + ie.w);
-    assert.ok(Math.abs(ie.h - ie.w) < 0.01, 'h=' + ie.h + ' (2x2 quadratisch erwartet)');
+    // normierte Federwerk-Koords → GoodNotes-pt via Export-Geometrie (Kehrwert von mapPage)
+    const g = I.exportGeom;
+    const ex = 0.1 * g.EX_IW, ey = (0.2 * 1414 - g.EX_OFFY) / g.EX_SC, ew = 0.5 * g.EX_IW;
+    assert.ok(Math.abs(ie.x - ex) < 0.5, 'x=' + ie.x + ' erwartet ' + ex);
+    assert.ok(Math.abs(ie.y - ey) < 0.5, 'y=' + ie.y + ' erwartet ' + ey);
+    assert.ok(Math.abs(ie.w - ew) < 0.5, 'w=' + ie.w + ' erwartet ' + ew);
+    assert.ok(Math.abs(ie.h - ie.w) < 0.5, 'h=' + ie.h + ' (2x2 quadratisch erwartet)');
   });
 
   it('seiten-hintergrund wird als bild exportiert und reimportiert', async () => {
@@ -296,5 +306,70 @@ describe('gnexport', () => {
     assert.equal(I.imageFileDims(null), null);
     const thumb = I.makeThumbnail();
     assert.deepEqual(I.imageFileDims(thumb), { w: 1, h: 1 });
+  });
+
+  it('zeilenumbrüche überleben html→runs→html', async () => {
+    const runs = I.parseHtmlToRuns('<p>eins<br>zwei</p><p>drei</p>');
+    assert.ok(runs.map(r => r.text).join('').includes('eins\ndrei') || runs.map(r => r.text).join('|').includes('\n'), 'kein Umbruch: ' + JSON.stringify(runs.map(r => r.text)));
+    const book = {
+      title: 'BR-Test',
+      pages: [{ strokes: [], images: [], texts: [{ x: 0.1, y: 0.1, html: '<p>eins<br>zwei</p><p>drei</p>' }] }],
+    };
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(book));
+    const doc = GoodNotes.parseDocument(members, 'fallback');
+    const html = GoodNotes.runsToHtml({ runs: doc.pages[0].textBoxes[0].runs });
+    assert.match(html, /eins<br>drei|eins<br>zwei/);
+    assert.match(html, /drei/);
+  });
+
+  it('textposition überlebt canvas-roundtrip', async () => {
+    const book = {
+      title: 'Pos-Test',
+      pages: [{ strokes: [], images: [], texts: [{ x: 0.25, y: 0.4, html: '<p>Positions-Test</p>' }] }],
+    };
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(book));
+    const doc = GoodNotes.parseDocument(members, 'fallback');
+    const mapped = GoodNotes.mapPage(doc.pages[0]);
+    assert.equal(mapped.texts.length, 1);
+    assert.ok(Math.abs(mapped.texts[0].x - 0.25) < 0.02, 'x=' + mapped.texts[0].x);
+    assert.ok(Math.abs(mapped.texts[0].y - 0.4) < 0.02, 'y=' + mapped.texts[0].y);
+  });
+
+  it('shape (closed/fill/dash) überlebt export→import', async () => {
+    const pts = [{ x: 100, y: 100 }, { x: 300, y: 100 }, { x: 300, y: 300 }, { x: 100, y: 300 }, { x: 100, y: 100 }];
+    const book = {
+      title: 'Shape-Test',
+      pages: [{
+        strokes: [{ points: pts, color: '#00ff00', size: 3, closed: true, fill: '#00ff00', fillAlpha: 0.4, dash: [6, 4] }],
+        texts: [], images: [],
+      }],
+    };
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(book));
+    const doc = GoodNotes.parseDocument(members, 'fallback');
+    assert.equal(doc.pages[0].strokes.length, 0);
+    assert.equal(doc.pages[0].shapes.length, 1);
+    const sh = doc.pages[0].shapes[0];
+    assert.equal(sh.color, '#00ff00');
+    // Dash liegt roh in GoodNotes-pt vor (Canvas/EX_WSC), gemappt wieder in Canvas-px
+    assert.deepEqual(sh.dash.map(d => Math.round(d * I.exportGeom.EX_WSC)), [6, 4]);
+    const mapped = GoodNotes.mapPage(doc.pages[0]);
+    assert.equal(mapped.strokes.length, 1);
+    assert.equal(mapped.strokes[0].fill, '#00ff00');
+    assert.deepEqual(mapped.strokes[0].dash.map(d => Math.round(d)), [6, 4]);
+    assert.ok(mapped.strokes[0].closed, 'closed erwartet');
+    const xs = mapped.strokes[0].points.map(p => Math.round(p.x));
+    assert.ok(Math.min(...xs) >= 95 && Math.max(...xs) <= 305, 'bbox: ' + xs);
+  });
+
+  it('bilder ohne bytes werden übersprungen statt korrupt eingebettet', async () => {
+    const book = {
+      title: 'Null-Img-Test',
+      pages: [{ strokes: [], texts: [], images: [{ x: 0.1, y: 0.1, w: 0.5, src: null }, { x: 0.2, y: 0.2, w: 0.3, src: 'blob:fake' }] }]
+    };
+    const members = await GNZip.readZip(GoodNotes.exportGoodNotes(book));
+    const atts = Object.keys(members).filter(k => k.startsWith('attachments/'));
+    assert.equal(atts.length, 0);
+    const doc = GoodNotes.parseDocument(members, 'fallback');
+    assert.equal(doc.pages[0].images.length, 0);
   });
 });

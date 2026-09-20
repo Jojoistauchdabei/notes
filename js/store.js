@@ -303,6 +303,14 @@
     s.openBookId = s.openBookId || null;
     s.openPageId = s.openPageId || null;
     if (!Array.isArray(s.books)) s.books = [];
+    if (!Array.isArray(s.folders)) s.folders = [];
+    // Altbestand: folderId heilen
+    try {
+      const valid = new Set(s.folders.map(f => f && f.id));
+      for (const b of s.books) {
+        if (b && b.folderId != null && !valid.has(b.folderId)) b.folderId = null;
+      }
+    } catch { /* ignore */ }
     return s;
   }
 

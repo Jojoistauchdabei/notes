@@ -3,7 +3,30 @@
 const LS_KEY = 'grimoire-dnd-v1';
 const CANVAS_W = 1000, CANVAS_H = 1414;
 
-let state = { books: [], openBookId: null, openPageId: null };
+let state = { books: [], folders: [], openBookId: null, openPageId: null };
+// Cloud-Sync (js/appwrite-files.js, js/appwrite-sync.js) liest window.state.
+// Top-level `let` landet bei klassischen <script>s NICHT auf window – daher
+// als Getter/Setter spiegeln (überlebt auch Reassignments wie `state = p`).
+try {
+  if (typeof window !== 'undefined' && !Object.getOwnPropertyDescriptor(window, 'state')) {
+    Object.defineProperty(window, 'state', {
+      configurable: true,
+      enumerable: true,
+      get() { return state; },
+      set(v) { state = v; },
+    });
+  }
+} catch { /* ignore */ }
+// Ordner-Filter (UI-only, in localStorage gemerkt)
+let activeFolderId = 'all';
+try {
+  const af = (typeof localStorage !== 'undefined') ? localStorage.getItem('federwerkActiveFolderV1') : null;
+  if (af) activeFolderId = af;
+} catch { /* ignore */ }
+function setActiveFolderId(v) {
+  activeFolderId = (!v) ? 'all' : v;
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem('federwerkActiveFolderV1', activeFolderId); } catch { /* ignore */ }
+}
 let tool = 'pen', penColor = '#2a1a0e', penSize = 3;
 // SPEC-25: Radierer-Modi + "Nur Highlighter" (persistiert, localStorage grimoireEraserMode)
 let eraserMode = 'standard', eraserHighlighterOnly = false;
@@ -87,11 +110,66 @@ const stripHtml = h => { const d = document.createElement('div'); d.innerHTML = 
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 /* ---------- Persistenz ---------- */
+function ensureFoldersLocal() {
+  try {
+    if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.ensureFolders) {
+      GrimoireFolders.ensureFolders(state);
+    } else {
+      if (!Array.isArray(state.folders)) state.folders = [];
+      const valid = new Set(state.folders.map(f => f && f.id));
+      for (const b of state.books) {
+        if (b && b.folderId != null && !valid.has(b.folderId)) b.folderId = null;
+      }
+    }
+  } catch { if (!Array.isArray(state.folders)) state.folders = []; }
+  // Cloud-Mirror (federwerkFoldersV1) mit lokalem Stand zusammenführen,
+  // damit alte Sync-Ordner nicht verloren gehen.
+  try {
+    if (typeof GrimoireFolders !== 'undefined' && typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('federwerkFoldersV1');
+      if (raw) {
+        const mirror = JSON.parse(raw);
+        const merged = GrimoireFolders.mergeFolders(state.folders, mirror);
+        // Nur übernehmen, wenn Merge mehr weiß (kein Datenverlust bei leerem Mirror)
+        if (merged.length >= 0 && (merged.length !== state.folders.length || JSON.stringify(merged) !== JSON.stringify(state.folders))) {
+          // Wenn lokaler Stand leer, aber Mirror voll -> Mirror übernehmen
+          if (!state.folders.length && merged.length) state.folders = merged;
+        }
+      }
+    }
+  } catch { /* Mirror optional */ }
+  if (activeFolderId !== 'all' && activeFolderId !== 'unsorted') {
+    const ok = (state.folders || []).some(f => f.id === activeFolderId);
+    if (!ok) setActiveFolderId('all');
+  }
+}
+function pushFoldersToMirror() {
+  try {
+    if (typeof GrimoireFolders === 'undefined' || typeof localStorage === 'undefined') return;
+    const mirror = GrimoireFolders.toMirror(state.folders || []);
+    localStorage.setItem('federwerkFoldersV1', JSON.stringify(mirror));
+  } catch { /* ignore */ }
+}
+function pullFoldersFromMirror() {
+  try {
+    if (typeof GrimoireFolders === 'undefined' || typeof localStorage === 'undefined') return false;
+    const raw = localStorage.getItem('federwerkFoldersV1');
+    if (!raw) return false;
+    const merged = GrimoireFolders.mergeFolders(state.folders || [], JSON.parse(raw));
+    if (JSON.stringify(merged) !== JSON.stringify(state.folders || [])) {
+      state.folders = merged;
+      ensureFoldersLocal();
+      return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
 function load() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) { const p = JSON.parse(raw); if (p && Array.isArray(p.books)) state = p; }
   } catch { /* ignore */ }
+  ensureFoldersLocal();
   if (!state.books.length) {
     const b = newBook('Mein erstes Federwerk-Buch', true);
     state.books.push(b);
@@ -102,6 +180,8 @@ function load() {
 function persistNow() {
   try {
     syncSplitToState();
+    ensureFoldersLocal();
+    pushFoldersToMirror();
     if (typeof GrimoireStore !== 'undefined') {
       GrimoireStore.saveNow(state).catch(() => setSaveStatus('⚠ Speichern fehlgeschlagen'));
       setSaveStatus('💾 gespeichert');
@@ -123,7 +203,14 @@ function setSaveStatus(t) { const el = $('statusSave'); if (el) el.textContent =
 /* ---------- Modell ---------- */
 function newPage() { return { id: uid(), strokes: [], texts: [], images: [], bg: null }; }
 function newBook(title, withStarter) {
-  const b = { id: uid(), title: title || 'Neues Buch', paper: 'grid', updatedAt: Date.now(), pages: [newPage()] };
+  const b = { id: uid(), title: title || 'Neues Buch', paper: 'grid', updatedAt: Date.now(), folderId: null, pages: [newPage()] };
+  // Neues Buch landet im aktiven Ordner (falls einer gewählt ist)
+  try {
+    if (activeFolderId && activeFolderId !== 'all' && activeFolderId !== 'unsorted') {
+      const ok = (state.folders || []).some(f => f.id === activeFolderId);
+      if (ok) b.folderId = activeFolderId;
+    }
+  } catch { /* ignore */ }
   // SPEC-31 light: Suchsprache pro Buch (book.lang, Default Gerätesprache/'de').
   // V1 bewusst ohne UI-Bruch (kein Dialog-Feld); Umstellung später hier im
   // Buch-Flow, aktuell per GrimoireInkIndex.setBookLang(book, 'en').
@@ -225,8 +312,90 @@ function duplicateBook(id, ev) {
   copy.id = uid(); copy.title = src.title + ' (Kopie)';
   copy.pages.forEach(p => { p.id = uid(); });
   copy.updatedAt = Date.now();
+  if (typeof copy.folderId !== 'string') copy.folderId = src.folderId || null;
   state.books.unshift(copy);
   persistNow(); renderLibrary();
+}
+
+/* ---------- Ordner (Bibliothek) ---------- */
+function folderList() {
+  ensureFoldersLocal();
+  return state.folders || [];
+}
+function setActiveFolder(id, ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  setActiveFolderId(id || 'all');
+  renderLibrary();
+}
+function createFolderUI() {
+  let name = '';
+  try { name = prompt('Neuer Ordner – Name:', ''); } catch { name = ''; }
+  if (name === null) return;
+  name = String(name || '').trim();
+  if (!name) return;
+  try {
+    if (typeof GrimoireFolders !== 'undefined') {
+      const f = GrimoireFolders.createFolder(state.folders, name);
+      if (!f) return;
+      persistNow();
+      setActiveFolderId(f.id);
+      renderLibrary();
+    }
+  } catch (e) { alert('Ordner konnte nicht angelegt werden.'); }
+}
+function renameFolderUI(id, ev) {
+  if (ev) ev.stopPropagation();
+  const f = (state.folders || []).find(x => x && x.id === id);
+  if (!f) return;
+  let name = '';
+  try { name = prompt('Ordner umbenennen:', f.name || ''); } catch { return; }
+  if (name === null) return;
+  name = String(name || '').trim();
+  if (!name) return;
+  try {
+    if (typeof GrimoireFolders !== 'undefined') GrimoireFolders.renameFolder(state.folders, id, name);
+    else f.name = name;
+    persistNow(); renderLibrary();
+  } catch { /* ignore */ }
+}
+function deleteFolderUI(id, ev) {
+  if (ev) ev.stopPropagation();
+  const f = (state.folders || []).find(x => x && x.id === id);
+  if (!f) return;
+  if (!confirm('Ordner „' + (f.name || '') + '“ löschen? Bücher bleiben erhalten (werden zu „Unsortiert“).')) return;
+  try {
+    if (typeof GrimoireFolders !== 'undefined') GrimoireFolders.deleteFolder(state, id);
+    else {
+      state.folders = (state.folders || []).filter(x => x && x.id !== id);
+      for (const b of state.books) if (b && b.folderId === id) b.folderId = null;
+    }
+    if (activeFolderId === id) setActiveFolderId('all');
+    persistNow(); renderLibrary();
+  } catch { /* ignore */ }
+}
+function moveBookToFolder(bookId, folderId, ev) {
+  if (ev) ev.stopPropagation();
+  try {
+    let ok = false;
+    if (typeof GrimoireFolders !== 'undefined') ok = GrimoireFolders.moveBook(state.books, bookId, folderId || null, state.folders);
+    else {
+      const b = state.books.find(x => x.id === bookId);
+      if (b) { b.folderId = folderId || null; b.updatedAt = Date.now(); ok = true; }
+    }
+    if (ok) { persistNow(); renderLibrary(); }
+  } catch { /* ignore */ }
+}
+function folderOptionsHtml(selectedId) {
+  const opts = ['<option value="">Unsortiert</option>'].concat(
+    (state.folders || []).map(f => '<option value="' + f.id + '"' + (f.id === selectedId ? ' selected' : '') + '>' + esc('📁 ' + (f.name || '')) + '</option>')
+  );
+  return opts.join('');
+}
+function refreshFoldersFromMirror() {
+  try {
+    if (pullFoldersFromMirror()) { persistSoon(); renderLibrary(); return true; }
+  } catch { /* ignore */ }
+  return false;
 }
 function renameBook(v) { const b = openBook(); if (!b) return; b.title = v || 'Unbenannt'; touchBook(); persistSoon(); syncPaneChrome(activePaneIdx()); syncBookSelects(); }
 // SPEC-31: book.lang bleibt beim Umbenennen erhalten; Sprachwechsel später
@@ -365,10 +534,73 @@ function applySplitLayout() {
  * Solange kein Provider registriert ist, gilt isHtrAvailable() === false und
  * die UI zeigt HTR_UNAVAILABLE_MSG („HSR nicht verfügbar (V1: nur getippter
  * Text durchsuchbar)"). Keine Cloud, keine Dependencies. */
+function renderFolderList() {
+  ensureFoldersLocal();
+  const nav = $('folderNav');
+  const chips = $('folderChips');
+  const counts = (typeof GrimoireFolders !== 'undefined')
+    ? GrimoireFolders.countByFolder(state.books || [])
+    : { all: (state.books || []).length, unsorted: (state.books || []).filter(b => !b || !b.folderId).length, byId: {} };
+  const folders = folderList();
+  const item = (id, label, count, emoji) => {
+    const active = (activeFolderId === id) ? ' active' : '';
+    return '<button type="button" class="folder-item' + active + '" data-folder="' + id + '" onclick="setActiveFolder(\'' + id + '\',event)" aria-pressed="' + (active ? 'true' : 'false') + '">'
+      + '<span class="folder-emoji" aria-hidden="true">' + emoji + '</span>'
+      + '<span class="folder-label">' + esc(label) + '</span>'
+      + '<span class="folder-count" aria-label="' + count + ' Bücher">' + count + '</span>'
+      + '</button>';
+  };
+  const folderBtns = folders.map(f => {
+    const c = counts.byId[f.id] || 0;
+    const active = (activeFolderId === f.id) ? ' active' : '';
+    return '<div class="folder-row' + active + '" data-folder="' + f.id + '">'
+      + '<button type="button" class="folder-item folder-item--main' + active + '" onclick="setActiveFolder(\'' + f.id + '\',event)" aria-pressed="' + (active ? 'true' : 'false') + '" title="' + esc(f.name || '') + '">'
+      + '<span class="folder-emoji" aria-hidden="true">📁</span>'
+      + '<span class="folder-label">' + esc(f.name || 'Ordner') + '</span>'
+      + '<span class="folder-count">' + c + '</span>'
+      + '</button>'
+      + '<span class="folder-row-actions">'
+      + '<button type="button" class="folder-mini" onclick="renameFolderUI(\'' + f.id + '\',event)" title="Ordner umbenennen" aria-label="Ordner ' + esc(f.name || '') + ' umbenennen">✎</button>'
+      + '<button type="button" class="folder-mini" onclick="deleteFolderUI(\'' + f.id + '\',event)" title="Ordner löschen (Bücher bleiben)" aria-label="Ordner ' + esc(f.name || '') + ' löschen">🗑</button>'
+      + '</span></div>';
+  }).join('');
+  if (nav) {
+    nav.innerHTML = item('all', 'Alle', counts.all, '📚')
+      + item('unsorted', 'Unsortiert', counts.unsorted, '📄')
+      + (folderBtns || '<div class="folder-empty">Noch keine Ordner – lege oben einen an.</div>');
+  }
+  if (chips) {
+    const chip = (id, label, count) => '<button type="button" class="chip' + (activeFolderId === id ? ' active' : '') + '" onclick="setActiveFolder(\'' + id + '\',event)">' + esc(label) + ' · ' + count + '</button>';
+    chips.innerHTML = chip('all', 'Alle', counts.all)
+      + chip('unsorted', 'Unsortiert', counts.unsorted)
+      + folders.map(f => chip(f.id, f.name || 'Ordner', counts.byId[f.id] || 0)).join('');
+  }
+  const title = $('libraryFolderTitle');
+  if (title) {
+    let label = 'Alle Bücher';
+    if (activeFolderId === 'unsorted') label = 'Unsortiert';
+    else if (activeFolderId !== 'all') {
+      const f = folders.find(x => x.id === activeFolderId);
+      label = f ? ('📁 ' + f.name) : 'Alle Bücher';
+    }
+    title.textContent = label;
+  }
+}
 function renderLibrary() {
-  const rawQ = ($('librarySearch').value || '');
+  ensureFoldersLocal();
+  renderFolderList();
+  const searchEl = $('librarySearch');
+  const rawQ = ((searchEl && searchEl.value) || '');
   const q = rawQ.toLowerCase();
   const grid = $('libraryGrid');
+  if (!grid) return;
+  // Ordner-Filter zuerst (dann Suche darüber)
+  let scoped = state.books || [];
+  try {
+    if (typeof GrimoireFolders !== 'undefined') scoped = GrimoireFolders.filterBooks(state.books, activeFolderId);
+    else if (activeFolderId === 'unsorted') scoped = scoped.filter(b => !b || !b.folderId);
+    else if (activeFolderId !== 'all') scoped = scoped.filter(b => b && b.folderId === activeFolderId);
+  } catch { scoped = state.books || []; }
   const useIndex = (typeof GrimoireInkIndex !== 'undefined' && GrimoireInkIndex.searchBooks);
   const useQuery = (typeof GrimoireSearch !== 'undefined' && GrimoireSearch.parseQuery && GrimoireSearch.rankBooks);
   const searched = !!rawQ.trim();
@@ -387,7 +619,7 @@ function renderLibrary() {
   let matches;
   if (queryLang) {
     let ranked = [];
-    try { ranked = GrimoireSearch.rankBooks(state.books, parsed); } catch { ranked = []; }
+    try { ranked = GrimoireSearch.rankBooks(scoped, parsed); } catch { ranked = []; }
     matches = ranked.map(r => {
       let kind = 'none', snippet = '';
       try {
@@ -400,11 +632,11 @@ function renderLibrary() {
       return { book: r.book, match: kind, snippet };
     });
   } else if (useIndex) {
-    try { matches = GrimoireInkIndex.searchBooks(state.books, rawQ); }
-    catch { matches = state.books.map(b => ({ book: b, match: 'none', snippet: '' })); }
+    try { matches = GrimoireInkIndex.searchBooks(scoped, rawQ); }
+    catch { matches = scoped.map(b => ({ book: b, match: 'none', snippet: '' })); }
   } else {
     // Fallback ohne Index-Modul (altes Verhalten: Titel + getippter Text).
-    matches = state.books.filter(b => {
+    matches = scoped.filter(b => {
       if (!q) return true;
       if ((b.title || '').toLowerCase().includes(q)) return true;
       return (b.pages || []).some(p => (p.texts || []).some(t => stripHtml(t.html).toLowerCase().includes(q)));
@@ -421,7 +653,10 @@ function renderLibrary() {
     ? '<div style="font-size:12px;opacity:.75;margin-bottom:8px">' + matches.length + ' Treffer für &bdquo;' + esc(rawQ.trim().slice(0, 80)) + '&ldquo;</div>'
     : '';
   if (!matches.length) {
-    grid.innerHTML = hintHtml + counterHtml + '<div style="font-size:14px;opacity:.8">' + (searched ? 'Keine Treffer. Suche ändern oder leeren.' : 'Keine Bücher gefunden. Lege oben ein neues Buch an.') + '</div>';
+    const folderHint = (activeFolderId !== 'all')
+      ? 'In diesem Ordner noch nichts. Lege oben ein neues Buch an (landet hier) oder verschiebe ein Buch hierher.'
+      : 'Keine Bücher gefunden. Lege oben ein neues Buch an.';
+    grid.innerHTML = hintHtml + counterHtml + '<div style="font-size:14px;opacity:.8">' + (searched ? 'Keine Treffer. Suche ändern oder leeren.' : esc(folderHint)) + '</div>';
     return;
   }
   grid.innerHTML = hintHtml + counterHtml + matches.map(({ book: b, match, snippet }) => {
@@ -436,11 +671,18 @@ function renderLibrary() {
     }
     const snippetHtml = (q && snippet && match !== 'title')
       ? '<div style="font-size:12px;opacity:.75;margin-top:2px">' + esc(snippet) + '</div>' : '';
+    let folderBadge = '';
+    try {
+      const fname = (typeof GrimoireFolders !== 'undefined')
+        ? GrimoireFolders.folderName(state.folders, b.folderId)
+        : (b.folderId || 'Unsortiert');
+      folderBadge = '<button type="button" class="folder-badge" onclick="event.stopPropagation();setActiveFolder(\'' + (b.folderId || 'unsorted') + '\',event)" title="Nach Ordner filtern">📁 ' + esc(fname || 'Unsortiert') + '</button>';
+    } catch { /* ignore */ }
     return '<div class="notebook-cover" onclick="openBookView(\'' + b.id + '\')">'
       + '<div class="notebook-spine"></div>'
       + '<div class="notebook-body">'
       + '<div class="notebook-title">' + esc(b.title) + badge + '</div>'
-      + '<div class="notebook-meta">' + (b.pages || []).length + ' Seite(n) · ' + strokes + ' Striche · ' + new Date(b.updatedAt).toLocaleDateString('de-DE') + '</div>'
+      + '<div class="notebook-meta">' + folderBadge + '<span>' + (b.pages || []).length + ' Seite(n) · ' + strokes + ' Striche · ' + new Date(b.updatedAt).toLocaleDateString('de-DE') + '</span></div>'
       + '<div class="notebook-preview">' + preview + '</div>'
       + snippetHtml
       + '<div class="notebook-actions">'
@@ -449,7 +691,12 @@ function renderLibrary() {
       + '<button class="mini-button" onclick="exportGoodNotes(\'' + b.id + '\',event)" aria-label="Buch als GoodNotes-Datei exportieren">📤 GoodNotes</button>'
       + '<button class="mini-button" onclick="duplicateBook(\'' + b.id + '\',event)">Duplizieren</button>'
       + '<button class="mini-button" onclick="deleteBook(\'' + b.id + '\',event)">Löschen</button>'
-      + '</div></div></div>';
+      + '</div>'
+      + '<label class="move-row" onclick="event.stopPropagation()" title="Buch in Ordner verschieben">'
+      + '<span>📁</span>'
+      + '<select onchange="moveBookToFolder(\'' + b.id + '\',this.value,event)" aria-label="Buch in Ordner verschieben">' + folderOptionsHtml(b.folderId) + '</select>'
+      + '</label>'
+      + '</div></div>';
   }).join('');
 }
 
@@ -1428,7 +1675,8 @@ function exportAllJSON() {
     const books = (typeof GrimoireStore !== 'undefined')
       ? await Promise.all(state.books.map(b => GrimoireStore.inlineBook(b)))
       : state.books;
-    download('grimoire-export.json', JSON.stringify({ books, openBookId: state.openBookId, openPageId: state.openPageId }, null, 2));
+    ensureFoldersLocal();
+    download('grimoire-export.json', JSON.stringify({ books, folders: state.folders || [], openBookId: state.openBookId, openPageId: state.openPageId }, null, 2));
   })().catch(e => alert('Export fehlgeschlagen: ' + e.message));
 }
 function exportBookJSON(id, ev) {
@@ -1467,6 +1715,14 @@ function normalizeBook(obj) {
   b.title = String(b.title || 'Importiertes Buch');
   b.paper = b.paper || '';
   b.updatedAt = Date.now();
+  // Ordner-Referenz aus Alt-Exporten verwerfen (IDs sind neu) – landet in Unsortiert/aktivem Ordner
+  b.folderId = null;
+  try {
+    if (activeFolderId && activeFolderId !== 'all' && activeFolderId !== 'unsorted') {
+      const ok = (state.folders || []).some(f => f.id === activeFolderId);
+      if (ok) b.folderId = activeFolderId;
+    }
+  } catch { /* ignore */ }
   b.pages.forEach(p => {
     p.id = uid();
     p.strokes = Array.isArray(p.strokes) ? p.strokes : [];
@@ -1477,6 +1733,25 @@ function normalizeBook(obj) {
   if (!b.pages.length) b.pages.push(newPage());
   return b;
 }
+function normalizeFoldersImported(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const f of raw) {
+    if (!f || typeof f !== 'object') continue;
+    const name = String(f.name || '').trim().slice(0, 60);
+    if (!name) continue;
+    // Zusammenführen nach Name (IDs aus Export sind gerätefremd)
+    let target = (state.folders || []).find(x => String(x.name || '').toLowerCase() === name.toLowerCase())
+      || out.find(x => String(x.name || '').toLowerCase() === name.toLowerCase());
+    if (!target) {
+      if (typeof GrimoireFolders !== 'undefined') target = GrimoireFolders.createFolder(state.folders, name);
+      else { target = { id: uid(), name, parentId: null, createdAt: Date.now(), updatedAt: Date.now() }; state.folders.push(target); }
+    }
+    if (target && !seen.has(target.id)) { seen.add(target.id); out.push(target); }
+  }
+  return out;
+}
 function importAllJSON(ev) {
   const files = ev.target.files; if (!files || !files.length) return;
   let pending = files.length;
@@ -1486,6 +1761,13 @@ function importAllJSON(ev) {
     r.onload = async () => {
       try {
         const p = JSON.parse(r.result);
+        // Ordner aus Gesamt-Export übernehmen (nach Name gemergt)
+        try {
+          if (p && Array.isArray(p.folders) && p.folders.length) {
+            ensureFoldersLocal();
+            normalizeFoldersImported(p.folders);
+          }
+        } catch { /* Ordner optional */ }
         const books = Array.isArray(p) ? p.map(normalizeBook).filter(Boolean)
           : (p.books ? p.books.map(normalizeBook).filter(Boolean)
           : (normalizeBook(p) ? (Array.isArray(normalizeBook(p)) ? normalizeBook(p) : [normalizeBook(p)]) : []));
@@ -1614,7 +1896,13 @@ function gnImageToDataURL(bytes, mime) {
 }
 async function buildBookFromGN(doc, fileName, members) {
   const DPI = 132 / 72;
-  const book = { id: uid(), title: doc.title || fileName.replace(/\.goodnotes$/i, ''), paper: '', updatedAt: Date.now(), pages: [] };
+  const book = { id: uid(), title: doc.title || fileName.replace(/\.goodnotes$/i, ''), paper: '', updatedAt: Date.now(), folderId: null, pages: [] };
+  try {
+    if (activeFolderId && activeFolderId !== 'all' && activeFolderId !== 'unsorted') {
+      const ok = (state.folders || []).some(f => f.id === activeFolderId);
+      if (ok) book.folderId = activeFolderId;
+    }
+  } catch { /* ignore */ }
   let pdfBytes = null;
   if (members) {
     for (const k of Object.keys(members)) {
@@ -1887,6 +2175,7 @@ document.addEventListener('keydown', e => {
         state = s;
         migrated = s._migratedImages || 0;
         delete state._migratedImages;
+        ensureFoldersLocal();
       } else {
         load(); // kein gespeicherter Stand -> Legacy-Pfad (legt Starter-Buch an)
       }
@@ -1896,6 +2185,9 @@ document.addEventListener('keydown', e => {
   } catch {
     try { load(); } catch { /* ignore */ }
   }
+  ensureFoldersLocal();
+  // Cloud-Ordner-Mirror einlesen (falls Sync schon lief), ohne lokale zu verlieren
+  try { pullFoldersFromMirror(); } catch { /* ignore */ }
   renderLibrary();
   restoreSplitFromState();
   bindStage(); bindTapGestures(); bindSplitDivider();

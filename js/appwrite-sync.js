@@ -551,6 +551,22 @@
       say = typeof say === 'function' ? say : () => {};
       const mirror = loadFolders();
       const fmeta = loadFolderMeta();
+      // Lokale Ordner aus state.folders (neue Bibliotheks-UI) in den Mirror übernehmen,
+      // damit sie hochgesynct werden – state ist führend für Namen.
+      try {
+        if (typeof window !== 'undefined' && window.state && Array.isArray(window.state.folders)) {
+          for (const f of window.state.folders) {
+            if (!f || !f.id || !f.name) continue;
+            const cur = mirror[f.id];
+            const nu = { name: f.name, parentId: f.parentId || null, updatedAtMs: Number(f.updatedAt) || Date.now() };
+            if (!cur || (cur.name !== nu.name || (cur.parentId || null) !== (nu.parentId || null))) {
+              // Nur übernehmen, wenn lokal neuer oder Mirror leer (Remote-Pull unten gewinnt sonst)
+              const m = fmeta[f.id];
+              if (!m || nu.updatedAtMs >= (m.remoteUpdatedAtMs || 0)) mirror[f.id] = nu;
+            }
+          }
+        }
+      } catch { /* Mirror bleibt */ }
       const rows = await listRows(cfg, 'folders', [Q.equal('userId', userId), Q.orderAsc('updatedAt')]);
       const remote = {};
       for (const r of rows) remote[r.$id] = r;
@@ -599,6 +615,20 @@
       }
       void referenced;
       saveFolders(mirror); saveFolderMeta(fmeta);
+      // Mirror zurück in state.folders spiegeln + UI aktualisieren
+      try {
+        if (typeof window !== 'undefined' && window.state) {
+          const F = (typeof window.GrimoireFolders !== 'undefined') ? window.GrimoireFolders
+            : (typeof require === 'function' ? require('./folders.js') : null);
+          if (F && F.fromMirror) {
+            const next = F.fromMirror(mirror);
+            window.state.folders = next;
+            if (typeof window.persistNow === 'function') { try { window.persistNow(); } catch { /* ignore */ } }
+            else if (typeof window.renderLibrary === 'function') { try { window.renderLibrary(); } catch { /* ignore */ } }
+            else if (typeof window.refreshFoldersFromMirror === 'function') { try { window.refreshFoldersFromMirror(); } catch { /* ignore */ } }
+          }
+        }
+      } catch { /* UI-Refresh optional */ }
     },
 
     /* ---------- Realtime ---------- */
