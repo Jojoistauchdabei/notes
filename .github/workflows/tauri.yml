@@ -28,7 +28,7 @@ name: Tauri – Linux / Windows / Android
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Bestehender Release-Tag (z. B. v1.7.2) – Installer werden erneut gebaut und hochgeladen'
+        description: 'EXISTIERENDER Release-Tag (z. B. v1.7.8) – Installer werden erneut gebaut und hochgeladen'
         required: true
         default: ''
   workflow_call:
@@ -69,13 +69,21 @@ jobs:
       tag: ${{ steps.v.outputs.tag }}
       version: ${{ steps.v.outputs.version }}
     steps:
-      - name: Tag bestimmen
+      - name: Code holen (für Tag-Prüfung)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tag bestimmen und prüfen
         id: v
         run: |
           # TAG kommt aus env (Release-Event, Dispatch-Input oder Call-Input inputs.tag)
           TAG="$TAG"
           echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::Ungültiger Tag '$TAG' (erwartet vMAJOR.MINOR.PATCH)."; exit 1; }
+            || { echo "::error::Ungültiger Tag '$TAG' (erwartet vMAJOR.MINOR.PATCH, z. B. v1.7.8)."; exit 1; }
+          git fetch --tags origin
+          git rev-parse -q --verify "refs/tags/$TAG" >/dev/null \
+            || { echo "::error::Tag '$TAG' existiert nicht – vorhandenen Tag wählen (z. B. den neuesten aus der Release-Liste)."; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
