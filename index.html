@@ -59,6 +59,16 @@
           <div id="cloudStatus" aria-live="polite">Cloud nicht eingerichtet – auf ☁⚙ klicken.</div>
         </div>
       </div>
+      <div class="box">
+        <div class="section-title">☁ Appwrite-Dateien</div>
+        <div class="cloud-status-wrap">
+          <div id="awStatus" aria-live="polite">Appwrite-Dateien: Sync über ⚙ einrichten.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" class="no-print">
+            <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien mit Appwrite synchronisieren">⬆⬇ Dateien syncen</button>
+            <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.openSettings()" aria-label="Appwrite-Einstellungen öffnen">⚙ Einstellungen</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ARBEITSBEREICH (Split-Screen: 2 Dokumente in einem Fenster) -->
@@ -295,6 +305,42 @@
     </div>
   </div>
 
+  <!-- APPWRITE-OVERLAY: Datei-Sync mit Speicheroptimierung -->
+  <div id="awOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkFilesUI) FederwerkFilesUI.closeSettings()">
+    <div class="editor-modal" style="max-width:560px">
+      <div class="editor-header">
+        <div class="editor-header-title">☁ APPWRITE-DATEIEN</div>
+        <button type="button" class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.closeSettings()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Appwrite-Einstellungen schließen">✕</button>
+      </div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px">Bilder/PDFs werden per <b>SHA-256-Dedupe</b> in den Storage-Bucket gespiegelt (Dateiname = Content-Hash). Vor dem Upload: <b>Recompress</b> auf max. 1600px, JPEG/WebP. Verwaiste Remote-Dateien können aufgeräumt werden. Offline-Fehlversuche landen in einer Queue.</div>
+        <div><label for="awEndpoint">Endpoint</label><input type="text" id="awEndpoint" autocomplete="off"></div>
+        <div><label for="awProject">Project-ID</label><input type="text" id="awProject" autocomplete="off"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="flex:1;min-width:140px"><label for="awDatabase">Database</label><input type="text" id="awDatabase" autocomplete="off"></div>
+          <div style="flex:1;min-width:140px"><label for="awBucket">Bucket</label><input type="text" id="awBucket" autocomplete="off"></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="flex:1;min-width:140px"><label for="awEmail">E-Mail (Login)</label><input type="text" id="awEmail" autocomplete="username"></div>
+          <div style="flex:1;min-width:140px"><label for="awPass">Passwort</label><input type="password" id="awPass" autocomplete="current-password"></div>
+        </div>
+        <div id="awMsg" style="font-size:13px;min-height:18px" aria-live="polite"></div>
+      </div>
+      <div class="editor-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <span style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.dryRun()" aria-label="Verwaiste Dateien prüfen">Orphans prüfen</button>
+          <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.cleanup()" aria-label="Verwaiste Dateien löschen">Orphans löschen</button>
+        </span>
+        <span style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.login()" aria-label="Einloggen">Login</button>
+          <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.logout()" aria-label="Ausloggen">Logout</button>
+          <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien synchronisieren">⬆⬇ Sync</button>
+          <button type="button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.save()" aria-label="Einstellungen speichern">💾 Speichern</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
   <!-- GRAPH-OVERLAY: SPEC-09 light V1 (Canvas, statisches Radial-/Kreis-Layout, kein Cloud) -->
   <div id="graphOverlay" class="editor-overlay" onclick="if (event.target === this) closeGraphOverlay()">
     <div class="editor-modal" style="max-width:880px">
@@ -342,6 +388,7 @@
   <script src="js/app.js"></script>
   <script src="js/cloud.js"></script>
   <script src="js/cloud-ui.js"></script>
+  <script src="js/appwrite-files.js"></script>
   <script src="js/updater.js"></script>
 </body>
 </html>
