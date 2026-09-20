@@ -44,6 +44,13 @@ describe('Tauri-Releasegerüst', () => {
     assert.ok(fs.existsSync(path.join(root, 'src-tauri/capabilities/default.json')), 'capabilities');
   });
 
+  it('Linux-Bundle nutzt gültigen appimage-Key', () => {
+    const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
+    const linux = (conf.bundle && conf.bundle.linux) || {};
+    assert.ok(linux.appimage && typeof linux.appimage === 'object', 'linux.appimage gesetzt');
+    assert.equal('appImage' in linux, false, 'kein ungültiger linux.appImage-Key');
+  });
+
   it('js/updater.js ist eingebunden (index.html + sw.js offline)', () => {
     assert.ok(fs.existsSync(path.join(root, 'js/updater.js')), 'js/updater.js');
     assert.ok(read('index.html').includes('js/updater.js'), 'index.html referenziert updater.js');
