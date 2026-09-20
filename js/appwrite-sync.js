@@ -170,9 +170,16 @@
   }
   async function tablesRest(cfg, method, path, body) {
     if (typeof fetch === 'undefined') throw new Error('kein fetch');
+    let headers = { 'X-Appwrite-Project': cfg.projectId, 'Content-Type': 'application/json' };
+    try {
+      const F = (typeof window !== 'undefined' && window.FederwerkFiles) ? window.FederwerkFiles : null;
+      if (F && typeof F.authHeaders === 'function') {
+        headers = F.authHeaders(cfg);
+        headers['Content-Type'] = 'application/json';
+      }
+    } catch { /* Fallback: nur Project-Header */ }
     const r = await fetch(cfg.endpoint + path, {
-      method,
-      headers: { 'X-Appwrite-Project': cfg.projectId, 'Content-Type': 'application/json' },
+      method, headers,
       credentials: 'include',
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -597,7 +604,13 @@
       const st = Sync._rt;
       st.onChange = typeof onChange === 'function' ? onChange : null;
       if (typeof WebSocket === 'undefined') throw new Error('kein WebSocket');
-      const url = cfg.endpoint.replace(/^http/, 'ws') + `/realtime?project=${cfg.projectId}`;
+      // Session als Query-Param mitschicken (Tauri: Cookies fallen evtl. weg).
+      // Unbekannte Params ignoriert der Server; Cookie-Flow bleibt unberührt.
+      let url = cfg.endpoint.replace(/^http/, 'ws') + `/realtime?project=${cfg.projectId}`;
+      try {
+        const sess = (F && typeof F.loadSession === 'function' && F.loadSession()) || null;
+        if (sess && sess.secret) url += `&session=${encodeURIComponent(sess.secret)}`;
+      } catch { /* ignore */ }
       const ws = new WebSocket(url);
       st.ws = ws;
       let deb = null;

@@ -21,6 +21,9 @@
   const MAP_KEY = 'federwerkFileMapV1';   // hash -> {fileId, mime, size, at}
   const QUEUE_KEY = 'federwerkFileQueueV1'; // [{hash, ref, tries}]
   const CFG_KEY = 'federwerkAppwriteV1';
+  // Session-Secret (aus Login-Antwort). Fällt im Tauri-WebView der
+  // Third-Party-Cookie weg, trägt der `X-Appwrite-Session`-Header die Auth.
+  const SESSION_KEY = 'federwerkAwSessionV1'; // {secret, userId, at}
 
   const DEFAULTS = {
     endpoint: 'https://fra.cloud.appwrite.io/v1',
@@ -180,6 +183,20 @@
   function saveMap(m) { lsSet(MAP_KEY, m || {}); }
   function loadQueue() { return lsGet(QUEUE_KEY, []); }
   function saveQueue(q) { lsSet(QUEUE_KEY, q || []); }
+  function loadSession() { return lsGet(SESSION_KEY, null); }
+  function saveSession(s) { if (s) lsSet(SESSION_KEY, s); }
+  function clearSession() {
+    const s = ls();
+    if (!s) return;
+    try { s.removeItem(SESSION_KEY); } catch { /* ignore */ }
+  }
+  // Header-Bauer (rein, testbar): Secret ergänzt Cookie-Auth (Tauri-Fix).
+  function authHeaders(cfg, session) {
+    const h = { 'X-Appwrite-Project': cfg.projectId };
+    const sec = (session && session.secret) || (loadSession() || {}).secret;
+    if (sec) h['X-Appwrite-Session'] = sec;
+    return h;
+  }
 
   /* ---------- Appwrite REST (Browser) ---------- */
 
@@ -189,7 +206,7 @@
   async function rest(cfg, method, path, opts) {
     needBrowser();
     opts = opts || {};
-    const headers = { 'X-Appwrite-Project': cfg.projectId };
+    const headers = authHeaders(cfg, opts.session);
     if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
     const r = await fetch(cfg.endpoint + path, {
       method, headers, credentials: 'include',
@@ -346,8 +363,9 @@
   }
   async function downloadEntry(cfg, fileId) {
     needBrowser();
+    const headers = authHeaders(cfg);
     const r = await fetch(`${cfg.endpoint}/storage/buckets/${cfg.bucketId}/files/${fileId}/view`, {
-      headers: { 'X-Appwrite-Project': cfg.projectId }, credentials: 'include',
+      headers, credentials: 'include',
     });
     if (!r.ok) throw new Error('Download HTTP ' + r.status);
     const ab = await r.arrayBuffer();
@@ -357,6 +375,7 @@
   const Files = {
     DEFAULTS, FILE_PREFIX, MAX_LONG_EDGE,
     loadConfig, saveConfig, loadMap, saveMap, loadQueue, saveQueue,
+    loadSession, saveSession, clearSession, authHeaders,
     normalizeMime, extForMime, fileIdForHash, hashFromFileId, sha256Hex,
     dataUrlToBytes, bytesToBase64, base64ToBytes, pickTarget,
     planFileSync, findOrphans, storageReport, queueAdd, queueNext,
@@ -365,15 +384,22 @@
     async session() {
       const cfg = loadConfig();
       try { return await rest(cfg, 'GET', '/account'); }
-      catch (e) { if (e && e.status === 401) return null; throw e; }
+      catch (e) {
+        if (e && e.status === 401) { clearSession(); return null; }
+        throw e;
+      }
     },
     async loginEmail(email, password) {
       const cfg = loadConfig();
-      return rest(cfg, 'POST', '/account/sessions/email', { body: { email, password } });
+      const j = await rest(cfg, 'POST', '/account/sessions/email', { body: { email, password } });
+      // Secret sichern: trägt im Tauri-WebView die Auth, wenn Cookies blockiert sind.
+      if (j && j.secret) saveSession({ secret: j.secret, userId: j.userId || null, at: new Date().toISOString() });
+      return j;
     },
     async logout() {
       const cfg = loadConfig();
       try { await rest(cfg, 'DELETE', '/account/sessions/current'); } catch { /* ignore */ }
+      clearSession();
     },
     // Voller Datei-Sync: Upload fehlender, Download fehlender, Map+Queue pflegen.
     async syncNow(progress) {

@@ -216,14 +216,7 @@ function deleteBook(id, ev) {
     syncSplitToState();
   } catch { /* ignore */ }
   persistNow(); renderLibrary(); renderAll();
-  // Cloud-Propagierung (fire-and-forget, nur wenn konfiguriert)
-  try {
-    if (typeof GrimoireCloud !== 'undefined' && GrimoireCloud.isConfigured()) {
-      GrimoireCloud.deleteRemoteBookById(id).catch(() => {});
-    } else if (typeof GrimoireCloud !== 'undefined') {
-      GrimoireCloud.forgetLocalBook(id);
-    }
-  } catch { /* Cloud optional */ }
+  // Hinweis: Cloud-Tombstone übernimmt der Appwrite-Sync per Meta-Diff.
 }
 function duplicateBook(id, ev) {
   if (ev) ev.stopPropagation();
@@ -1873,7 +1866,7 @@ document.addEventListener('keydown', e => {
     const overlayOpen = ($('editorOverlay') && $('editorOverlay').classList.contains('active'))
       || ($('previewOverlay') && $('previewOverlay').classList.contains('active'))
       || ($('graphOverlay') && $('graphOverlay').classList.contains('active'))
-      || ($('cloudOverlay') && $('cloudOverlay').classList.contains('active'));
+      || ($('awOverlay') && $('awOverlay').classList.contains('active'));
     if (!typing && !overlayOpen && $('viewBook') && $('viewBook').classList.contains('active')) {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 'b' && e.shiftKey) { e.preventDefault(); toggleSplit(); return; }

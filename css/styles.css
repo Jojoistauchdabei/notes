@@ -69,8 +69,6 @@ button.inactive:hover { background: var(--button-inactive-bg); opacity: 0.85; }
 .btn-export:hover { background: #4a2c17; }
 .btn-import { background: #4a6b32; border-color: #2f4a21; }
 .btn-import:hover { background: #2f4a21; }
-.btn-cloud { background: #3a5a6b; border-color: #2a3f4f; }
-.btn-cloud:hover { background: #2a3f4f; }
 .btn-print { background: #5a4a32; border-color: #3a2a18; }
 .btn-print:hover { background: #3a2a18; }
 
@@ -181,14 +179,12 @@ input:disabled { background: var(--disabled-bg); cursor: not-allowed; opacity: 0
 #previewCanvas { flex: 1; min-width: 0; width: 100%; height: auto; aspect-ratio: 210 / 297; background: #fffdf6; border: 1px solid var(--border); }
 .preview-nav { font-size: 16px; padding: 10px 8px; flex: 0 0 auto; }
 
-/* ===== Cloud-Dialog ===== */
-#cloudOverlay code { font-size: 12px; background: var(--disabled-bg); padding: 0 4px; }
+/* ===== Cloud-Dialog (Appwrite) ===== */
 #cloudPass { font-family: 'Crimson Text', serif; }
 .cloud-status-wrap { font-size: 14px; }
-#cloudStatus { margin-bottom: 4px; }
-#cloudMsg { font-size: 13px; min-height: 18px; margin-top: 8px; }
+#awMsg { font-size: 13px; min-height: 18px; margin-top: 8px; }
 
-/* ===== Texteditor-Overlay (1:1 aus DND übernommen) ===== */
+/* ===== Texteditor-Overlay ===== */
 .editor-overlay { position: fixed; inset: 0; background: rgba(15, 10, 5, 0.75); backdrop-filter: blur(2px); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 15px; }
 .editor-overlay.active { display: flex; }
 .editor-modal { background-color: var(--bg); background-image: var(--bg-image); border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--surface-strong), 0 20px 50px rgba(0,0,0,0.6); width: 100%; max-width: 820px; max-height: 90vh; display: flex; flex-direction: column; border-radius: 4px; overflow: hidden; }

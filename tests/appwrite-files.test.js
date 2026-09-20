@@ -25,6 +25,7 @@ describe('appwrite-files/datei', () => {
   });
   it('exportiert die vereinbarte API', () => {
     for (const k of ['loadConfig', 'saveConfig', 'loadMap', 'saveMap',
+      'loadSession', 'saveSession', 'clearSession', 'authHeaders',
       'normalizeMime', 'extForMime', 'fileIdForHash', 'hashFromFileId', 'sha256Hex',
       'dataUrlToBytes', 'pickTarget', 'planFileSync', 'findOrphans',
       'storageReport', 'queueAdd', 'queueNext', 'collectLocalEntries',
@@ -146,6 +147,30 @@ describe('appwrite-files/collect', () => {
   it('defekte Refs werden übersprungen', async () => {
     const entries = await F.collectLocalEntries([{ pages: [{ images: [{ src: 'kaputt' }] }] }], null);
     assert.deepEqual(entries, {});
+  });
+});
+
+describe('appwrite-files/session', () => {
+  const mem = new Map();
+  const backend = {
+    getItem: k => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => { mem.set(k, String(v)); },
+    removeItem: k => { mem.delete(k); },
+  };
+  it('Secret-Roundtrip + Header-Bau (Tauri-Fix)', () => {
+    F._internals._setLsBackend(backend);
+    try {
+      mem.clear();
+      assert.equal(F.loadSession(), null);
+      assert.deepEqual(F.authHeaders({ projectId: 'p' }), { 'X-Appwrite-Project': 'p' });
+      F.saveSession({ secret: 's3cr3t', userId: 'u1', at: 'x' });
+      assert.equal(F.loadSession().secret, 's3cr3t');
+      assert.equal(F.authHeaders({ projectId: 'p' })['X-Appwrite-Session'], 's3cr3t');
+      F.clearSession();
+      assert.equal(F.loadSession(), null);
+    } finally {
+      F._internals._resetLs();
+    }
   });
 });
 

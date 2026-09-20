@@ -28,8 +28,6 @@
           <button class="btn-import" onclick="document.getElementById('gnFile').click()" aria-label="Importiere GoodNotes-Dateien">📥 GoodNotes</button>
         </div>
         <div class="header-group">
-          <button class="btn-cloud" onclick="GrimoireCloudUI.syncNow()" aria-label="Cloud synchronisieren">☁ Sync</button>
-          <button class="btn-cloud" onclick="GrimoireCloudUI.openSettings()" aria-label="Cloud-Einstellungen öffnen">☁⚙</button>
           <button class="btn-print" onclick="window.print()" aria-label="Seite drucken oder als PDF speichern">🖨 Druck / PDF</button>
         </div>
         <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none" aria-hidden="true">
@@ -51,13 +49,7 @@
       </div>
       <div class="box">
         <div class="section-title">Über Federwerk</div>
-        <div style="font-size:14px">Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Rich-Text-Editor, Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ WebDAV-Sync</b> (z. B. Nextcloud), komplett im Browser – siehe ☁⚙.</div>
-      </div>
-      <div class="box">
-        <div class="section-title">☁ Cloud-Status</div>
-        <div class="cloud-status-wrap">
-          <div id="cloudStatus" aria-live="polite">Cloud nicht eingerichtet – auf ☁⚙ klicken.</div>
-        </div>
+        <div style="font-size:14px">Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Rich-Text-Editor, Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ Appwrite-Cloud</b> für Notizen- und Datei-Sync zwischen Geräten – siehe „Appwrite-Cloud“ unten.</div>
       </div>
       <div class="box">
         <div class="section-title">☁ Appwrite-Cloud</div>
@@ -274,44 +266,11 @@
     </div>
   </div>
 
-  <!-- CLOUD-OVERLAY: WebDAV-Einstellungen (rein Browser-seitig) -->
-  <div id="cloudOverlay" class="editor-overlay" onclick="if (event.target === this) GrimoireCloudUI.closeSettings()">
-    <div class="editor-modal" style="max-width:560px">
-      <div class="editor-header">
-        <div class="editor-header-title">☁ WEBDAV-SYNC</div>
-        <button type="button" class="mini-button" onclick="GrimoireCloudUI.closeSettings()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Cloud-Einstellungen schließen">✕</button>
-      </div>
-      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-        <div style="font-size:13px">Funktioniert <b>komplett im Browser</b> per <code>fetch()</code> (PUT/GET/PROPFIND) – kein eigener Server nötig. Für Nextcloud ein <b>App-Passwort</b> nutzen (Profil → Sicherheit → App-Passwörter). Server-URL z. B. <code>https://cloud.example.de/remote.php/dav/files/USERNAME</code>.</div>
-        <div><label for="cloudUrl">WebDAV-Basis-URL</label><input type="text" id="cloudUrl" placeholder="https://cloud.example.de/remote.php/dav/files/USERNAME" autocomplete="off"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <div style="flex:1;min-width:140px"><label for="cloudUser">Benutzername</label><input type="text" id="cloudUser" autocomplete="username"></div>
-          <div style="flex:1;min-width:140px"><label for="cloudPass">App-Passwort</label><input type="password" id="cloudPass" autocomplete="current-password" style="font-family:'Crimson Text',serif;font-size:14px;color:var(--text);background:var(--field-bg);border:none;border-bottom:1px solid var(--border);padding:4px 6px;width:100%;outline:none"></div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <div style="flex:1;min-width:140px"><label for="cloudFolder">Ordner</label><input type="text" id="cloudFolder" value="Federwerk"></div>
-          <div style="flex:1;min-width:140px"><label style="display:flex;gap:6px;align-items:center;margin-top:18px"><input type="checkbox" id="cloudAuto" style="width:auto"> Auto-Sync beim Start</label></div>
-        </div>
-        <div id="cloudMsg" style="font-size:13px;min-height:18px" aria-live="polite"></div>
-        <div style="font-size:12px;opacity:.85"><b>CORS-Hinweis:</b> Der Server muss deine Federwerk-URL erlauben. Fehler mit „Failed to fetch“ / CORS → Federwerk auf dieselbe Domain legen (z. B. Nextcloud-Ordner hosten), Reverse-Proxy mit <code>Access-Control-Allow-Origin</code> nutzen, oder weiter manuell per ⬇/⬆ JSON arbeiten. Alternative ohne CORS: Nextcloud-Desktop-Client + Browser-Ordner syncen.</div>
-      </div>
-      <div class="editor-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <button type="button" class="inactive" onclick="GrimoireCloudUI.clear()" aria-label="Einstellungen zurücksetzen">Zurücksetzen</button>
-        <span style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="inactive" onclick="GrimoireCloudUI.test()" aria-label="Verbindung testen">Testen</button>
-          <button type="button" class="inactive" onclick="GrimoireCloudUI.pull()" aria-label="Herunterladen">⬇ Herunterladen</button>
-          <button type="button" onclick="GrimoireCloudUI.push()" aria-label="Hochladen">⬆ Hochladen</button>
-          <button type="button" onclick="GrimoireCloudUI.save()" aria-label="Einstellungen speichern">💾 Speichern</button>
-        </span>
-      </div>
-    </div>
-  </div>
-
   <!-- APPWRITE-OVERLAY: Datei-Sync mit Speicheroptimierung -->
   <div id="awOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkFilesUI) FederwerkFilesUI.closeSettings()">
     <div class="editor-modal" style="max-width:560px">
       <div class="editor-header">
-        <div class="editor-header-title">☁ APPWRITE-DATEIEN</div>
+        <div class="editor-header-title">☁ APPWRITE-CLOUD</div>
         <button type="button" class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.closeSettings()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Appwrite-Einstellungen schließen">✕</button>
       </div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
@@ -392,8 +351,6 @@
   <script src="js/graph.js"></script>
   <script src="js/search.js"></script>
   <script src="js/app.js"></script>
-  <script src="js/cloud.js"></script>
-  <script src="js/cloud-ui.js"></script>
   <script src="js/appwrite-files.js"></script>
   <script src="js/appwrite-sync.js"></script>
   <script src="js/updater.js"></script>
