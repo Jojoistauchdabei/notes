@@ -44,7 +44,7 @@
       "rpm": {
         "depends": []
       },
-      "appImage": {
+      "appimage": {
         "bundleMediaFramework": false
       }
     },
