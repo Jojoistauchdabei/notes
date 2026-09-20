@@ -60,10 +60,12 @@
         </div>
       </div>
       <div class="box">
-        <div class="section-title">☁ Appwrite-Dateien</div>
+        <div class="section-title">☁ Appwrite-Cloud</div>
         <div class="cloud-status-wrap">
           <div id="awStatus" aria-live="polite">Appwrite-Dateien: Sync über ⚙ einrichten.</div>
+          <div id="awDbStatus" aria-live="polite" style="font-size:13px;opacity:.85">Notizen-Sync bereit.</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" class="no-print">
+            <button class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.syncNow()" aria-label="Notizen mit Appwrite synchronisieren">🗂 Notizen syncen</button>
             <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien mit Appwrite synchronisieren">⬆⬇ Dateien syncen</button>
             <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.openSettings()" aria-label="Appwrite-Einstellungen öffnen">⚙ Einstellungen</button>
           </div>
@@ -324,6 +326,10 @@
           <div style="flex:1;min-width:140px"><label for="awEmail">E-Mail (Login)</label><input type="text" id="awEmail" autocomplete="username"></div>
           <div style="flex:1;min-width:140px"><label for="awPass">Passwort</label><input type="password" id="awPass" autocomplete="current-password"></div>
         </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="awRealtime" style="width:auto" onchange="window.FederwerkSyncUI && FederwerkSyncUI.toggleRealtime(this.checked)" aria-label="Realtime-Sync aktivieren"> Realtime-Sync (Auto bei Cloud-Änderung)</label>
+          <button type="button" class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.syncNow()" aria-label="Notizen synchronisieren">🗂 Notizen syncen</button>
+        </div>
         <div id="awMsg" style="font-size:13px;min-height:18px" aria-live="polite"></div>
       </div>
       <div class="editor-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
@@ -389,6 +395,7 @@
   <script src="js/cloud.js"></script>
   <script src="js/cloud-ui.js"></script>
   <script src="js/appwrite-files.js"></script>
+  <script src="js/appwrite-sync.js"></script>
   <script src="js/updater.js"></script>
 </body>
 </html>

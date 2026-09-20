@@ -66,6 +66,7 @@
       case 'image/webp': return 'webp';
       case 'image/gif': return 'gif';
       case 'application/pdf': return 'pdf';
+      case 'application/json': return 'json';
       default: return 'bin';
     }
   }
@@ -506,6 +507,7 @@
         const set = (id, v) => { const el = UI._el(id); if (el) el.value = v || ''; };
         set('awEndpoint', cfg.endpoint); set('awProject', cfg.projectId);
         set('awDatabase', cfg.databaseId); set('awBucket', cfg.bucketId);
+        const rt = UI._el('awRealtime'); if (rt) rt.checked = !!cfg.realtime;
         UI._msg('');
         const ov = UI._el('awOverlay');
         if (ov) ov.classList.add('active');

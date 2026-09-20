@@ -42,6 +42,7 @@ describe('appwrite-files/mime', () => {
     assert.equal(F.extForMime('image/jpeg'), 'jpg');
     assert.equal(F.extForMime('image/png'), 'png');
     assert.equal(F.extForMime('application/pdf'), 'pdf');
+    assert.equal(F.extForMime('application/json'), 'json');
     assert.equal(F.extForMime('image/gif'), 'gif');
     assert.equal(F.extForMime('x/y'), 'bin');
   });
