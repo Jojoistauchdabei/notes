@@ -126,4 +126,29 @@ describe('Tauri-Releasegerüst', () => {
     assert.ok(wf.includes('ANDROID_SDK_ROOT'), 'nutzt vorinstalliertes Android-SDK');
     assert.ok(wf.includes('npm run release-web'), 'Frontend mit Versionsstempel');
   });
+
+  it('Größe/Speed: Release-Profil gestrippt, Split-APKs, Rust-Cache', () => {
+    const cargo = read('src-tauri/Cargo.toml');
+    assert.ok(/\[profile\.release\]/m.test(cargo), 'Release-Profil vorhanden');
+    assert.ok(/^\s*strip\s*=\s*true/m.test(cargo), 'Symbole gestrippt (kleinere Binaries)');
+    assert.ok(/^\s*panic\s*=\s*"abort"/m.test(cargo), 'panic=abort (kleiner)');
+    const wf = read('.github/workflows/tauri.yml');
+    assert.ok(wf.includes('--split-per-abi'), 'pro-ABI-APKs statt Universal-Fett-APK');
+    assert.ok(wf.includes('Swatinem/rust-cache'), 'Rust-Cache für schnelle CI-Builds');
+    assert.ok(!wf.includes('rustup toolchain install'), 'kein manueller Toolchain-Reinstall');
+  });
+
+  it('Mobil schlank: Updater/Prozess nur auf Desktop, eigene Capabilities', () => {
+    const lib = read('src-tauri/src/lib.rs');
+    assert.ok(lib.includes('#[cfg(desktop)]'), 'Desktop-Gating in lib.rs');
+    assert.ok(/cfg\(desktop\)\]\s*\n?\s*\.plugin\(tauri_plugin_updater/.test(lib), 'Updater nur Desktop');
+    assert.ok(/cfg\(desktop\)\]\s*\n?\s*\.plugin\(tauri_plugin_process/.test(lib), 'Prozess nur Desktop');
+    assert.ok(fs.existsSync(path.join(root, 'src-tauri/capabilities/mobile.json')), 'mobile.json');
+    const mobile = JSON.parse(read('src-tauri/capabilities/mobile.json'));
+    const perms = (mobile.permissions || []).join(' ');
+    assert.ok(!perms.includes('updater:'), 'keine Updater-Rechte mobil');
+    assert.ok(!perms.includes('process:'), 'keine Prozess-Rechte mobil');
+    const def = JSON.parse(read('src-tauri/capabilities/default.json'));
+    assert.ok((def.platforms || []).includes('linux'), 'default.json auf Desktop begrenzt');
+  });
 });

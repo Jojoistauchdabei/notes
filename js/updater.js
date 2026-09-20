@@ -89,12 +89,17 @@
       showBanner('<span>⬆ Federwerk <b>' + tag + '</b> verfügbar – Update wird im Hintergrund geladen, danach startet die App neu.</span>');
       return;
     }
-    var apk = null;
+    var apk = null, apkArm = null, apkUni = null;
     try {
       (release.assets || []).forEach(function (a) {
-        if (/\.apk$/i.test(a.name || '') && (!apk || /universal/i.test(a.name))) apk = a;
+        if (!/\.apk$/i.test(a.name || '')) return;
+        if (!apk) apk = a;
+        // Per-ABI-APKs seit --split-per-abi: Telefone laufen fast immer arm64.
+        // "universal" bleibt zweite Wahl (alte Releases vor dem Split).
+        if (/arm64/i.test(a.name)) apkArm = apkArm || a;
+        else if (/universal/i.test(a.name)) apkUni = apkUni || a;
       });
-      if (!apk) (release.assets || []).forEach(function (a) { if (!apk && /\.apk$/i.test(a.name || '')) apk = a; });
+      apk = apkArm || apkUni || apk;
     } catch (e) {}
     if (apk) {
       showBanner(

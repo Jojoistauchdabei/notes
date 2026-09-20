@@ -24,3 +24,14 @@ serde_json = "1"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+# Kleine Binaries bei kaum langsameren Release-Builds:
+# - strip: Debug-/Symboltabellen raus (größter Einzelhebel, fast gratis)
+# - panic=abort: kein Unwinding-Gerüst (kleiner + etwas schneller)
+# - opt-level=z: auf Größe optimieren (Laufzeit für Notiz-App irrelevant)
+# Bewusst KEIN lto/codegen-units=1: die würden Linken/Build deutlich
+# verlangsamen – Geschwindigkeit kommt stattdessen aus CI-Caching (rust-cache).
+[profile.release]
+strip = true
+panic = "abort"
+opt-level = "z"

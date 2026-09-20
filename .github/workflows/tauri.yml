@@ -6,7 +6,9 @@ name: Tauri – Linux / Windows / Android
 # Releases lösen sonst keine weiteren Läufe aus; jeder Main-Push erzeugt eins):
 #     Linux: .deb, .AppImage, .rpm (+ Updater-Signaturen)
 #     Windows: -setup.exe (NSIS), .msi (+ Updater-Signaturen)
-#     Android: universelles .apk (GitHub-Verteilung, kein Play Store)
+#     Android: APKs pro ABI (arm64/arm/x86_64/x86, GitHub-Verteilung, kein
+#       Play Store – kein 600MB-Universal-APK mehr, jedes Gerät lädt nur
+#       seine Architektur) (+ Debug-Variante ohne Keystore-Secrets)
 #   + latest.json für das Desktop-Autoupdate (tauri-plugin-updater).
 # - Manuell wiederholbar: Actions → „Tauri" → Run workflow → Tag (z. B. v1.7.2).
 # - Wird außerdem von auto-release.yml als wiederverwendbarer Workflow aufgerufen
@@ -116,6 +118,13 @@ jobs:
       - name: Rust einrichten
         uses: dtolnay/rust-toolchain@stable
 
+      # Cargo-Registry + Target-Cache: spart pro Lauf den kompletten
+      # Rebuild von Tauri/Plugins (größter Zeitfresser im Desktop-Job).
+      - name: Rust-Build-Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - name: Linux-Abhängigkeiten (WebKitGTK u. a.)
         if: runner.os == 'Linux'
         run: |
@@ -195,10 +204,23 @@ jobs:
           ls "$ANDROID_HOME/cmdline-tools"
           which sdkmanager java
 
-      - name: Rust-Ziele für Android + NDK (vorinstalliertes NDK nutzen)
+      # Rust inkl. Android-Ziele über die Toolchain-Action (gecacht) statt
+      # manuellem Neuaufsetzen der Toolchain bei jedem Lauf.
+      - name: Rust einrichten (mit Android-Zielen)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      # Cargo-Registry + Target-Cache (eigener Key, kein Mix mit Desktop):
+      # spart den kompletten Rebuild der 4 Android-Targets pro Lauf.
+      - name: Rust-Build-Cache (Android)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: android
+
+      - name: Android-Plattform + NDK bereitstellen
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
           yes | sdkmanager --licenses > /dev/null || true
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           if [ -n "$(ls -A "$ANDROID_HOME/ndk" 2>/dev/null)" ]; then
@@ -232,36 +254,40 @@ jobs:
             echo "::notice::Keine Android-Keystore-Secrets – es wird ein Debug-APK gebaut (Updates ggf. nur per Neuinstallation)."
           fi
 
-      - name: APK bauen (signiert)
+      # --split-per-abi: ein kleines APK pro Architektur statt einem
+      # fetten Universal-APK (enthält sonst alle 4 Nativ-Libs).
+      - name: APKs bauen (signiert, pro ABI)
         if: steps.keystore.outputs.signed == 'true'
         env:
           TAURI_ANDROID_KEYSTORE_PATH: /tmp/federwerk.jks
           TAURI_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           TAURI_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           TAURI_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: npx --yes @tauri-apps/cli android build --apk --ci
+        run: npx --yes @tauri-apps/cli android build --apk --split-per-abi --ci
 
-      - name: APK bauen (Debug-Fallback)
+      - name: APKs bauen (Debug-Fallback, pro ABI)
         if: steps.keystore.outputs.signed != 'true'
-        run: npx --yes @tauri-apps/cli android build --apk --debug --ci
+        run: npx --yes @tauri-apps/cli android build --apk --debug --split-per-abi --ci
 
-      - name: APK einsammeln + umbenennen
+      - name: APKs einsammeln + umbenennen
         id: apk
         run: |
           V="${{ needs.version.outputs.version }}"
-          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
-            SRC=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -1)
-            OUT="Federwerk-${V}-universal.apk"
-          else
-            SRC=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -1)
-            OUT="Federwerk-${V}-universal-debug.apk"
-          fi
-          test -n "$SRC" || { echo "::error::Kein APK gefunden."; exit 1; }
-          cp "$SRC" "$OUT"
-          echo "apk=$OUT" >> "$GITHUB_OUTPUT"
-          ls -la "$OUT"
+          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then MODE="release"; else MODE="debug"; fi
+          FILES=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | sort)
+          test -n "$FILES" || { echo "::error::Kein APK gefunden."; exit 1; }
+          OUTS=""
+          for SRC in $FILES; do
+            abi=$(basename "$SRC" .apk | cut -d- -f2)
+            [ -n "$abi" ] || abi="universal"
+            OUT="Federwerk-${V}-${abi}-${MODE}.apk"
+            cp "$SRC" "$OUT"
+            OUTS="$OUTS $OUT"
+          done
+          echo "apks=$OUTS" >> "$GITHUB_OUTPUT"
+          ls -la $OUTS
 
-      - name: APK an Release hängen
+      - name: APKs an Release hängen
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ needs.version.outputs.tag }}" "${{ steps.apk.outputs.apk }}" --clobber
+        run: gh release upload "${{ needs.version.outputs.tag }}" ${{ steps.apk.outputs.apks }} --clobber

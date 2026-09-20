@@ -1,8 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Federwerk Standard-Rechte: Fenster + Dialoge + Updater + Links öffnen",
+  "description": "Federwerk Desktop-Rechte: Fenster + Dialoge + Updater + Links öffnen",
   "windows": ["main"],
+  "platforms": ["linux", "windows"],
   "permissions": [
     "core:default",
     "core:window:allow-set-title",
