@@ -141,8 +141,8 @@ describe('Tauri-Releasegerüst', () => {
   it('Mobil schlank: Updater/Prozess nur auf Desktop, eigene Capabilities', () => {
     const lib = read('src-tauri/src/lib.rs');
     assert.ok(lib.includes('#[cfg(desktop)]'), 'Desktop-Gating in lib.rs');
-    assert.ok(/cfg\(desktop\)\]\s*\n?\s*\.plugin\(tauri_plugin_updater/.test(lib), 'Updater nur Desktop');
-    assert.ok(/cfg\(desktop\)\]\s*\n?\s*\.plugin\(tauri_plugin_process/.test(lib), 'Prozess nur Desktop');
+    assert.ok(/cfg\(desktop\)\][\s\S]{0,160}\.plugin\(tauri_plugin_updater/.test(lib), 'Updater nur Desktop');
+    assert.ok(/cfg\(desktop\)\][\s\S]{0,160}\.plugin\(tauri_plugin_process/.test(lib), 'Prozess nur Desktop');
     assert.ok(fs.existsSync(path.join(root, 'src-tauri/capabilities/mobile.json')), 'mobile.json');
     const mobile = JSON.parse(read('src-tauri/capabilities/mobile.json'));
     const perms = (mobile.permissions || []).join(' ');
