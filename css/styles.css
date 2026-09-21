@@ -24,6 +24,32 @@
   --shadow: 0 8px 28px rgba(90, 60, 30, 0.14);
   --shadow-sm: 0 2px 10px rgba(90, 60, 30, 0.12);
   --header-h: 64px;
+  --toolbar-top: 84px;
+  /* Safe-Area-Insets als Variablen (Fallback 0px für Browser ohne env()).
+     Safari-Browser-Tab meldet 0px oben, PWA-standalone / iPad-Notch echte Werte. */
+  --sat: 0px;
+  --sab: 0px;
+  --sal: 0px;
+  --sar: 0px;
+}
+
+/* Echte Notch-/Statusbar-Werte nur wo unterstützt (Safari 11.2+, Chrome 69+). */
+@supports (padding: env(safe-area-inset-top)) {
+  :root {
+    --sat: env(safe-area-inset-top);
+    --sab: env(safe-area-inset-bottom);
+    --sal: env(safe-area-inset-left);
+    --sar: env(safe-area-inset-right);
+  }
+}
+/* Legacy iOS 11.0–11.2: constant() statt env(). */
+@supports (padding: constant(safe-area-inset-top)) and (not (padding: env(safe-area-inset-top))) {
+  :root {
+    --sat: constant(safe-area-inset-top);
+    --sab: constant(safe-area-inset-bottom);
+    --sal: constant(safe-area-inset-left);
+    --sar: constant(safe-area-inset-right);
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -51,16 +77,26 @@
 }
 
 /* ===== Base ===== */
-html { -webkit-text-size-adjust: 100%; }
+html {
+  -webkit-text-size-adjust: 100%;
+  /* Gleiche Papier-Farbe hinter Notch/Statusbar – kein Weiß-Blitz über sticky Header.
+     var(--bg) folgt automatisch dem Dark-Mode (siehe :root oben). */
+  background-color: var(--bg);
+  background-image: var(--bg-image);
+  min-height: 100%;
+}
 body {
   font-family: 'Crimson Text', serif;
   background-color: var(--bg);
   background-image: var(--bg-image);
   color: var(--text);
   padding: 20px;
-  padding-left: max(20px, env(safe-area-inset-left));
-  padding-right: max(20px, env(safe-area-inset-right));
-  padding-bottom: max(20px, env(safe-area-inset-bottom));
+  /* Fallback zuerst (kein env): 20px. @supports-fähige Browser nutzen max() + --sat. */
+  padding-top: 20px;
+  padding-top: max(20px, var(--sat));
+  padding-left: max(20px, var(--sal));
+  padding-right: max(20px, var(--sar));
+  padding-bottom: max(20px, var(--sab));
   overscroll-behavior-y: none;
   line-height: 1.45;
   min-height: 100dvh;
@@ -92,7 +128,11 @@ button.inactive:hover { background: var(--button-inactive-bg); opacity: 0.88; }
 .header {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
-  position: sticky; top: 0; z-index: 60;
+  position: sticky; top: 8px; z-index: 60;
+  /* iPad-Notch/Statusbar: nie an die Viewport-Kante kleben (Blur-Kante würde
+     oben abschneiden). 8px Mindestabstand, sonst echte Safe-Area.
+     Fallback 8px für Browser ohne max()/env(). */
+  top: max(8px, var(--sat));
   background: var(--surface);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -100,6 +140,9 @@ button.inactive:hover { background: var(--button-inactive-bg); opacity: 0.88; }
   border-radius: var(--radius);
   padding: 10px 14px;
   box-shadow: var(--shadow);
+  /* Radius beim Sticken nicht clippen: kein overflow:hidden hier;
+     Kinder mit eigenem Hintergrund runden sich selbst. */
+  background-clip: padding-box;
 }
 .header h1 { display: flex; align-items: center; gap: 12px; font-family: 'Cinzel', serif; font-size: clamp(19px, 4.5vw, 26px); color: var(--accent); letter-spacing: 2px; }
 .brand-logo { width: 46px; height: 46px; flex-shrink: 0; }
@@ -168,6 +211,7 @@ select { cursor: pointer; }
 .folder-sidebar {
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface-strong); padding: 10px; position: sticky; top: calc(var(--header-h) + 76px);
+  top: calc(var(--header-h) + 76px + var(--sat));
   max-height: 70vh; overflow-y: auto;
 }
 .folder-sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
@@ -193,6 +237,48 @@ select { cursor: pointer; }
 .folder-mini:hover { background: var(--mini-button-hover-bg); }
 .folder-empty { font-size: 13px; opacity: 0.75; padding: 6px 2px; }
 .folder-hint { font-size: 12px; opacity: 0.7; margin-top: 10px; line-height: 1.4; }
+/* ===== Ordner-Baum V2 (OS-artig: verschachtelt, Tree, DnD, Rename, Menü) ===== */
+.folder-node { display: flex; flex-direction: column; }
+.folder-node > .folder-row { margin-left: calc(var(--depth, 0) * 14px); }
+.folder-children { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.folder-toggle {
+  flex: 0 0 auto; background: transparent; border: none; box-shadow: none;
+  color: var(--accent-muted); font-size: 12px; min-width: 26px; min-height: 36px;
+  padding: 4px 2px; border-radius: 6px; cursor: pointer;
+}
+.folder-toggle:hover { background: var(--mini-button-hover-bg); }
+.folder-toggle--leaf { opacity: 0.35; cursor: default; text-align: center; }
+.folder-row.drop-target { outline: 2px dashed var(--accent); outline-offset: 1px; background: rgba(139, 90, 43, 0.16); }
+.folder-item.drop-target { background: rgba(139, 90, 43, 0.16); }
+.folder-item--main { cursor: grab; }
+.folder-item--main:active { cursor: grabbing; }
+.folder-rename {
+  width: 100%; font-family: 'Crimson Text', serif; font-size: 14px;
+  color: var(--text); background: var(--field-bg);
+  border: 1px solid var(--accent); border-radius: 6px; padding: 3px 6px;
+}
+.folder-menu {
+  position: fixed; z-index: 10000; min-width: 220px; max-width: 280px;
+  background: var(--surface-strong); border: 2px solid var(--accent);
+  border-radius: 10px; box-shadow: var(--shadow); padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.folder-menu-item {
+  background: transparent; border: none; box-shadow: none; color: var(--text);
+  text-align: left; font-size: 13px; padding: 9px 10px; min-height: 40px;
+  border-radius: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.folder-menu-item:hover { background: var(--mini-button-hover-bg); }
+.folder-menu-item.danger { color: #a33; }
+.crumb {
+  background: transparent; border: none; box-shadow: none; color: var(--accent);
+  font-size: 11px; padding: 2px 4px; min-height: 0; letter-spacing: 1px;
+  text-transform: uppercase; cursor: pointer;
+}
+.crumb:hover { text-decoration: underline; }
+.crumb--current { color: var(--text); font-weight: bold; cursor: default; }
+.crumb--current:hover { text-decoration: none; }
+.crumb-sep { opacity: 0.6; }
 .folder-chips { display: none; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 4px; scrollbar-width: thin; }
 .chip {
   flex: 0 0 auto; font-size: 11px; padding: 7px 12px; border-radius: 999px;
@@ -229,16 +315,24 @@ select { cursor: pointer; }
 
 /* ===== Arbeitsbereich ===== */
 .work-layout { display: grid; grid-template-columns: 172px minmax(0, 1fr); gap: 12px; align-items: start; }
-.page-rail { display: flex; flex-direction: column; gap: 8px; max-height: 78vh; overflow-y: auto; padding-right: 2px; position: sticky; top: 150px; }
+.page-rail { display: flex; flex-direction: column; gap: 8px; max-height: 78vh; overflow-y: auto; padding-right: 2px; position: sticky; top: 150px; top: calc(150px + var(--sat)); }
 .page-thumb { border: 2px solid var(--border); background: var(--surface-strong); cursor: pointer; padding: 6px; text-align: center; font-size: 11px; border-radius: 10px; }
 .page-thumb.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .page-thumb canvas { width: 100%; height: auto; display: block; background: #fffdf6; border: 1px solid var(--border-light); border-radius: 4px; }
 .page-thumb .thumb-label { font-family: 'Cinzel', serif; font-size: 9px; color: var(--accent); margin-top: 4px; }
+.page-thumb--template { border-style: dashed; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 12px 6px; min-height: 96px; font-family: 'Cinzel', serif; }
+.page-thumb--template:hover { background: var(--mini-button-hover-bg); }
+.page-thumb--template .thumb-plus { font-size: 22px; line-height: 1; color: var(--accent); }
+.page-thumb--template .thumb-label { margin-top: 0; line-height: 1.35; }
 
 /* ===== Toolbar (sticky, scrollbar auf mobil) ===== */
 .toolbar {
   display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px;
   position: sticky; top: 84px; z-index: 40; box-shadow: var(--shadow-sm);
+  /* Unter dem glasigen Header einkleben: Basis-Offset + Safe-Area oben.
+     --toolbar-top wird pro Breakpoint an die Header-Höhe angepasst,
+     zusätzlich korrigiert JS (--header-h live via ResizeObserver). */
+  top: calc(var(--toolbar-top) + var(--sat));
 }
 .toolbar .sep { border-left: 1px solid var(--border); height: 22px; margin: 0 2px; }
 .tool-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -256,8 +350,10 @@ select { cursor: pointer; }
   background-color: #fffdf6; background-image: var(--bg-image); background-blend-mode: multiply;
   border: 2px solid var(--accent); border-radius: 6px;
   box-shadow: 0 0 0 3px var(--surface-strong), 0 14px 34px rgba(0,0,0,.3);
-  overflow: hidden; touch-action: none;
+  overflow: hidden; touch-action: pan-x pan-y;
 }
+/* Finger zeichnet (Toggle an): Scroll-Sperre auf der Seite, volle Kontrolle für Ink */
+.stage.finger-ink { touch-action: none; }
 .stage.lined { background-image: linear-gradient(transparent 95%, var(--border-light) 100%), var(--bg-image); background-size: 100% 32px, auto; }
 .stage.grid { background-color: #fff; background-image: linear-gradient(var(--border-light) 1px, transparent 1px), linear-gradient(90deg, var(--border-light) 1px, transparent 1px); background-size: 24px 24px, 24px 24px; }
 #drawCanvas, #overlayCanvas, #drawCanvasB, #overlayCanvasB { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -307,9 +403,38 @@ select { cursor: pointer; }
 #cloudPass { font-family: 'Crimson Text', serif; }
 .cloud-status-wrap { font-size: 14px; }
 #awMsg { font-size: 13px; min-height: 18px; margin-top: 8px; }
+:root { --aw-err: #a33; --aw-tab-bg: var(--surface-strong); }
+@media (prefers-color-scheme: dark) {
+  :root { --aw-err: #f0a8a8; }
+}
+/* Auth-Tabs Login/Registrieren */
+.aw-auth-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.aw-auth-tab {
+  flex: 1 1 auto;
+  font-family: 'Cinzel', serif; font-size: 11px; letter-spacing: 1px;
+  padding: 8px 12px; min-height: 36px;
+  background: var(--aw-tab-bg); color: var(--accent-muted);
+  border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+  box-shadow: none;
+}
+.aw-auth-tab:hover { background: var(--mini-button-hover-bg); }
+.aw-auth-tab.active { background: var(--accent); color: var(--button-text); border-color: var(--accent); }
+.aw-auth-pane { display: flex; flex-direction: column; gap: 10px; }
+.aw-auth-pane[hidden] { display: none; }
+.aw-pw-hint { font-size: 12px; color: var(--accent-muted); min-height: 16px; }
+.aw-pw-hint[data-score="3"], .aw-pw-hint[data-score="4"] { color: #3a7d44; }
+@media (prefers-color-scheme: dark) {
+  .aw-pw-hint[data-score="3"], .aw-pw-hint[data-score="4"] { color: #8fd49a; }
+}
+.aw-privacy-note { font-size: 12px; opacity: 0.8; line-height: 1.4; }
+@media (max-width: 560px) {
+  .aw-auth-tabs { gap: 6px; }
+  .aw-auth-tab { flex: 1 1 45%; min-height: 44px; font-size: 12px; }
+  .aw-privacy-note { font-size: 13px; }
+}
 
 /* ===== Texteditor-Overlay ===== */
-.editor-overlay { position: fixed; inset: 0; background: rgba(15, 10, 5, 0.75); backdrop-filter: blur(2px); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+.editor-overlay { position: fixed; inset: 0; background: rgba(15, 10, 5, 0.75); backdrop-filter: blur(2px); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 12px; padding-top: max(12px, var(--sat)); padding-bottom: max(12px, env(safe-area-inset-bottom)); padding-bottom: max(12px, var(--sab)); padding-left: max(12px, var(--sal)); padding-right: max(12px, var(--sar)); }
 .editor-overlay.active { display: flex; }
 .editor-modal {
   background-color: var(--bg); background-image: var(--bg-image);
@@ -332,13 +457,16 @@ select { cursor: pointer; }
 
 /* ===== Responsive ===== */
 @media (max-width: 1020px) {
+  :root { --toolbar-top: 78px; }
   .container { max-width: 100%; }
   .library-layout { grid-template-columns: 210px minmax(0, 1fr); }
-  .toolbar { top: 78px; }
 }
 @media (max-width: 860px) {
-  body { padding: 10px; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
-  .header { position: sticky; top: 8px; padding: 8px 10px; gap: 8px; }
+  /* iPad-Portrait / kleine Tablets: Header bricht zweizeilig um (Titel + Buttons
+     volle Breite) → --header-h wächst, Toolbar rückt per calc() automatisch mit. */
+  :root { --header-h: 150px; --toolbar-top: 170px; }
+  body { padding: 10px; padding-top: max(10px, var(--sat)); padding-bottom: max(14px, var(--sab)); padding-left: max(10px, var(--sal)); padding-right: max(10px, var(--sar)); }
+  .header { position: sticky; top: 8px; top: max(8px, var(--sat)); padding: 8px 10px; gap: 8px; }
   .header h1 { font-size: 19px; letter-spacing: 1px; }
   .brand-logo { width: 38px; height: 38px; }
   .brand-tagline { font-size: 12px; }
@@ -361,7 +489,8 @@ select { cursor: pointer; }
   .page-thumb { min-width: 108px; scroll-snap-align: start; }
   .toolbar {
     flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin;
-    top: 72px; margin-left: -10px; margin-right: -10px; padding-left: 10px; padding-right: 10px;
+    margin-left: -10px; margin-right: -10px; padding-left: 10px; padding-right: 10px;
+    padding-left: max(10px, var(--sal)); padding-right: max(10px, var(--sar));
     border-radius: 0; border-left: none; border-right: none;
   }
   .toolbar .tool-group { flex-wrap: nowrap; }
@@ -381,18 +510,35 @@ select { cursor: pointer; }
   .box { padding: 12px; }
 }
 @media (max-width: 560px) {
-  body { padding: 8px; }
-  .header { top: 6px; }
+  :root { --header-h: 158px; --toolbar-top: 176px; }
+  body { padding: 8px; padding-top: max(8px, var(--sat)); padding-left: max(8px, var(--sal)); padding-right: max(8px, var(--sar)); }
+  .header { top: 6px; top: max(6px, var(--sat)); }
+  .toolbar { margin-left: -8px; margin-right: -8px; padding-left: max(8px, var(--sal)); padding-right: max(8px, var(--sar)); }
   .library-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
   .notebook-title { font-size: 14px; }
   .notebook-actions .mini-button { font-size: 10px; padding: 8px 6px; }
   .editor-toolbar { gap: 4px; }
   .status-line { font-size: 11px; }
-  .toolbar { top: 66px; }
 }
 @media (min-width: 1400px) {
   .container { max-width: 1340px; }
   .library-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+}
+
+/* ===== PWA-standalone vs. Safari-Tab =====
+ * Safari-Tab: Browser-Chrome reserviert den oberen Bereich, --sat ≈ 0px → 8px/6px Gaps.
+ * PWA-standalone (display: standalone, apple-mobile-web-app-capable + black-translucent):
+ * Web-View läuft unter der Statusbar/Notch, --sat > 0 → Header/Toolbar rücken nach unten.
+ * Keine weiteren Regeln nötig – alle sticky-tops nutzen bereits var(--sat).
+ * Dieser Block dokumentiert die Fälle und fängt alte WebKit ohne var()-Support ab. */
+@media (display-mode: standalone) {
+  /* PWA-standalone (black-translucent): Web-View läuft unter Statusbar/Notch,
+     --sat trägt den echten Wert – Header/Toolbar rücken automatisch nach unten. */
+  body { padding-top: max(20px, var(--sat)); }
+}
+@supports not (top: max(8px, var(--sat))) {
+  .header { top: 8px; }
+  .toolbar { top: var(--toolbar-top); }
 }
 
 /* ===== Touch Targets ===== */

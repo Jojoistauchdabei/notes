@@ -52,7 +52,7 @@
               <button class="mini-button" onclick="createFolderUI()" aria-label="Neuen Ordner erstellen" title="Neuen Ordner erstellen">+ Neu</button>
             </div>
             <nav class="folder-nav" id="folderNav" aria-label="Ordner-Liste"></nav>
-            <div class="folder-hint">Bücher per 📁-Menü auf der Karte verschieben. Ordner löschen behält die Bücher (→ Unsortiert) und synct via Appwrite.</div>
+            <div class="folder-hint">Bücher per Drag &amp; Drop oder 📁-Menü auf der Karte verschieben. Doppelklick = umbenennen, Rechtsklick = Menü (Neu/Unterordner/Löschen). Ordner löschen behält die Bücher (→ Unsortiert) und synct via Appwrite.</div>
           </aside>
           <section class="library-main" aria-live="polite">
             <div class="divider"><div class="divider-line"></div><div class="divider-title" id="libraryFolderTitle">Alle Bücher</div><div class="divider-line"></div></div>
@@ -118,9 +118,15 @@
           </label>
         </div>
         <div class="sep" role="separator" aria-hidden="true"></div>
+        <div class="tool-group" title="Eingabe: Apple Pencil schreibt, Finger scrollt" role="group" aria-label="Stift- und Finger-Eingabe">
+          <button class="mini-button" id="fingerDrawToggle" onclick="setFingerDraw(!inputPrefs.fingerDraw)" aria-label="Finger-Zeichnen umschalten" title="Finger scrollt (aus) / Finger zeichnet (an) – Stift schreibt immer">☝ Finger: scrollt</button>
+        </div>
+        <div class="sep" role="separator" aria-hidden="true"></div>
         <div class="tool-group tool-group--actions" role="group" aria-label="Aktionen">
           <button class="mini-button" onclick="undo()" aria-label="Rückgängig machen">↩</button>
           <button class="mini-button" onclick="redo()" aria-label="Wiederherstellen">↪</button>
+          <button class="mini-button" onclick="openDocImportDialog(activePaneIdx(),event)" aria-label="Seiten aus anderem Dokument importieren" title="Seiten aus einem anderen Dokument hinter die aktuelle Seite importieren">⤵ Doc-Import</button>
+          <button class="mini-button" onclick="duplicatePageAsTemplate()" aria-label="Seite als leere Vorlage duplizieren" title="Leere Vorlage der aktuellen Seite (ohne Handschrift, Textfelder, Marker)">⧉ Vorlage</button>
           <button class="mini-button" onclick="document.getElementById('imgFile').click()" aria-label="Bild einfügen">🖼 Bild</button>
           <input id="imgFile" type="file" accept="image/*" multiple onchange="importImage(event)" style="display:none" aria-hidden="true">
           <button class="mini-button" onclick="document.getElementById('imgPageFile').click()" aria-label="Bild als neue Seite einfügen">🖼+ Seite</button>
@@ -288,15 +294,37 @@
       </div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
         <div style="font-size:13px">Bilder/PDFs werden per <b>SHA-256-Dedupe</b> in den Storage-Bucket gespiegelt (Dateiname = Content-Hash). Vor dem Upload: <b>Recompress</b> auf max. 1600px, JPEG/WebP. Verwaiste Remote-Dateien können aufgeräumt werden. Offline-Fehlversuche landen in einer Queue.</div>
+        <div style="font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="awSaved" aria-live="polite">Ersparnis: –</span>
+          <button type="button" class="mini-button" onclick="window.FederwerkOptimizeUI && window.FederwerkOptimizeUI.optimizeLibrary()" aria-label="Bibliothek optimieren (Strokes + Bilder komprimieren)">🧹 Bibliothek optimieren</button>
+        </div>
         <div><label for="awEndpoint">Endpoint</label><input type="text" id="awEndpoint" autocomplete="off"></div>
         <div><label for="awProject">Project-ID</label><input type="text" id="awProject" autocomplete="off"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <div style="flex:1;min-width:140px"><label for="awDatabase">Database</label><input type="text" id="awDatabase" autocomplete="off"></div>
           <div style="flex:1;min-width:140px"><label for="awBucket">Bucket</label><input type="text" id="awBucket" autocomplete="off"></div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <div style="flex:1;min-width:140px"><label for="awEmail">E-Mail (Login)</label><input type="text" id="awEmail" autocomplete="username"></div>
-          <div style="flex:1;min-width:140px"><label for="awPass">Passwort</label><input type="password" id="awPass" autocomplete="current-password"></div>
+        <div class="aw-auth-tabs" role="tablist" aria-label="Anmeldung oder Registrierung">
+          <button type="button" id="awTabLogin" class="aw-auth-tab active" role="tab" aria-selected="true" aria-controls="awLoginPane" onclick="window.FederwerkFilesUI && FederwerkFilesUI.switchAuthTab('login')">Login</button>
+          <button type="button" id="awTabRegister" class="aw-auth-tab" role="tab" aria-selected="false" aria-controls="awRegisterPane" onclick="window.FederwerkFilesUI && FederwerkFilesUI.switchAuthTab('register')">Registrieren</button>
+        </div>
+        <div id="awLoginPane" class="aw-auth-pane" role="tabpanel" aria-labelledby="awTabLogin">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div style="flex:1;min-width:140px"><label for="awEmail">E-Mail (Login)</label><input type="text" id="awEmail" autocomplete="username"></div>
+            <div style="flex:1;min-width:140px"><label for="awPass">Passwort</label><input type="password" id="awPass" autocomplete="current-password"></div>
+          </div>
+        </div>
+        <div id="awRegisterPane" class="aw-auth-pane" role="tabpanel" aria-labelledby="awTabRegister" hidden>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div style="flex:1;min-width:140px"><label for="awRegName">Name (optional)</label><input type="text" id="awRegName" autocomplete="nickname" maxlength="128" placeholder="Anzeigename"></div>
+            <div style="flex:1;min-width:140px"><label for="awRegEmail">E-Mail</label><input type="text" id="awRegEmail" autocomplete="email" inputmode="email" placeholder="name@beispiel.de"></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div style="flex:1;min-width:140px"><label for="awRegPass">Passwort (min. 8 Zeichen)</label><input type="password" id="awRegPass" autocomplete="new-password" minlength="8" oninput="window.FederwerkFilesUI && FederwerkFilesUI.updatePwStrength()"></div>
+            <div style="flex:1;min-width:140px"><label for="awRegPass2">Passwort wiederholen</label><input type="password" id="awRegPass2" autocomplete="new-password"></div>
+          </div>
+          <div id="awPwHint" class="aw-pw-hint" aria-live="polite">Mind. 8 Zeichen, am besten lang + gemischt.</div>
+          <div class="aw-privacy-note">Mit Registrieren stimmst du der Speicherung deines Kontos bei Appwrite zu. Es gibt kein Tracking ohne Opt-in – Sync nur auf Knopfdruck bzw. Realtime-Opt-in.</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="awRealtime" style="width:auto" onchange="window.FederwerkSyncUI && FederwerkSyncUI.toggleRealtime(this.checked)" aria-label="Realtime-Sync aktivieren"> Realtime-Sync (Auto bei Cloud-Änderung)</label>
@@ -310,7 +338,8 @@
           <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.cleanup()" aria-label="Verwaiste Dateien löschen">Orphans löschen</button>
         </span>
         <span style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.login()" aria-label="Einloggen">Login</button>
+          <button type="button" id="awBtnLogin" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.login()" aria-label="Einloggen">Login</button>
+          <button type="button" id="awBtnRegister" class="inactive" style="display:none" onclick="window.FederwerkFilesUI && FederwerkFilesUI.register()" aria-label="Konto registrieren">Registrieren</button>
           <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.logout()" aria-label="Ausloggen">Logout</button>
           <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien synchronisieren">⬆⬇ Sync</button>
           <button type="button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.save()" aria-label="Einstellungen speichern">💾 Speichern</button>
@@ -358,12 +387,14 @@
   <script src="js/editor.js"></script>
   <script src="js/gnzip.js"></script>
   <script src="js/goodnotes.js"></script>
+  <script src="js/optimize.js"></script>
   <script src="js/store.js"></script>
   <script src="js/pages-import.js"></script>
   <script src="js/erase.js"></script>
   <script src="js/ink-index.js"></script>
   <script src="js/graph.js"></script>
   <script src="js/search.js"></script>
+  <script src="js/format-doc.js"></script>
   <script src="js/app.js"></script>
   <script src="js/appwrite-files.js"></script>
   <script src="js/appwrite-sync.js"></script>

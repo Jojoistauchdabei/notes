@@ -1825,6 +1825,22 @@ var GoodNotes = (function () {
     return wdelimited([wmsg([[30, 2, wmsg([[1, 2, inner]])]])]);
   }
 
+  /* ---------- Federwerk-Format-Metadaten (Aufgabe 5) ---------- */
+  // Maschinenlesbarer Hinweis für KI-Chats als eigene ZIP-Datei. GoodNotes
+  // und der Federwerk-Import (parseDocument) ignorieren unbekannte
+  // Einträge, daher bleibt der Container kompatibel.
+  function federwerkMeta(title, pageCount) {
+    return {
+      format: 'federwerk-notebook',
+      formatVersion: 'federwerk-1',
+      schema: './federwerk.schema.json',
+      doc: './FEDERWERK_FORMAT.md',
+      title: title || 'Federwerk',
+      pages: pageCount || 0,
+      exportedAt: new Date().toISOString(),
+    };
+  }
+
   /* ---------- Main export function ---------- */
   function exportGoodNotes(book) {
     const title = book.title || 'Federwerk';
@@ -1914,6 +1930,9 @@ var GoodNotes = (function () {
 
     files.push(['thumbnail.jpg', makeThumbnail()]);
     files.push(['search/0', new Uint8Array(0)]);
+    try {
+      files.push(['federwerk.json', strToBytes(JSON.stringify(federwerkMeta(title, pages.length)))]);
+    } catch { /* Metadaten optional – Export bleibt gültig */ }
 
     return writeZip(files);
   }
@@ -2016,7 +2035,7 @@ var GoodNotes = (function () {
   }
 
   return {
-    parseDocument, mapPage, runsToHtml, exportGoodNotes,
+    parseDocument, mapPage, runsToHtml, exportGoodNotes, federwerkMeta,
     _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9, writeZip, strokeRecord, textRecord, imageRecord, metaRecord, indexNotesPb, indexEventsPb, documentPb, documentInfoPb, parseHtmlToRuns, tplEncode, bv4n, lz4Literals, wvarint, wfield, wmsg, wdelimited, concatU8, stripHtml, crc32, makeThumbnail, uuid4, imageFileDims, dataUrlBytes, looksLikeUuid,
       exportGeom: { PAGE_W, PAGE_H, EX_DPI, EX_IW, EX_IH, EX_SC, EX_OFFY, EX_WSC }, canvasToPt, normToPt, canvasSizeToPt }
   };

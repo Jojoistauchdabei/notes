@@ -54,6 +54,28 @@
   function bid() {
     return 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   }
+  // Zentrale Optimierung (js/optimize.js, Aufgabe 4): vor dem Einlagern auf
+  // Seiten-Kontext (1600px) downscalen, wenn Canvas verfügbar. Fallback:
+  // Original (DOM-frei/Tests, kein Canvas -> kein Recompress).
+  function optimizer() {
+    try {
+      if (typeof window !== 'undefined' && window.FederwerkOptimize) return window.FederwerkOptimize;
+      if (typeof globalThis !== 'undefined' && globalThis.FederwerkOptimize) return globalThis.FederwerkOptimize;
+    } catch { /* ignore */ }
+    return null;
+  }
+  async function maybeDownscale(bytes, mime) {
+    try {
+      const O = optimizer();
+      if (!O || !O.downscaleBytes || !O.hasCanvas || !O.hasCanvas()) return { bytes, mime };
+      if (!/^image\/(jpeg|png|webp)$/i.test(String(mime || ''))) return { bytes, mime };
+      const out = await O.downscaleBytes(bytes, mime, 'page');
+      if (out && out.bytes && out.bytes.length && out.bytes.length < bytes.length) {
+        return { bytes: out.bytes, mime: out.mime || mime };
+      }
+    } catch { /* Fallback: Original einlagern */ }
+    return { bytes, mime };
+  }
 
   /* ---------- reine Helfer (testbar) ---------- */
   function isBlobRef(s) { return typeof s === 'string' && s.startsWith('blob:') && s.length > 5; }
@@ -166,12 +188,17 @@
   }
 
   /* ---------- Blob-API ---------- */
-  // Blob (File/Canvas) einlagern -> 'blob:<id>' (oder dataURL-Fallback ohne IDB)
+  // Blob (File/Canvas) einlagern -> 'blob:<id>' (oder dataURL-Fallback ohne IDB).
+  // Bilder werden vorab per FederwerkOptimize auf Seiten-Maß gebracht.
   async function putBlob(blob) {
     try {
       const buf = await blob.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      const mime = blob.type || 'image/jpeg';
+      let bytes = new Uint8Array(buf);
+      let mime = blob.type || 'image/jpeg';
+      if (/^image\//i.test(mime)) {
+        const opt = await maybeDownscale(bytes, mime);
+        bytes = opt.bytes; mime = opt.mime;
+      }
       if (!useBlobs()) return bytesToDataUrl(bytes, mime); // Legacy-Inline
       const id = bid();
       await blobPut(id, { mime, bytes });
@@ -183,9 +210,11 @@
   // dataURL einlagern -> 'blob:<id>' (oder Original ohne IDB / bei Nicht-Bild)
   async function putDataUrl(du) {
     if (!isDataUrl(du)) return du;
-    if (!useBlobs()) return du; // Legacy-Inline
     try {
-      const { mime, bytes } = dataUrlToBytes(du);
+      let { mime, bytes } = dataUrlToBytes(du);
+      const opt = await maybeDownscale(bytes, mime);
+      bytes = opt.bytes; mime = opt.mime;
+      if (!useBlobs()) return bytesToDataUrl(bytes, mime); // komprimiert inline
       const id = bid();
       await blobPut(id, { mime, bytes });
       return 'blob:' + id;

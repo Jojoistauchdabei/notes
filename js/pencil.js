@@ -120,6 +120,240 @@ var GrimoirePencil = (function () {
     return sanitizeTextStyle({ fontSize: parseFloat(c.fontSize), color: c.color, align: c.textAlign });
   }
 
+  /* ---------- Cleaner-Stroke-Algorithmus (Stiftgefühl) ----------
+   * Ziel: ruhigere Linie ohne Zacken, aber ohne spürbaren Lag.
+   * Bausteine (alle DOM-frei, testbar):
+   *  1) One-Euro-Filter pro Achse (x/y/p) -> entfernt hochfrequentes Zittern,
+   *     folgt schnellen Bewegungen trotzdem (beta-Anteil).
+   *  2) Mindest-Distanz (Jitter-Falle) -> Micro-Rauschen < minDistance wird
+   *     geschluckt, kein Punkte-Müll bei ruhiger Hand.
+   *  3) Pressure-EMA -> weiche Breitenübergänge statt Sprünge.
+   *  4) Chaikin-Corner-Cutting + Midpoint-Quadratics beim Rendern ->
+   *     runde, "cleanere" Kurven statt LineTo-Polygon.
+   * App-Flow: pro Stroke ein createStabilizer(), jeder (coalesced)
+   * Pointer-Punkt durch push() jagen, Rendern via smoothPolyline(). */
+
+  var INPUT_PREFS_KEY = 'grimoireInputPrefs';
+  var DEFAULT_INPUT_PREFS = Object.freeze({ fingerDraw: false, penOnly: true });
+
+  function sanitizeInputPrefs(input) {
+    var out = { fingerDraw: DEFAULT_INPUT_PREFS.fingerDraw, penOnly: DEFAULT_INPUT_PREFS.penOnly };
+    if (!input || typeof input !== 'object') return out;
+    out.fingerDraw = !!input.fingerDraw;
+    // penOnly=true heißt: Touch wird als Scroll/Pinch behandelt (Palm-Rejection an).
+    out.penOnly = input.penOnly !== false;
+    return out;
+  }
+
+  function getInputPrefs(store) {
+    var st = resolveStore(store);
+    if (!st) return sanitizeInputPrefs(null);
+    var raw = null;
+    try { raw = st.getItem(INPUT_PREFS_KEY); } catch (e) { return sanitizeInputPrefs(null); }
+    if (!raw) return sanitizeInputPrefs(null);
+    try { return sanitizeInputPrefs(JSON.parse(raw)); } catch (e) { return sanitizeInputPrefs(null); }
+  }
+
+  function setInputPrefs(prefs, store) {
+    var clean = sanitizeInputPrefs(prefs);
+    var st = resolveStore(store);
+    if (st) {
+      try { st.setItem(INPUT_PREFS_KEY, JSON.stringify(clean)); } catch (e) { /* ignore */ }
+    }
+    return clean;
+  }
+
+  // Kleiner Low-Pass-Baustein für den One-Euro-Filter.
+  function createLowPass() {
+    var last = null;
+    return {
+      filter: function (value, alpha) {
+        if (last == null) { last = value; return value; }
+        last = alpha * value + (1 - alpha) * last;
+        return last;
+      },
+      reset: function () { last = null; },
+      last: function () { return last; }
+    };
+  }
+
+  function oneEuroAlpha(cutoff, freq) {
+    var te = 1 / (freq > 0 ? freq : 120);
+    var tau = 1 / (2 * Math.PI * (cutoff > 0 ? cutoff : 1));
+    return 1 / (1 + tau / te);
+  }
+
+  // One-Euro-Filter für einen Skalar (x, y oder p getrennt instanziieren).
+  function createOneEuro(opts) {
+    opts = opts || {};
+    var minCutoff = (typeof opts.minCutoff === 'number' && opts.minCutoff > 0) ? opts.minCutoff : 1.1;
+    var beta = (typeof opts.beta === 'number' && opts.beta >= 0) ? opts.beta : 0.025;
+    var dcutoff = (typeof opts.dcutoff === 'number' && opts.dcutoff > 0) ? opts.dcutoff : 1.0;
+    var freq = (typeof opts.freq === 'number' && opts.freq > 0) ? opts.freq : 120;
+    var xF = createLowPass(), dxF = createLowPass();
+    var lastT = null, lastX = null;
+    return {
+      filter: function (value, t) {
+        var now = (typeof t === 'number' && isFinite(t)) ? t : ((lastT == null) ? 0 : lastT + 1000 / freq);
+        var dt = (lastT == null) ? (1000 / freq) : Math.max(1, now - lastT);
+        var f = 1000 / dt;
+        var d = (lastX == null) ? 0 : (value - lastX) * f;
+        var dHat = dxF.filter(d, oneEuroAlpha(dcutoff, f));
+        var cutoff = minCutoff + beta * Math.abs(dHat);
+        var out = xF.filter(value, oneEuroAlpha(cutoff, f));
+        lastT = now; lastX = value;
+        return out;
+      },
+      reset: function () { xF.reset(); dxF.reset(); lastT = null; lastX = null; }
+    };
+  }
+
+  // Stabilizer für einen Stroke: frisst Jitter, glättet x/y/p.
+  // push({x,y,p}, tMs) -> geglätteter Punkt oder null (Jitter-Falle).
+  function createStabilizer(opts) {
+    opts = opts || {};
+    var fx = createOneEuro({ minCutoff: opts.minCutoff || 1.4, beta: opts.beta != null ? opts.beta : 0.03, dcutoff: opts.dcutoff || 1.0, freq: opts.freq || 120 });
+    var fy = createOneEuro({ minCutoff: opts.minCutoff || 1.4, beta: opts.beta != null ? opts.beta : 0.03, dcutoff: opts.dcutoff || 1.0, freq: opts.freq || 120 });
+    var fp = createOneEuro({ minCutoff: 0.9, beta: 0.01, dcutoff: 1.0, freq: opts.freq || 120 });
+    var minDistance = (typeof opts.minDistance === 'number' && opts.minDistance >= 0) ? opts.minDistance : 0.9;
+    var pressureAlpha = (typeof opts.pressureAlpha === 'number' && opts.pressureAlpha > 0 && opts.pressureAlpha <= 1) ? opts.pressureAlpha : 0.4;
+    var lastOut = null, lastP = 0.5, hasAny = false;
+    return {
+      push: function (pt, t) {
+        pt = normalizePoint(pt || {});
+        var tMs = (typeof t === 'number' && isFinite(t)) ? t : Date.now();
+        var sx = fx.filter(pt.x, tMs);
+        var sy = fy.filter(pt.y, tMs);
+        var spRaw = fp.filter(pt.p, tMs);
+        var sp = lastP + pressureAlpha * (spRaw - lastP);
+        lastP = sp;
+        if (!hasAny) {
+          hasAny = true;
+          lastOut = { x: sx, y: sy, p: normalizePressure(sp) };
+          return lastOut;
+        }
+        var dx = sx - lastOut.x, dy = sy - lastOut.y;
+        if (dx * dx + dy * dy < minDistance * minDistance) return null;
+        lastOut = { x: sx, y: sy, p: normalizePressure(sp) };
+        return lastOut;
+      },
+      reset: function () { fx.reset(); fy.reset(); fp.reset(); lastOut = null; lastP = 0.5; hasAny = false; }
+    };
+  }
+
+  // Chaikin-Corner-Cutting (1 Iteration ≈ sichtbar cleaner, Endpunkte bleiben).
+  // p wird mit interpoliert -> keine Breitenstufen.
+  function chaikinSmooth(points, iterations) {
+    var pts = normalizePoints(points || []);
+    var n = (typeof iterations === 'number' && iterations > 0) ? Math.min(3, Math.floor(iterations)) : 1;
+    if (pts.length < 3) return pts;
+    for (var k = 0; k < n; k++) {
+      var out = [pts[0]];
+      for (var i = 0; i < pts.length - 1; i++) {
+        var a = pts[i], b = pts[i + 1];
+        out.push({
+          x: a.x * 0.75 + b.x * 0.25,
+          y: a.y * 0.75 + b.y * 0.25,
+          p: normalizePressure(a.p * 0.75 + b.p * 0.25)
+        });
+        out.push({
+          x: a.x * 0.25 + b.x * 0.75,
+          y: a.y * 0.25 + b.y * 0.75,
+          p: normalizePressure(a.p * 0.25 + b.p * 0.75)
+        });
+      }
+      out.push(pts[pts.length - 1]);
+      pts = out;
+    }
+    return pts;
+  }
+
+  // Midpoint-Quadratic-Segmente für butterweiches Rendern (rein, testbar).
+  // Gibt { move, curves: [{cpx,cpy,x,y}] } zurück; Punkte <2 -> nur move/dot.
+  function midpointSegments(points) {
+    var pts = normalizePoints(points || []);
+    if (!pts.length) return { move: null, curves: [] };
+    if (pts.length === 1) return { move: pts[0], curves: [] };
+    if (pts.length === 2) {
+      return {
+        move: pts[0],
+        curves: [{ cpx: (pts[0].x + pts[1].x) / 2, cpy: (pts[0].y + pts[1].y) / 2, x: pts[1].x, y: pts[1].y, p: pts[1].p }]
+      };
+    }
+    var curves = [];
+    var move = pts[0];
+    var i;
+    for (i = 1; i < pts.length - 1; i++) {
+      var mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+      curves.push({ cpx: pts[i].x, cpy: pts[i].y, x: mx, y: my, p: normalizePressure((pts[i].p + pts[i + 1].p) / 2) });
+    }
+    curves.push({ cpx: pts[pts.length - 1].x, cpy: pts[pts.length - 1].y, x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, p: pts[pts.length - 1].p });
+    return { move: move, curves: curves };
+  }
+
+  // Coalesced Events einsammeln (High-Freq-Punkte vom OS, sonst [ev]).
+  function collectCoalesced(ev) {
+    if (!ev) return [];
+    try {
+      if (typeof ev.getCoalescedEvents === 'function') {
+        var list = ev.getCoalescedEvents();
+        if (list && list.length) return list;
+      }
+    } catch (e) { /* Fallback unten */ }
+    return [ev];
+  }
+
+  /* ---------- Pencil-vs-Finger (Schreiben vs. Scrollen) ----------
+   * Regel (Default, penOnly=true):
+   *  - Apple Pencil / Pen (pointerType 'pen')  -> IMMER schreiben (Ink),
+   *  - Maus ('mouse', linke Taste)             -> schreiben,
+   *  - Finger ('touch')                        -> SCROLLEN (kein Ink),
+   *    außer Nutzer aktiviert "Finger zeichnen" (fingerDraw=true).
+   * Palm-Rejection: Touch kurz nach Pen-Kontakt wird ignoriert. */
+
+  function getPointerProfile(ev) {
+    ev = ev || {};
+    var t = String(ev.pointerType || (typeof ev.type === 'string' && ev.type.indexOf('touch') === 0 ? 'touch' : 'mouse')).toLowerCase();
+    if (t !== 'pen' && t !== 'touch' && t !== 'mouse') t = 'mouse';
+    return {
+      type: t,
+      isPen: t === 'pen',
+      isTouch: t === 'touch',
+      isMouse: t === 'mouse',
+      pressure: normalizePressure(ev.pressure),
+      tiltX: (typeof ev.tiltX === 'number') ? ev.tiltX : 0,
+      tiltY: (typeof ev.tiltY === 'number') ? ev.tiltY : 0,
+      buttons: (typeof ev.buttons === 'number') ? ev.buttons : 1,
+      button: (typeof ev.button === 'number') ? ev.button : 0
+    };
+  }
+
+  function shouldInkForPointer(evOrProfile, prefs) {
+    var prof = (evOrProfile && evOrProfile.isPen != null && evOrProfile.type)
+      ? evOrProfile : getPointerProfile(evOrProfile);
+    var p = sanitizeInputPrefs(prefs);
+    if (prof.isPen) return true;
+    if (prof.isTouch) return !!p.fingerDraw;
+    // Maus: nur linke Taste / primärer Button (Rechtsklick = Kontext, kein Ink).
+    if (prof.button === 2) return false;
+    if (prof.buttons != null && prof.buttons !== 0 && !(prof.buttons & 1)) return false;
+    return true;
+  }
+
+  // Palm-Guard: merkt sich letzten Pen-Kontakt; Touch in der Sperrzeit = Handballen.
+  function createPalmGuard(timeoutMs) {
+    var timeout = (typeof timeoutMs === 'number' && timeoutMs > 0) ? timeoutMs : 1200;
+    var lastPen = 0;
+    return {
+      markPen: function (now) { lastPen = (typeof now === 'number' && isFinite(now)) ? now : Date.now(); },
+      isPalmTouch: function (now) {
+        var t = (typeof now === 'number' && isFinite(now)) ? now : Date.now();
+        return (t - lastPen) < timeout;
+      },
+      lastPen: function () { return lastPen; }
+    };
+  }
+
   return {
     TEXT_DEFAULT_KEY: TEXT_DEFAULT_KEY,
     DEFAULT_TEXT_STYLE: { fontSize: DEFAULT_TEXT_STYLE.fontSize, color: DEFAULT_TEXT_STYLE.color, align: DEFAULT_TEXT_STYLE.align },
@@ -133,7 +367,21 @@ var GrimoirePencil = (function () {
     getTextDefault: getTextDefault,
     setTextDefault: setTextDefault,
     applyDefaultToBox: applyDefaultToBox,
-    editorStyleFromComputed: editorStyleFromComputed
+    editorStyleFromComputed: editorStyleFromComputed,
+    INPUT_PREFS_KEY: INPUT_PREFS_KEY,
+    DEFAULT_INPUT_PREFS: { fingerDraw: DEFAULT_INPUT_PREFS.fingerDraw, penOnly: DEFAULT_INPUT_PREFS.penOnly },
+    sanitizeInputPrefs: sanitizeInputPrefs,
+    getInputPrefs: getInputPrefs,
+    setInputPrefs: setInputPrefs,
+    createLowPass: createLowPass,
+    createOneEuro: createOneEuro,
+    createStabilizer: createStabilizer,
+    chaikinSmooth: chaikinSmooth,
+    midpointSegments: midpointSegments,
+    collectCoalesced: collectCoalesced,
+    getPointerProfile: getPointerProfile,
+    shouldInkForPointer: shouldInkForPointer,
+    createPalmGuard: createPalmGuard
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = GrimoirePencil;

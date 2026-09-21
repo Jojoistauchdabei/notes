@@ -13,6 +13,26 @@
   const PDF_TARGET_W = 1000;
   const OFFLINE_PHRASE = 'PDF-Hintergrund offline nicht ladbar';
 
+  function optimizer() {
+    try {
+      if (typeof window !== 'undefined' && window.FederwerkOptimize) return window.FederwerkOptimize;
+      if (typeof globalThis !== 'undefined' && globalThis.FederwerkOptimize) return globalThis.FederwerkOptimize;
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  /* Bild-dataURL beim Import komprimieren (Seiten-Kontext, Aufgabe 4).
+   * Nutzt die zentrale Lib, fällt ohne Canvas/Lib auf das Original zurück.
+   * Rein aufrufbar, DOM-frei testbar (Fallback-Pfad ohne Canvas). */
+  async function compressImageDataUrl(dataUrl, context) {
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return dataUrl;
+    try {
+      const O = optimizer();
+      if (O && O.downscaleDataUrl) return await O.downscaleDataUrl(dataUrl, context || 'page');
+    } catch { /* ignore, Fallback unten */ }
+    return dataUrl;
+  }
+
   function isFiniteNum(n) {
     return typeof n === 'number' && isFinite(n);
   }
@@ -138,6 +158,51 @@
     return 'Importiere PDF' + name + ' – Seite ' + done + '/' + total + ' …';
   }
 
+  /* ---------- Dokument-in-Dokument-Import (Seiten übernehmen) ----------
+   * clonePagesForImport(sourcePages, wanted): tiefe Kopie mit frischen IDs
+   * (Strokes/Texte/Bilder/bg bleiben erhalten, blob:-Refs werden geteilt –
+   * kein Byte-Copy nötig, Store-GC gibt es in V1 nicht).
+   * wanted: null/undefined = alle; sonst Liste von 1-basierten Seiten-Nr.
+   * buildTemplatePage(sourcePage): "saubere" Kopie OHNE Handschrift
+   * (strokes), OHNE Textfelder (texts), OHNE Marker – Marker sind Strokes
+   * mit tool==='marker', werden also mit strokes entfernt. Übrig bleibt
+   * nur das Struktur-Gerüst: id neu, bg übernommen, images leer.
+   * (Bilder-Overlays zählen als Inhalt, nicht als Vorlage – bewusst leer.) */
+  function clonePagesForImport(sourcePages, wanted) {
+    if (!Array.isArray(sourcePages)) return [];
+    let idxs = null;
+    if (Array.isArray(wanted) && wanted.length) {
+      const set = new Set(wanted.map(n => Math.floor(Number(n))).filter(n => isFinite(n) && n >= 1 && n <= sourcePages.length));
+      idxs = Array.from(set).sort((a, b) => a - b).map(n => n - 1);
+    } else {
+      idxs = sourcePages.map((_, i) => i);
+    }
+    return idxs.map(i => {
+      const src = sourcePages[i] || { strokes: [], texts: [], images: [], bg: null };
+      let copy;
+      try { copy = JSON.parse(JSON.stringify(src)); } catch { copy = { strokes: [], texts: [], images: [], bg: null }; }
+      copy.id = genId();
+      if (!Array.isArray(copy.strokes)) copy.strokes = [];
+      if (!Array.isArray(copy.texts)) copy.texts = [];
+      if (!Array.isArray(copy.images)) copy.images = [];
+      if (typeof copy.bg !== 'string') copy.bg = copy.bg || null;
+      (copy.texts || []).forEach(t => { t.id = genId(); });
+      (copy.images || []).forEach(im => { im.id = genId(); });
+      // Marker-/Ink-Strokes brauchen keine neuen IDs (anonyme Punkte), Punkte bleiben.
+      return copy;
+    });
+  }
+
+  function buildTemplatePage(sourcePage) {
+    const src = (sourcePage && typeof sourcePage === 'object') ? sourcePage : null;
+    const page = buildNewPageModel({});
+    page.bg = (src && typeof src.bg === 'string') ? src.bg : null;
+    page.strokes = [];
+    page.texts = [];
+    page.images = [];
+    return page;
+  }
+
   const api = {
     MAX_IMAGE_LONG_EDGE,
     PDF_TARGET_W,
@@ -145,11 +210,14 @@
     scaleForLongEdge,
     scaledSizeForLimit,
     calcContainSize,
+    compressImageDataUrl,
     buildNewPageModel,
     parsePageRange,
     pageRangeParser,
     offlinePdfFallbackHtml,
     pdfImportStatus,
+    clonePagesForImport,
+    buildTemplatePage,
   };
 
   if (typeof window !== 'undefined') window.PagesImport = api;

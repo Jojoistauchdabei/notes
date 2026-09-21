@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Federwerk-Notizbuch (federwerk-1)",
+  "description": "Exportformat der Federwerk-Handschrift-App. Gesamt-Export {books,folders,openBookId,openPageId} oder Einzelbuch {id,title,...,pages}. Canvas: 1000x1414 px. Menschenlesbare Doku: FEDERWERK_FORMAT.md, Einstieg für LLMs: llms.txt.",
+  "type": "object",
+  "anyOf": [
+    { "$ref": "#/$defs/collectionExport" },
+    { "$ref": "#/$defs/bookExport" }
+  ],
+  "$defs": {
+    "formatMeta": {
+      "type": "object",
+      "description": "KI-lesbare Format-Metadaten (Aufgabe 5, gesetzt via js/format-doc.js).",
+      "properties": {
+        "$schema": { "type": "string" },
+        "formatVersion": { "const": "federwerk-1" },
+        "formatDoc": { "type": "string" },
+        "_ai": {
+          "type": "object",
+          "required": ["format", "version", "fields", "promptHint"],
+          "properties": {
+            "format": { "const": "federwerk-notebook" },
+            "version": { "const": "federwerk-1" },
+            "schema": { "type": "string" },
+            "doc": { "type": "string" },
+            "fields": { "type": "object" },
+            "promptHint": { "type": "string" }
+          }
+        }
+      }
+    },
+    "point": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number", "description": "Canvas-px, 0..1000" },
+        "y": { "type": "number", "description": "Canvas-px, 0..1414" },
+        "p": { "type": "number", "minimum": 0, "maximum": 1, "description": "Stift-Druck, optional (Default 0.5)" }
+      }
+    },
+    "stroke": {
+      "type": "object",
+      "required": ["points"],
+      "properties": {
+        "tool": { "enum": ["pen", "marker", "eraser"] },
+        "color": { "type": "string" },
+        "size": { "type": "number" },
+        "alpha": { "type": "number" },
+        "points": { "type": "array", "items": { "$ref": "#/$defs/point" } },
+        "closed": { "type": "boolean" },
+        "fill": { "type": ["string", "null"] },
+        "fillAlpha": { "type": "number" },
+        "dash": { "type": "array", "items": { "type": "number" } },
+        "highlighter": { "type": "boolean" }
+      }
+    },
+    "textBox": {
+      "type": "object",
+      "required": ["html"],
+      "properties": {
+        "id": { "type": "string" },
+        "x": { "type": "number", "description": "Normiert 0..1 relativ zur Seitenbreite" },
+        "y": { "type": "number", "description": "Normiert 0..1 relativ zur Seitenhöhe" },
+        "html": { "type": "string", "description": "Getippter Rich-Text (h1/h2/b/i/u/listen, inline style)" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": ["src"],
+      "properties": {
+        "id": { "type": "string" },
+        "x": { "type": "number", "description": "Normiert 0..1" },
+        "y": { "type": "number", "description": "Normiert 0..1" },
+        "w": { "type": "number", "description": "Normiert 0..1 (Höhe aus Seitenverhältnis)" },
+        "src": { "type": "string", "description": "dataURL (data:image/...) oder App-interne blob:-URL" }
+      }
+    },
+    "page": {
+      "type": "object",
+      "required": ["strokes", "texts", "images"],
+      "properties": {
+        "id": { "type": "string" },
+        "strokes": { "type": "array", "items": { "$ref": "#/$defs/stroke" } },
+        "texts": { "type": "array", "items": { "$ref": "#/$defs/textBox" } },
+        "images": { "type": "array", "items": { "$ref": "#/$defs/image" } },
+        "bg": { "type": ["string", "null"], "description": "Seiten-Hintergrund als Bild-dataURL oder null" }
+      }
+    },
+    "folder": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "parentId": { "type": ["string", "null"] },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      }
+    },
+    "book": {
+      "type": "object",
+      "required": ["pages"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "paper": { "type": "string" },
+        "updatedAt": { "type": "number" },
+        "folderId": { "type": ["string", "null"], "description": "Ordner-ID oder null (= Unsortiert)" },
+        "lang": { "type": "string" },
+        "pages": { "type": "array", "items": { "$ref": "#/$defs/page" } }
+      }
+    },
+    "collectionExport": {
+      "allOf": [
+        { "$ref": "#/$defs/formatMeta" },
+        {
+          "type": "object",
+          "required": ["books"],
+          "properties": {
+            "books": { "type": "array", "items": { "$ref": "#/$defs/book" } },
+            "folders": { "type": "array", "items": { "$ref": "#/$defs/folder" } },
+            "openBookId": { "type": ["string", "null"] },
+            "openPageId": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "bookExport": {
+      "allOf": [
+        { "$ref": "#/$defs/formatMeta" },
+        { "$ref": "#/$defs/book" }
+      ]
+    }
+  }
+}

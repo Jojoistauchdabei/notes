@@ -47,6 +47,45 @@ function saveEraserPrefs() {
 }
 function setEraserMode(v) { eraserMode = (v === 'precision' || v === 'stroke') ? v : 'standard'; saveEraserPrefs(); syncToolbar(); }
 function setEraserHighlighterOnly(v) { eraserHighlighterOnly = !!v; saveEraserPrefs(); syncToolbar(); }
+/* ---------- Eingabe: Apple Pencil vs. Finger (Schreiben vs. Scrollen) ----------
+ * Default: Stift (pen) + Maus schreiben, Finger scrollt (native Touch-Scroll).
+ * "Finger zeichnen" per Toggle (persistiert unter grimoireInputPrefs).
+ * Palm-Rejection: Touch kurz nach Pen-Kontakt wird ignoriert. */
+let inputPrefs = { fingerDraw: false, penOnly: true };
+try {
+  if (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.getInputPrefs) {
+    inputPrefs = GrimoirePencil.getInputPrefs(typeof localStorage !== 'undefined' ? localStorage : null);
+  }
+} catch { /* Default bleibt */ }
+let palmGuard = (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.createPalmGuard)
+  ? GrimoirePencil.createPalmGuard(1200) : null;
+let penActive = false;
+function saveInputPrefs() {
+  try {
+    if (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.setInputPrefs) {
+      inputPrefs = GrimoirePencil.setInputPrefs(inputPrefs, typeof localStorage !== 'undefined' ? localStorage : null);
+    } else {
+      localStorage.setItem('grimoireInputPrefs', JSON.stringify(inputPrefs));
+    }
+  } catch { /* ignore */ }
+}
+function setFingerDraw(v) {
+  inputPrefs.fingerDraw = !!v;
+  saveInputPrefs(); syncToolbar(); applyStageTouchAction();
+}
+function applyStageTouchAction() {
+  // Finger scrollt nativ (pan-y), Stift zeichnet trotzdem (Pointer Events).
+  // Nur wenn "Finger zeichnen" an ist, wird Scrollen auf der Seite gesperrt.
+  try {
+    const mode = inputPrefs.fingerDraw ? 'none' : 'pan-x pan-y';
+    ['stage', 'stageB'].forEach(id => {
+      const el = $(id);
+      if (!el) return;
+      el.style.touchAction = mode;
+      el.classList.toggle('finger-ink', !!inputPrefs.fingerDraw);
+    });
+  } catch { /* ignore */ }
+}
 let undoStack = [], redoStack = [];
 let drawing = null, selectedBox = null, selectedImg = null;
 let saveTimer = null;
@@ -327,24 +366,40 @@ function setActiveFolder(id, ev) {
   setActiveFolderId(id || 'all');
   renderLibrary();
 }
-function createFolderUI() {
+function createFolderUI(parentId) {
+  const pid = (typeof parentId === 'string' && parentId) ? parentId : null;
+  let pname = '';
+  if (pid) {
+    const pf = (state.folders || []).find(x => x && x.id === pid);
+    if (!pf) return;
+    pname = ' in „' + (pf.name || '') + '“';
+  }
   let name = '';
-  try { name = prompt('Neuer Ordner – Name:', ''); } catch { name = ''; }
+  try { name = prompt('Neuer Ordner' + pname + ' – Name:', ''); } catch { name = ''; }
   if (name === null) return;
   name = String(name || '').trim();
   if (!name) return;
   try {
     if (typeof GrimoireFolders !== 'undefined') {
-      const f = GrimoireFolders.createFolder(state.folders, name);
+      const f = GrimoireFolders.createFolder(state.folders, name, pid);
       if (!f) return;
+      expandFolder(f.id, true);
+      if (pid) expandFolder(pid, true);
       persistNow();
       setActiveFolderId(f.id);
       renderLibrary();
     }
   } catch (e) { alert('Ordner konnte nicht angelegt werden.'); }
 }
+function createSubfolderUI(id, ev) {
+  if (ev) ev.stopPropagation();
+  createFolderUI(id);
+}
 function renameFolderUI(id, ev) {
   if (ev) ev.stopPropagation();
+  startFolderRename(id);
+}
+function promptRenameFolder(id) {
   const f = (state.folders || []).find(x => x && x.id === id);
   if (!f) return;
   let name = '';
@@ -358,20 +413,91 @@ function renameFolderUI(id, ev) {
     persistNow(); renderLibrary();
   } catch { /* ignore */ }
 }
+// Inline-Rename (Doppelklick/Enter/F2): ersetzt Label durch Input im Tree.
+function startFolderRename(id) {
+  const f = (state.folders || []).find(x => x && x.id === id);
+  if (!f) return;
+  const nav = $('folderNav');
+  const row = nav ? nav.querySelector('[data-folder="' + id + '"] .folder-label') : null;
+  if (!row) { promptRenameFolder(id); return; } // Fallback (z.B. mobil/Chips)
+  if (row.querySelector('input')) return;
+  const old = f.name || '';
+  row.innerHTML = '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = old;
+  input.maxLength = 60;
+  input.className = 'folder-rename';
+  input.setAttribute('aria-label', 'Ordner umbenennen');
+  row.appendChild(input);
+  input.focus();
+  try { input.setSelectionRange(0, input.value.length); } catch { /* ignore */ }
+  let done = false;
+  const commit = (save) => {
+    if (done) return;
+    done = true;
+    const v = String(input.value || '').trim();
+    if (save && v && v !== old) {
+      try {
+        if (typeof GrimoireFolders !== 'undefined') GrimoireFolders.renameFolder(state.folders, id, v);
+        else f.name = v;
+        persistNow();
+      } catch { /* ignore */ }
+    }
+    renderLibrary();
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+  });
+  input.addEventListener('blur', () => commit(true));
+  input.addEventListener('click', (e) => { e.stopPropagation(); });
+  input.addEventListener('dblclick', (e) => { e.stopPropagation(); });
+}
 function deleteFolderUI(id, ev) {
   if (ev) ev.stopPropagation();
   const f = (state.folders || []).find(x => x && x.id === id);
   if (!f) return;
-  if (!confirm('Ordner „' + (f.name || '') + '“ löschen? Bücher bleiben erhalten (werden zu „Unsortiert“).')) return;
+  let extra = '';
+  try {
+    if (typeof GrimoireFolders !== 'undefined') {
+      const n = GrimoireFolders.getDescendants(state.folders || [], id).length;
+      if (n) extra = ' (inkl. ' + n + ' Unterordner)';
+    }
+  } catch { /* ignore */ }
+  if (!confirm('Ordner „' + (f.name || '') + '“' + extra + ' löschen? Bücher bleiben erhalten (werden zu „Unsortiert“).')) return;
   try {
     if (typeof GrimoireFolders !== 'undefined') GrimoireFolders.deleteFolder(state, id);
     else {
       state.folders = (state.folders || []).filter(x => x && x.id !== id);
       for (const b of state.books) if (b && b.folderId === id) b.folderId = null;
     }
+    pruneExpanded();
     if (activeFolderId === id) setActiveFolderId('all');
+    else {
+      // Falls aktiver Ordner ein gelöschter Nachfahre war -> Alle
+      const ok = (activeFolderId === 'all' || activeFolderId === 'unsorted')
+        || (state.folders || []).some(x => x && x.id === activeFolderId);
+      if (!ok) setActiveFolderId('all');
+    }
     persistNow(); renderLibrary();
   } catch { /* ignore */ }
+}
+function moveFolderUI(id, newParentId, ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  try {
+    let ok = false;
+    if (typeof GrimoireFolders !== 'undefined') ok = GrimoireFolders.moveFolder(state.folders || [], id, newParentId || null);
+    else {
+      const f = (state.folders || []).find(x => x && x.id === id);
+      if (f) { f.parentId = newParentId || null; f.updatedAt = Date.now(); ok = true; }
+    }
+    if (!ok) { alert('Ordner kann nicht hierher verschoben werden (Zirkel-Schutz).'); return false; }
+    if (newParentId) expandFolder(newParentId, true);
+    persistNow(); renderLibrary();
+    return true;
+  } catch { /* ignore */ return false; }
 }
 function moveBookToFolder(bookId, folderId, ev) {
   if (ev) ev.stopPropagation();
@@ -385,9 +511,261 @@ function moveBookToFolder(bookId, folderId, ev) {
     if (ok) { persistNow(); renderLibrary(); }
   } catch { /* ignore */ }
 }
+/* Auf/Zu-Persistenz (localStorage federwerkFolderExpandedV1: Array expandierter Ids) */
+const FOLDER_EXPANDED_KEY = 'federwerkFolderExpandedV1';
+let folderExpanded = null; // null = lazy laden
+function loadExpanded() {
+  if (folderExpanded instanceof Set) return folderExpanded;
+  folderExpanded = new Set();
+  try {
+    if (typeof localStorage === 'undefined') return folderExpanded;
+    const raw = localStorage.getItem(FOLDER_EXPANDED_KEY);
+    if (!raw) {
+      // Erststart: alles aufklappen (wird beim Rendern mit allen Ids befüllt)
+      folderExpanded = new Set(['*all*']);
+      return folderExpanded;
+    }
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) for (const id of arr) folderExpanded.add(String(id));
+    else folderExpanded.add('*all*');
+  } catch { folderExpanded = new Set(['*all*']); }
+  return folderExpanded;
+}
+function saveExpanded() {
+  try {
+    if (typeof localStorage === 'undefined' || !(folderExpanded instanceof Set)) return;
+    localStorage.setItem(FOLDER_EXPANDED_KEY, JSON.stringify(Array.from(folderExpanded)));
+  } catch { /* ignore */ }
+}
+function isFolderExpanded(id) {
+  const s = loadExpanded();
+  if (s.has('*all*')) return true;
+  return s.has(String(id));
+}
+function expandFolder(id, on) {
+  const s = loadExpanded();
+  s.delete('*all*');
+  // Alle aktuell bekannten Ordner als explizit expanded merken, damit
+  // Zuklappen einzelner Knoten persistent bleibt.
+  try {
+    for (const f of state.folders || []) {
+      if (f && f.id && on !== false) { /* nur Ziel unten */ }
+    }
+  } catch { /* ignore */ }
+  if (on === false) s.delete(String(id));
+  else s.add(String(id));
+  saveExpanded();
+}
+function toggleFolderExpanded(id, ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  const s = loadExpanded();
+  if (s.has('*all*')) {
+    // Von "alle offen" auf explizite Menge wechseln (alle außer diesem)
+    s.delete('*all*');
+    for (const f of state.folders || []) if (f && f.id && f.id !== id) s.add(f.id);
+  } else {
+    expandFolder(id, !s.has(String(id)) ? true : false);
+    return;
+  }
+  saveExpanded();
+  renderLibrary();
+}
+function pruneExpanded() {
+  try {
+    const s = loadExpanded();
+    if (s.has('*all*')) return;
+    const valid = new Set((state.folders || []).map(f => f && f.id));
+    for (const id of Array.from(s)) if (!valid.has(id)) s.delete(id);
+    saveExpanded();
+  } catch { /* ignore */ }
+}
+/* Drag & Drop (HTML5): Bücher + Ordner auf Ordner ziehen */
+function bookDragStart(ev, bookId) {
+  try {
+    ev.dataTransfer.setData('text/federwerk-book', String(bookId));
+    ev.dataTransfer.setData('text/plain', 'book:' + String(bookId));
+    ev.dataTransfer.effectAllowed = 'move';
+  } catch { /* ignore */ }
+}
+function folderDragStart(ev, folderId) {
+  try {
+    ev.dataTransfer.setData('text/federwerk-folder', String(folderId));
+    ev.dataTransfer.setData('text/plain', 'folder:' + String(folderId));
+    ev.dataTransfer.effectAllowed = 'move';
+  } catch { /* ignore */ }
+  try { ev.stopPropagation(); } catch { /* ignore */ }
+}
+function folderDragOver(ev) {
+  try {
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+    ev.preventDefault();
+    const row = ev.currentTarget;
+    if (row && row.classList) row.classList.add('drop-target');
+  } catch { /* ignore */ }
+}
+function folderDragLeave(ev) {
+  try {
+    const row = ev.currentTarget;
+    if (row && row.classList) row.classList.remove('drop-target');
+  } catch { /* ignore */ }
+}
+function folderDropOnto(ev, targetFolderId) {
+  try { ev.preventDefault(); ev.stopPropagation(); } catch { /* ignore */ }
+  try {
+    const row = ev.currentTarget;
+    if (row && row.classList) row.classList.remove('drop-target');
+  } catch { /* ignore */ }
+  let bookId = '', folderId = '';
+  try {
+    bookId = ev.dataTransfer.getData('text/federwerk-book') || '';
+    folderId = ev.dataTransfer.getData('text/federwerk-folder') || '';
+    if (!bookId && !folderId) {
+      const plain = ev.dataTransfer.getData('text/plain') || '';
+      if (plain.indexOf('book:') === 0) bookId = plain.slice(5);
+      else if (plain.indexOf('folder:') === 0) folderId = plain.slice(7);
+    }
+  } catch { /* ignore */ }
+  if (bookId) { moveBookToFolder(bookId, targetFolderId || null, null); return; }
+  if (folderId) {
+    if (folderId === targetFolderId) return;
+    moveFolderUI(folderId, targetFolderId || null, null);
+  }
+}
+/* Kontextmenü: Rechtsklick + Long-Press (Touch) */
+let folderMenuEl = null;
+let folderMenuFor = null;
+let longPressTimer = null;
+function hideFolderMenu() {
+  try { if (folderMenuEl && folderMenuEl.parentNode) folderMenuEl.parentNode.removeChild(folderMenuEl); } catch { /* ignore */ }
+  folderMenuEl = null; folderMenuFor = null;
+  try { document.removeEventListener('click', hideFolderMenu, true); } catch { /* ignore */ }
+}
+function showFolderMenu(x, y, folderId) {
+  hideFolderMenu();
+  folderMenuFor = folderId || null;
+  const menu = document.createElement('div');
+  menu.className = 'folder-menu';
+  menu.setAttribute('role', 'menu');
+  const items = [];
+  if (folderId) {
+    const f = (state.folders || []).find(v => v && v.id === folderId);
+    const nm = f ? f.name : 'Ordner';
+    items.push({ label: '✎ Umbenennen', fn: () => startFolderRename(folderId) });
+    items.push({ label: '📁 Neuer Unterordner', fn: () => createFolderUI(folderId) });
+    items.push({ label: '⇉ Verschieben → Unsortiert-Ebene (Root)', fn: () => moveFolderUI(folderId, null, null) });
+    items.push({ label: '🗑 Löschen („' + String(nm || '').slice(0, 24) + '“)', danger: true, fn: () => deleteFolderUI(folderId, null) });
+  } else {
+    items.push({ label: '📁 Neuer Ordner', fn: () => createFolderUI(null) });
+  }
+  items.push({ label: '📚 Alle Bücher', fn: () => setActiveFolder('all', null) });
+  for (const it of items) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'folder-menu-item' + (it.danger ? ' danger' : '');
+    b.setAttribute('role', 'menuitem');
+    b.textContent = it.label;
+    b.addEventListener('click', (e) => { e.stopPropagation(); hideFolderMenu(); it.fn(); });
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  const w = menu.offsetWidth || 200, h = menu.offsetHeight || 120;
+  menu.style.left = Math.max(4, Math.min(x, window.innerWidth - w - 4)) + 'px';
+  menu.style.top = Math.max(4, Math.min(y, window.innerHeight - h - 4)) + 'px';
+  folderMenuEl = menu;
+  setTimeout(() => {
+    try { document.addEventListener('click', hideFolderMenu, true); } catch { /* ignore */ }
+  }, 0);
+  try {
+    const first = menu.querySelector('button');
+    if (first) first.focus();
+  } catch { /* ignore */ }
+}
+function folderRowKeydown(ev, folderId) {
+  const nav = $('folderNav');
+  const rows = nav ? Array.from(nav.querySelectorAll('[data-folderrow]')) : [];
+  const ix = rows.findIndex(r => r.getAttribute('data-folderrow') === String(folderId));
+  const focusRow = (i) => {
+    if (i < 0) i = 0;
+    if (i >= rows.length) i = rows.length - 1;
+    const el = rows[i];
+    if (el) {
+      const btn = el.querySelector('.folder-item--main, .folder-item');
+      if (btn) btn.focus();
+    }
+  };
+  if (ev.key === 'ArrowDown') { ev.preventDefault(); focusRow(ix + 1); }
+  else if (ev.key === 'ArrowUp') { ev.preventDefault(); focusRow(ix - 1); }
+  else if (ev.key === 'ArrowRight') {
+    ev.preventDefault();
+    expandFolder(folderId, true); renderLibrary();
+    focusRow(ix);
+  }
+  else if (ev.key === 'ArrowLeft') {
+    ev.preventDefault();
+    expandFolder(folderId, false); renderLibrary();
+    focusRow(ix);
+  }
+  else if (ev.key === 'Enter') {
+    // Enter auf eingeklapptem Knoten: aufklappen + auswählen; sonst Rename via F2/Enter?
+    // OS-Konvention hier: Enter wählt aus, F2 benennt um (Enter rename nur wenn bereits aktiv).
+    ev.preventDefault();
+    if (document.activeElement && nav && nav.contains(document.activeElement)) {
+      if (activeFolderId === folderId) startFolderRename(folderId);
+      else setActiveFolder(folderId, null);
+    }
+  }
+  else if (ev.key === 'F2') { ev.preventDefault(); startFolderRename(folderId); }
+  else if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); deleteFolderUI(folderId, null); }
+}
+function bindFolderNavEvents() {
+  const nav = $('folderNav');
+  if (!nav || nav._osBound) return;
+  nav._osBound = true;
+  nav.addEventListener('contextmenu', (e) => {
+    const row = e.target && e.target.closest ? e.target.closest('[data-folderrow]') : null;
+    e.preventDefault();
+    showFolderMenu(e.clientX, e.clientY, row ? row.getAttribute('data-folderrow') : null);
+  });
+  nav.addEventListener('touchstart', (e) => {
+    const row = e.target && e.target.closest ? e.target.closest('[data-folderrow]') : null;
+    if (!row) return;
+    const id = row.getAttribute('data-folderrow');
+    const t = (e.touches && e.touches[0]) || null;
+    clearTimeout(longPressTimer);
+    longPressTimer = setTimeout(() => {
+      showFolderMenu(t ? t.clientX : 40, t ? t.clientY : 120, id);
+    }, 550);
+  }, { passive: true });
+  nav.addEventListener('touchend', () => clearTimeout(longPressTimer), { passive: true });
+  nav.addEventListener('touchmove', () => clearTimeout(longPressTimer), { passive: true });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && folderMenuEl) hideFolderMenu();
+  });
+}
+function folderDepth(id) {
+  try {
+    if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.getPath) {
+      return Math.max(0, GrimoireFolders.getPath(state.folders || [], id).length - 1);
+    }
+  } catch { /* ignore */ }
+  return 0;
+}
 function folderOptionsHtml(selectedId) {
+  let ordered = (state.folders || []).slice();
+  try {
+    if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.sortTree) {
+      ordered = GrimoireFolders.sortTree(ordered.slice());
+    } else {
+      ordered.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'de'));
+    }
+  } catch { /* ignore */ }
   const opts = ['<option value="">Unsortiert</option>'].concat(
-    (state.folders || []).map(f => '<option value="' + f.id + '"' + (f.id === selectedId ? ' selected' : '') + '>' + esc('📁 ' + (f.name || '')) + '</option>')
+    ordered.map(f => {
+      let depth = 0;
+      try { depth = folderDepth(f.id); } catch { depth = 0; }
+      const indent = depth ? new Array(depth + 1).join('— ') : '';
+      return '<option value="' + f.id + '"' + (f.id === selectedId ? ' selected' : '') + '>' + esc('📁 ' + indent + (f.name || '')) + '</option>';
+    })
   );
   return opts.join('');
 }
@@ -536,55 +914,151 @@ function applySplitLayout() {
  * Text durchsuchbar)"). Keine Cloud, keine Dependencies. */
 function renderFolderList() {
   ensureFoldersLocal();
+  pruneExpanded();
+  bindFolderNavEvents();
   const nav = $('folderNav');
   const chips = $('folderChips');
-  const counts = (typeof GrimoireFolders !== 'undefined')
+  const direct = (typeof GrimoireFolders !== 'undefined')
     ? GrimoireFolders.countByFolder(state.books || [])
     : { all: (state.books || []).length, unsorted: (state.books || []).filter(b => !b || !b.folderId).length, byId: {} };
+  let counts = direct;
+  try {
+    if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.countSubtree) {
+      counts = GrimoireFolders.countSubtree(state.books || [], state.folders || []);
+    }
+  } catch { counts = direct; }
   const folders = folderList();
-  const item = (id, label, count, emoji) => {
+  const item = (id, label, count, emoji, drop) => {
     const active = (activeFolderId === id) ? ' active' : '';
-    return '<button type="button" class="folder-item' + active + '" data-folder="' + id + '" onclick="setActiveFolder(\'' + id + '\',event)" aria-pressed="' + (active ? 'true' : 'false') + '">'
+    const dz = drop ? ' ondragover="folderDragOver(event)" ondragleave="folderDragLeave(event)" ondrop="folderDropOnto(event,\'' + drop + '\')"' : '';
+    return '<button type="button" class="folder-item' + active + '" data-folder="' + id + '" onclick="setActiveFolder(\'' + id + '\',event)" aria-pressed="' + (active ? 'true' : 'false') + '"' + dz + '>'
       + '<span class="folder-emoji" aria-hidden="true">' + emoji + '</span>'
       + '<span class="folder-label">' + esc(label) + '</span>'
       + '<span class="folder-count" aria-label="' + count + ' Bücher">' + count + '</span>'
       + '</button>';
   };
-  const folderBtns = folders.map(f => {
+  const kidsOf = (pid) => {
+    try {
+      if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.childrenOf) {
+        return GrimoireFolders.childrenOf(folders, pid);
+      }
+    } catch { /* ignore */ }
+    return folders.filter(f => (f.parentId || null) === (pid || null));
+  };
+  const renderNode = (f, depth) => {
     const c = counts.byId[f.id] || 0;
     const active = (activeFolderId === f.id) ? ' active' : '';
-    return '<div class="folder-row' + active + '" data-folder="' + f.id + '">'
-      + '<button type="button" class="folder-item folder-item--main' + active + '" onclick="setActiveFolder(\'' + f.id + '\',event)" aria-pressed="' + (active ? 'true' : 'false') + '" title="' + esc(f.name || '') + '">'
-      + '<span class="folder-emoji" aria-hidden="true">📁</span>'
+    const kids = kidsOf(f.id);
+    const hasKids = kids.length > 0;
+    const open = hasKids ? isFolderExpanded(f.id) : true;
+    const arrow = hasKids
+      ? '<button type="button" class="folder-toggle" onclick="toggleFolderExpanded(\'' + f.id + '\',event)" aria-label="' + (open ? 'Einklappen' : 'Ausklappen') + '" aria-expanded="' + (open ? 'true' : 'false') + '" tabindex="-1">' + (open ? '▾' : '▸') + '</button>'
+      : '<span class="folder-toggle folder-toggle--leaf" aria-hidden="true">•</span>';
+    const emoji = hasKids && open ? '📂' : '📁';
+    let html = '<div class="folder-node" style="--depth:' + depth + '">'
+      + '<div class="folder-row' + active + '" data-folderrow="' + f.id + '" role="treeitem" aria-selected="' + (active ? 'true' : 'false') + '" aria-expanded="' + (hasKids ? (open ? 'true' : 'false') : 'false') + '" aria-level="' + (depth + 1) + '" aria-label="' + esc(f.name || 'Ordner') + '"'
+      + ' draggable="true" ondragstart="folderDragStart(event,\'' + f.id + '\')" ondragover="folderDragOver(event)" ondragleave="folderDragLeave(event)" ondrop="folderDropOnto(event,\'' + f.id + '\')" onkeydown="folderRowKeydown(event,\'' + f.id + '\')">'
+      + arrow
+      + '<button type="button" class="folder-item folder-item--main' + active + '" data-folder="' + f.id + '" onclick="setActiveFolder(\'' + f.id + '\',event)" ondblclick="startFolderRename(\'' + f.id + '\')" aria-pressed="' + (active ? 'true' : 'false') + '" title="' + esc(folderPathTitle(f.id)) + '">'
+      + '<span class="folder-emoji" aria-hidden="true">' + emoji + '</span>'
       + '<span class="folder-label">' + esc(f.name || 'Ordner') + '</span>'
       + '<span class="folder-count">' + c + '</span>'
       + '</button>'
       + '<span class="folder-row-actions">'
+      + '<button type="button" class="folder-mini" onclick="createSubfolderUI(\'' + f.id + '\',event)" title="Unterordner anlegen" aria-label="Unterordner in ' + esc(f.name || '') + ' anlegen">＋</button>'
       + '<button type="button" class="folder-mini" onclick="renameFolderUI(\'' + f.id + '\',event)" title="Ordner umbenennen" aria-label="Ordner ' + esc(f.name || '') + ' umbenennen">✎</button>'
       + '<button type="button" class="folder-mini" onclick="deleteFolderUI(\'' + f.id + '\',event)" title="Ordner löschen (Bücher bleiben)" aria-label="Ordner ' + esc(f.name || '') + ' löschen">🗑</button>'
       + '</span></div>';
-  }).join('');
+    if (hasKids && open) {
+      html += '<div class="folder-children" role="group">' + kids.map(k => renderNode(k, depth + 1)).join('') + '</div>';
+    }
+    html += '</div>';
+    return html;
+  };
+  const roots = kidsOf(null);
+  const treeBtns = roots.map(f => renderNode(f, 0)).join('');
   if (nav) {
-    nav.innerHTML = item('all', 'Alle', counts.all, '📚')
-      + item('unsorted', 'Unsortiert', counts.unsorted, '📄')
-      + (folderBtns || '<div class="folder-empty">Noch keine Ordner – lege oben einen an.</div>');
+    nav.setAttribute('role', 'tree');
+    nav.setAttribute('aria-label', 'Ordner-Baum');
+    nav.innerHTML = '<div class="folder-row" data-folderrow="__all" role="treeitem" aria-selected="' + (activeFolderId === 'all' ? 'true' : 'false') + '" aria-level="1">'
+      + item('all', 'Alle', counts.all, '📚', '') + '</div>'
+      + '<div class="folder-row" data-folderrow="__unsorted" role="treeitem" aria-selected="' + (activeFolderId === 'unsorted' ? 'true' : 'false') + '" aria-level="1">'
+      + item('unsorted', 'Unsortiert', direct.unsorted, '📄', '') + '</div>'
+      + (treeBtns || '<div class="folder-empty">Noch keine Ordner – lege oben einen an.</div>');
   }
   if (chips) {
     const chip = (id, label, count) => '<button type="button" class="chip' + (activeFolderId === id ? ' active' : '') + '" onclick="setActiveFolder(\'' + id + '\',event)">' + esc(label) + ' · ' + count + '</button>';
+    let flat = folders.slice();
+    try {
+      if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.sortTree) flat = GrimoireFolders.sortTree(flat);
+    } catch { /* ignore */ }
     chips.innerHTML = chip('all', 'Alle', counts.all)
-      + chip('unsorted', 'Unsortiert', counts.unsorted)
-      + folders.map(f => chip(f.id, f.name || 'Ordner', counts.byId[f.id] || 0)).join('');
+      + chip('unsorted', 'Unsortiert', direct.unsorted)
+      + flat.map(f => chip(f.id, chipLabel(f.id), counts.byId[f.id] || 0)).join('');
   }
   const title = $('libraryFolderTitle');
   if (title) {
-    let label = 'Alle Bücher';
-    if (activeFolderId === 'unsorted') label = 'Unsortiert';
-    else if (activeFolderId !== 'all') {
-      const f = folders.find(x => x.id === activeFolderId);
-      label = f ? ('📁 ' + f.name) : 'Alle Bücher';
-    }
-    title.textContent = label;
+    renderBreadcrumb(title, folders);
   }
+}
+function folderPathTitle(id) {
+  try {
+    if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.folderPathName) {
+      return GrimoireFolders.folderPathName(state.folders || [], id);
+    }
+  } catch { /* ignore */ }
+  const f = (state.folders || []).find(x => x && x.id === id);
+  return f ? f.name : '';
+}
+function chipLabel(id) {
+  try {
+    if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.folderPathName) {
+      const p = GrimoireFolders.folderPathName(state.folders || [], id);
+      return p.length > 28 ? '…' + p.slice(-27) : p;
+    }
+  } catch { /* ignore */ }
+  const f = (state.folders || []).find(x => x && x.id === id);
+  return (f && f.name) || 'Ordner';
+}
+function renderBreadcrumb(title, folders) {
+  let label = 'Alle Bücher';
+  if (activeFolderId === 'unsorted') label = 'Unsortiert';
+  else if (activeFolderId !== 'all') {
+    let path = [];
+    try {
+      if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.getPath) {
+        path = GrimoireFolders.getPath(folders, activeFolderId);
+      } else {
+        const f = folders.find(x => x.id === activeFolderId);
+        if (f) path = [f];
+      }
+    } catch { path = []; }
+    if (!path.length) {
+      title.textContent = 'Alle Bücher';
+      return;
+    }
+    title.innerHTML = '';
+    const mkBtn = (id, text, cls) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'crumb' + (cls ? ' ' + cls : '');
+      b.textContent = text;
+      b.setAttribute('onclick', "setActiveFolder('" + id + "',event)");
+      return b;
+    };
+    title.appendChild(mkBtn('all', 'Alle', ''));
+    path.forEach((f, i) => {
+      const sep = document.createElement('span');
+      sep.className = 'crumb-sep';
+      sep.textContent = ' / ';
+      sep.setAttribute('aria-hidden', 'true');
+      title.appendChild(sep);
+      const last = i === path.length - 1;
+      title.appendChild(mkBtn(f.id, (last ? '📁 ' : '') + (f.name || 'Ordner'), last ? 'crumb--current' : ''));
+    });
+    return;
+  }
+  title.textContent = label;
 }
 function renderLibrary() {
   ensureFoldersLocal();
@@ -594,10 +1068,11 @@ function renderLibrary() {
   const q = rawQ.toLowerCase();
   const grid = $('libraryGrid');
   if (!grid) return;
-  // Ordner-Filter zuerst (dann Suche darüber)
+  // Ordner-Filter zuerst (dann Suche darüber) – inkl. Unterordner (OS-artig)
   let scoped = state.books || [];
   try {
-    if (typeof GrimoireFolders !== 'undefined') scoped = GrimoireFolders.filterBooks(state.books, activeFolderId);
+    if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.filterBooksTree) scoped = GrimoireFolders.filterBooksTree(state.books, activeFolderId, state.folders);
+    else if (typeof GrimoireFolders !== 'undefined') scoped = GrimoireFolders.filterBooks(state.books, activeFolderId);
     else if (activeFolderId === 'unsorted') scoped = scoped.filter(b => !b || !b.folderId);
     else if (activeFolderId !== 'all') scoped = scoped.filter(b => b && b.folderId === activeFolderId);
   } catch { scoped = state.books || []; }
@@ -678,7 +1153,7 @@ function renderLibrary() {
         : (b.folderId || 'Unsortiert');
       folderBadge = '<button type="button" class="folder-badge" onclick="event.stopPropagation();setActiveFolder(\'' + (b.folderId || 'unsorted') + '\',event)" title="Nach Ordner filtern">📁 ' + esc(fname || 'Unsortiert') + '</button>';
     } catch { /* ignore */ }
-    return '<div class="notebook-cover" onclick="openBookView(\'' + b.id + '\')">'
+    return '<div class="notebook-cover" draggable="true" ondragstart="bookDragStart(event,\'' + b.id + '\')" onclick="openBookView(\'' + b.id + '\')">'
       + '<div class="notebook-spine"></div>'
       + '<div class="notebook-body">'
       + '<div class="notebook-title">' + esc(b.title) + badge + '</div>'
@@ -779,6 +1254,95 @@ function duplicatePage() {
   b.pages.splice(idx + 1, 0, copy);
   setActivePageId(copy.id);
   touchBook(); persistSoon(); renderAll();
+}
+/* Vorlage duplizieren: gleiche Struktur (Hintergrund), aber OHNE Handschrift
+ * (strokes inkl. Marker), OHNE Textfelder (texts) und OHNE Bild-Overlays –
+ * also eine saubere, leere Seite mit demselben Papier/Hintergrund.
+ * Button hängt am Ende des Rails nach der letzten Seite. */
+function duplicatePageAsTemplate() {
+  const b = openBook(); const p = currentPage(); if (!b || !p) return;
+  snapshot(true);
+  let tpl;
+  try {
+    if (typeof PagesImport !== 'undefined' && PagesImport.buildTemplatePage) {
+      tpl = PagesImport.buildTemplatePage(p);
+      tpl.id = uid();
+    } else {
+      tpl = newPage(); tpl.bg = (typeof p.bg === 'string') ? p.bg : null;
+    }
+  } catch { tpl = newPage(); tpl.bg = (typeof p.bg === 'string') ? p.bg : null; }
+  const idx = b.pages.findIndex(x => x.id === p.id);
+  b.pages.splice(idx + 1, 0, tpl);
+  setActivePageId(tpl.id);
+  touchBook(); persistSoon(); renderAll();
+}
+function duplicatePageTemplateInPane(i, ev) { return withPane(i, duplicatePageAsTemplate, ev); }
+/* ---------- Dokument-in-Dokument-Import (Seiten übernehmen) ----------
+ * Quell-Buch -> aktuelles Buch: Seiten (alle oder Bereich "1-3,5") werden
+ * als Kopie (frische IDs) hinter der aktuellen Seite eingefügt. Danach
+ * Sprung zur ersten importierten Seite. blob:-Refs werden geteilt (V1: kein GC). */
+function importPagesFromBook(sourceBookId, pageRangeStr, targetPaneIdx) {
+  const ti = (targetPaneIdx === 1) ? 1 : activePaneIdx();
+  const target = paneBook(ti);
+  const src = state.books.find(x => x.id === sourceBookId);
+  if (!src || !target || src.id === target.id) return [];
+  const total = (src.pages || []).length;
+  if (!total) return [];
+  let wanted = null;
+  try {
+    if (typeof PagesImport !== 'undefined' && PagesImport.parsePageRange) {
+      wanted = (pageRangeStr == null || String(pageRangeStr).trim() === '')
+        ? null : PagesImport.parsePageRange(pageRangeStr, total);
+      if (wanted && !wanted.length) return [];
+    }
+  } catch { wanted = null; }
+  let clones = [];
+  try {
+    if (typeof PagesImport !== 'undefined' && PagesImport.clonePagesForImport) {
+      clones = PagesImport.clonePagesForImport(src.pages, wanted);
+    } else {
+      clones = (src.pages || []).map(p => {
+        const c = JSON.parse(JSON.stringify(p)); c.id = uid();
+        (c.texts || []).forEach(t => { t.id = uid(); });
+        (c.images || []).forEach(im => { im.id = uid(); });
+        return c;
+      });
+    }
+  } catch { return []; }
+  if (!clones.length) return [];
+  setActivePane(ti, true);
+  snapshot(true);
+  const b = openBook(); if (!b) return [];
+  const at = b.pages.findIndex(x => x.id === activePageId());
+  b.pages.splice(at + 1, 0, ...clones);
+  setActivePageId(clones[0].id);
+  touchBook(); persistSoon(); renderAll();
+  return clones.map(c => c.id);
+}
+function openDocImportDialog(paneIdx, ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  const ti = (paneIdx === 1 || paneIdx === 0) ? paneIdx : activePaneIdx();
+  setActivePane(ti, true);
+  const target = paneBook(ti);
+  if (!target) { alert('Kein Ziel-Dokument geöffnet.'); return; }
+  const others = (state.books || []).filter(b => b.id !== target.id);
+  if (!others.length) { alert('Kein weiteres Dokument zum Importieren vorhanden. Lege zuerst ein zweites Buch an.'); return; }
+  const names = others.map((b, i) => (i + 1) + '. ' + (b.title || 'Unbenannt') + ' (' + (b.pages || []).length + ' S.)').join('\n');
+  let choice = null;
+  try { choice = prompt('Aus welchem Dokument importieren? (Nummer eingeben)\nZiel: ' + (target.title || '') + '\n\n' + names, '1'); } catch { return; }
+  if (choice == null) return;
+  const n = Math.floor(Number(String(choice).trim()));
+  if (!isFinite(n) || n < 1 || n > others.length) return;
+  const src = others[n - 1];
+  let range = '';
+  try {
+    const ans = prompt('Seitenbereich aus „' + (src.title || '') + '“ (z. B. 1-3,5 – leer = alle ' + (src.pages || []).length + ' Seiten):', '');
+    if (ans === null) return;
+    range = ans || '';
+  } catch { range = ''; }
+  const ids = importPagesFromBook(src.id, range, ti);
+  if (!ids.length) alert('Nichts importiert (Bereich prüfen).');
+  else setSaveStatus('💾 gespeichert (' + ids.length + ' Seite(n) aus „' + (src.title || '') + '“ importiert)');
 }
 function deletePage() {
   const b = openBook(); if (!b || b.pages.length <= 1) { alert('Die letzte Seite kann nicht gelöscht werden.'); return; }
@@ -928,6 +1492,19 @@ function syncToolbar() {
   const em = $('eraserMode'), eh = $('eraserHLOnly');
   if (em) em.value = eraserMode;
   if (eh) eh.checked = eraserHighlighterOnly;
+  const fd = $('fingerDrawToggle');
+  if (fd) {
+    fd.classList.toggle('picked', !!inputPrefs.fingerDraw);
+    fd.textContent = inputPrefs.fingerDraw ? '☝ Finger: an' : '☝ Finger: scrollt';
+    fd.title = inputPrefs.fingerDraw
+      ? 'Finger zeichnet (an). Ausschalten: Finger scrollt, nur Pencil/Maus schreiben.'
+      : 'Finger scrollt, nur Pencil/Maus schreiben (an). Einschalten: Finger zeichnet auch.';
+  }
+  const st0 = $('statusTool');
+  if (st0) {
+    const names = { pen: '✒ Stift', marker: '🖍 Marker', eraser: '⌫ Radierer', text: 'T Text', move: '✥ Auswahl' };
+    st0.textContent = (names[tool] || tool) + (inputPrefs.fingerDraw ? '' : ' · ☝ scrollt');
+  }
 }
 function openTextEditorForSelected() {
   if (selectedBox) { editorPaneIdx = activePaneIdx(); openTextEditorForBox(selectedBox, 'Textbox'); }
@@ -967,9 +1544,17 @@ function drawStroke(c, s) {
   if (s.tool === 'marker') { c.globalAlpha = 0.35; c.globalCompositeOperation = 'multiply'; }
   if (s.alpha != null && s.alpha < 1) c.globalAlpha *= s.alpha;
   if (s.dash && s.dash.length) { try { c.setLineDash(s.dash); } catch { /* ignore */ } }
-  const pts = s.points;
+  // Cleaner-Look: Punkte vor dem Rendern leicht glätten (Chaikin, 1x),
+  // aber Altbestand/Shapes unverfälscht lassen bei closed/fill/dash.
+  let pts = s.points;
   const closed = !!s.closed || (!!s.fill && pts.length > 2);
-  // Pressure-Stift: Punkte mit p -> segweise variable Breite (round caps);
+  const canSmooth = !closed && !(s.dash && s.dash.length) && pts.length >= 3
+    && typeof GrimoirePencil !== 'undefined' && GrimoirePencil.chaikinSmooth;
+  if (canSmooth) {
+    try { pts = GrimoirePencil.chaikinSmooth(pts, 1); } catch { pts = s.points; }
+  }
+  // Pressure-Stift: Punkte mit p -> segweise variable Breite (round caps),
+  // gerendert als Midpoint-Quadratics statt LineTo-Polygon (cleaner, ruhiger);
   // Punkte ohne p (Altbestand, Shapes, Fills, Dashes) -> single size wie bisher.
   const usePressure = !closed && !(s.dash && s.dash.length) && pts.some(q => q && typeof q.p === 'number');
   if (usePressure) {
@@ -991,11 +1576,48 @@ function drawStroke(c, s) {
       c.restore();
       return;
     }
-    for (let i = 1; i < pts.length; i++) {
-      c.lineWidth = (wOf(pts[i - 1]) + wOf(pts[i])) / 2;
+    if (pts.length === 2) {
+      c.lineWidth = (wOf(pts[0]) + wOf(pts[1])) / 2;
       c.beginPath();
-      c.moveTo(pts[i - 1].x, pts[i - 1].y);
-      c.lineTo(pts[i].x, pts[i].y);
+      c.moveTo(pts[0].x, pts[0].y);
+      c.lineTo(pts[1].x, pts[1].y);
+      c.stroke();
+      c.restore();
+      return;
+    }
+    // Midpoint-Quadratics mit variabler Breite: pro Segment ein Pfad,
+    // Breite = Mittel der Endpunkt-Breiten (weich, ohne Stufen).
+    let prevMx = (pts[0].x + pts[1].x) / 2, prevMy = (pts[0].y + pts[1].y) / 2;
+    c.lineWidth = (wOf(pts[0]) + wOf(pts[1])) / 2;
+    c.beginPath();
+    c.moveTo(pts[0].x, pts[0].y);
+    c.lineTo(prevMx, prevMy);
+    c.stroke();
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+      c.lineWidth = (wOf(pts[i]) + wOf(pts[i + 1])) / 2;
+      c.beginPath();
+      c.moveTo(prevMx, prevMy);
+      c.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+      c.stroke();
+      prevMx = mx; prevMy = my;
+    }
+    c.restore();
+    return;
+  }
+  // Ohne Pressure: ebenfalls Midpoint-Quadratics (sichtbar runder als LineTo).
+  if (!closed && !(s.dash && s.dash.length) && pts.length > 2) {
+    c.beginPath();
+    c.moveTo(pts[0].x, pts[0].y);
+    c.lineTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+    for (let i = 1; i < pts.length - 1; i++) {
+      c.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i + 1].x) / 2, (pts[i].y + pts[i + 1].y) / 2);
+    }
+    c.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    if (pts.length === 1) {
+      c.fillStyle = s.color;
+      c.beginPath(); c.arc(pts[0].x, pts[0].y, s.size / 2, 0, 7); c.fill();
+    } else {
       c.stroke();
     }
     c.restore();
@@ -1062,6 +1684,45 @@ function bindStageFor(idx) {
   if (!stage || stage._splitBound) return;
   stage._splitBound = true;
   const activePointers = new Set();
+  // Pencil-vs-Finger-Entscheidung (rein lesbar, auch ohne Pencil-Modul sicher):
+  // Stift/Maus -> schreiben, Finger -> scrollen (außer fingerDraw an).
+  // Text-/Auswahl-Werkzeug bleibt per Tap auch mit Finger bedienbar.
+  const wantsInk = (ev) => {
+    try {
+      if (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.shouldInkForPointer) {
+        return GrimoirePencil.shouldInkForPointer(ev, inputPrefs);
+      }
+    } catch { /* Fallback unten */ }
+    const t = (ev.pointerType || 'mouse');
+    if (t === 'pen') return true;
+    if (t === 'touch') return !!inputPrefs.fingerDraw;
+    return true;
+  };
+  const pushCoalesced = (ev, into) => {
+    let list = [ev];
+    try {
+      if (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.collectCoalesced) {
+        list = GrimoirePencil.collectCoalesced(ev);
+      } else if (typeof ev.getCoalescedEvents === 'function') {
+        const l = ev.getCoalescedEvents();
+        if (l && l.length) list = l;
+      }
+    } catch { list = [ev]; }
+    let added = 0;
+    for (const ce of list) {
+      const pos = stagePosFor(ce, idx);
+      let sm = null;
+      if (into.stabilizer) {
+        try { sm = into.stabilizer.push({ x: pos.x, y: pos.y, p: pos.p }, (ce.timeStamp || Date.now())); } catch { sm = null; }
+        if (!sm) continue; // Jitter-Falle: Micro-Rauschen schlucken
+      } else {
+        sm = { x: pos.x, y: pos.y, p: pos.p };
+      }
+      into.points.push(sm);
+      added++;
+    }
+    return added;
+  };
   stage.addEventListener('pointerdown', ev => {
     if ($('viewBook').classList.contains('active') === false) return;
     if (activePaneIdx() !== idx) setActivePane(idx, true);
@@ -1077,20 +1738,39 @@ function bindStageFor(idx) {
       eraseTrail = null;
       return;
     }
+    // Palm-Rejection: Touch kurz nach Stift = Handballen -> ignorieren.
+    try {
+      const pt = String(ev.pointerType || '');
+      if (pt === 'pen') {
+        penActive = true;
+        if (palmGuard) palmGuard.markPen(Date.now());
+      } else if (pt === 'touch' && palmGuard && palmGuard.isPalmTouch(Date.now())) {
+        return;
+      }
+    } catch { /* Palm-Guard optional */ }
+    // Finger scrollt nativ: kein Ink-Start, kein Capture, kein preventDefault
+    // (Browser übernimmt das Scrollen). Nur Ink-Tools sind betroffen;
+    // Text/Auswahl bleiben per Tap bedienbar.
+    const inkTool = (tool === 'pen' || tool === 'marker' || tool === 'eraser');
+    if (inkTool && !wantsInk(ev)) return;
     activePointers.add(ev.pointerId);
     const pos = stagePosFor(ev, idx);
     const p = currentPage(); if (!p) return;
     if (tool === 'pen' || tool === 'marker') {
       snapshot();
-      stage.setPointerCapture(ev.pointerId);
-      drawing = { tool, color: penColor, size: tool === 'marker' ? penSize * 3 : penSize, points: [{ x: pos.x, y: pos.y, p: pos.p }] };
+      try { stage.setPointerCapture(ev.pointerId); } catch { /* Touch-Scroll darf nicht capturen */ }
+      const stab = (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.createStabilizer)
+        ? GrimoirePencil.createStabilizer({ minDistance: 0.9 }) : null;
+      drawing = { tool, color: penColor, size: tool === 'marker' ? penSize * 3 : penSize, points: [], stabilizer: stab, pointerType: String(ev.pointerType || 'mouse') };
+      pushCoalesced(ev, drawing);
+      if (!drawing.points.length) drawing.points.push({ x: pos.x, y: pos.y, p: pos.p });
       previewStroke(drawing.points, drawing.color, drawing.size, drawing.tool);
     } else if (tool === 'eraser') {
       snapshot();
-      drawing = { erasing: true };
+      try { stage.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
+      drawing = { erasing: true, pointerType: String(ev.pointerType || 'mouse') };
       eraseTrail = [{ x: pos.x, y: pos.y, t: Date.now() }];
       eraseAt(pos);
-      stage.setPointerCapture(ev.pointerId);
     } else if (tool === 'text') {
       const el = ev.target.closest('.text-box');
       if (el) return; // Klick auf Box wird dort behandelt
@@ -1115,6 +1795,9 @@ function bindStageFor(idx) {
     }
     if (!drawing) return;
     if (ev.isPrimary === false) return;
+    // Touch-Scroll während aktivem Ink-Stroke: anderer Pointer -> ignorieren
+    // (aktiver Stroke gehört Pen/Maus; Finger-Scroll läuft parallel nativ).
+    if (ev.pointerType === 'touch' && drawing.pointerType && drawing.pointerType !== 'touch') return;
     const pos = stagePosFor(ev, idx);
     if (drawing.erasing) {
       if (eraseTrail) {
@@ -1123,12 +1806,21 @@ function bindStageFor(idx) {
       }
       eraseAt(pos); return;
     }
-    drawing.points.push({ x: pos.x, y: pos.y, p: pos.p });
-    previewStroke(drawing.points, drawing.color, drawing.size, drawing.tool);
+    const before = drawing.points.length;
+    pushCoalesced(ev, drawing);
+    if (drawing.points.length !== before) {
+      previewStroke(drawing.points, drawing.color, drawing.size, drawing.tool);
+    }
   });
   stage.addEventListener('pointerleave', () => { clearHoverPreview(); });
   const finish = (ev) => {
     if (ev && ev.pointerId != null) activePointers.delete(ev.pointerId);
+    try {
+      if (ev && String(ev.pointerType || '') === 'pen') {
+        penActive = false;
+        if (palmGuard) palmGuard.markPen(Date.now());
+      }
+    } catch { /* ignore */ }
     if (!drawing) return;
     const p = currentPage();
     // SPEC-25 Scribble-Erase: schnelles Hin-und-Her im Radierer löscht alle
@@ -1150,7 +1842,9 @@ function bindStageFor(idx) {
       eraseTrail = null;
     }
     if (!drawing.erasing && drawing.points.length && p) {
-      p.strokes.push(drawing);
+      // Stabilizer ist Laufzeit-Only (Funktionen) -> nicht persistieren.
+      const clean = { tool: drawing.tool, color: drawing.color, size: drawing.size, points: drawing.points };
+      p.strokes.push(clean);
       touchBook(); persistSoon(); renderCanvas(); renderRail();
     }
     drawing = null;
@@ -1432,6 +2126,10 @@ function importImageAsNewPage(file, opts) {
     const finishWithDataUrl = async dataUrl => {
       try {
         let src = dataUrl;
+        // Aufgabe 4: Import-Kompression (Seiten-Kontext) vor dem Einlagern.
+        if (typeof PagesImport !== 'undefined' && PagesImport.compressImageDataUrl && typeof src === 'string') {
+          try { src = await PagesImport.compressImageDataUrl(src, 'page'); } catch { /* Original behalten */ }
+        }
         if (typeof GrimoireStore !== 'undefined' && GrimoireStore.putDataUrl && typeof src === 'string' && src.startsWith('data:')) {
           src = await GrimoireStore.putDataUrl(src);
         }
@@ -1552,8 +2250,13 @@ async function importPdfAsNewPages(file, pageRangeStr) {
     let bg = null;
     try {
       const url = await gnRenderPdfPage(pdfBytes.slice(), pgNo, 1000);
+      let cUrl = url;
+      // Aufgabe 4: PDF-Seitenbild vor dem Einlagern komprimieren.
+      if (typeof PagesImport !== 'undefined' && PagesImport.compressImageDataUrl && typeof cUrl === 'string') {
+        try { cUrl = await PagesImport.compressImageDataUrl(cUrl, 'page'); } catch { /* Original behalten */ }
+      }
       bg = (typeof GrimoireStore !== 'undefined' && GrimoireStore.putDataUrl)
-        ? await GrimoireStore.putDataUrl(url) : url;
+        ? await GrimoireStore.putDataUrl(cUrl) : cUrl;
     } catch (e) {
       console.warn('PDF-Hintergrund Seite ' + pgNo + ':', e);
       bg = null;
@@ -1622,6 +2325,29 @@ function renderRailFor(idx) {
     d.ondblclick = (e) => { if (e) e.stopPropagation(); gotoPageInPane(p.id, idx); };
     rail.appendChild(d);
   });
+  // Button am Ende der letzten Seite: saubere Vorlagen-Kopie (ohne
+  // Handschrift/Textfelder/Marker, nur Hintergrund-Struktur).
+  try {
+    const tpl = document.createElement('button');
+    tpl.type = 'button';
+    tpl.className = 'page-thumb page-thumb--template no-print';
+    tpl.title = 'Letzte Seite als leere Vorlage duplizieren (ohne Handschrift, Textfelder, Marker – nur Hintergrund)';
+    tpl.setAttribute('aria-label', 'Letzte Seite als leere Vorlage duplizieren (ohne Handschrift, Textfelder, Marker)');
+    tpl.innerHTML = '<span class="thumb-plus" aria-hidden="true">+</span>'
+      + '<span class="thumb-label">Vorlage<br>∅ Handschrift/Text/Marker</span>';
+    tpl.onclick = (e) => {
+      if (e) e.stopPropagation();
+      setActivePane(idx, true);
+      // Auf letzte Seite springen, dann deren saubere Vorlage anhängen.
+      const bb = paneBook(idx);
+      if (bb && bb.pages.length) {
+        const lastId = bb.pages[bb.pages.length - 1].id;
+        setPanePageAndRender(idx, lastId);
+      }
+      duplicatePageAsTemplate();
+    };
+    rail.appendChild(tpl);
+  } catch { /* Rail-Button optional */ }
   const pos = b.pages.findIndex(p => p.id === curPid);
   const st = $(eid('statusPage', idx));
   if (st) st.textContent = 'Seite ' + (pos + 1) + '/' + b.pages.length;
@@ -1662,6 +2388,22 @@ function renderAll() {
 }
 
 /* ---------- Export / Import ---------- */
+/* Aufgabe 5 (KI-lesbares Format): Exporte tragen $schema/formatVersion/
+ * formatDoc/_ai (gesetzt via js/format-doc.js, GrimoireFormat). Fallback,
+ * falls das Skript fehlt: skalare Meta-Felder direkt setzen. */
+function withFormatMeta(obj) {
+  try {
+    if (typeof GrimoireFormat !== 'undefined' && GrimoireFormat.attachFormatMeta) return GrimoireFormat.attachFormatMeta(obj);
+  } catch { /* Fallback unten */ }
+  try {
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      if (!obj.formatVersion) obj.formatVersion = 'federwerk-1';
+      if (!obj.$schema) obj.$schema = './federwerk.schema.json';
+      if (!obj.formatDoc) obj.formatDoc = './FEDERWERK_FORMAT.md';
+    }
+  } catch { /* ignore */ }
+  return obj;
+}
 function download(filename, text, type) {
   const blob = new Blob([text], { type: type || 'application/json' });
   const a = document.createElement('a');
@@ -1676,7 +2418,7 @@ function exportAllJSON() {
       ? await Promise.all(state.books.map(b => GrimoireStore.inlineBook(b)))
       : state.books;
     ensureFoldersLocal();
-    download('grimoire-export.json', JSON.stringify({ books, folders: state.folders || [], openBookId: state.openBookId, openPageId: state.openPageId }, null, 2));
+    download('grimoire-export.json', JSON.stringify(withFormatMeta({ books, folders: state.folders || [], openBookId: state.openBookId, openPageId: state.openPageId }), null, 2));
   })().catch(e => alert('Export fehlgeschlagen: ' + e.message));
 }
 function exportBookJSON(id, ev) {
@@ -1684,7 +2426,7 @@ function exportBookJSON(id, ev) {
   const b = state.books.find(x => x.id === id); if (!b) return;
   (async () => {
     const out = (typeof GrimoireStore !== 'undefined') ? await GrimoireStore.inlineBook(b) : b;
-    download('grimoire-' + (b.title || 'buch').replace(/[^\wäöüÄÖÜß-]+/gi, '_') + '.json', JSON.stringify(out, null, 2));
+    download('grimoire-' + (b.title || 'buch').replace(/[^\wäöüÄÖÜß-]+/gi, '_') + '.json', JSON.stringify(withFormatMeta(out), null, 2));
   })().catch(e => alert('Export fehlgeschlagen: ' + e.message));
 }
 function exportGoodNotes(id, ev) {
@@ -2191,6 +2933,7 @@ document.addEventListener('keydown', e => {
   renderLibrary();
   restoreSplitFromState();
   bindStage(); bindTapGestures(); bindSplitDivider();
+  try { applyStageTouchAction(); } catch { /* Eingabe-Prefs optional */ }
   if (state.openBookId && state.books.some(b => b.id === state.openBookId)) openBookView(state.openBookId, state.openPageId, 0);
   else if (state.books.length) openBookView(state.books[0].id, state.books[0].pages[0] && state.books[0].pages[0].id, 0);
   else showLibrary();
@@ -2407,3 +3150,43 @@ document.addEventListener('keydown', e => {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
+
+/* ---------- iPad Safe-Area: --header-h live nachmessen ----------
+ * Der Header bricht je nach Breakpoint/Orientation um (ein-/zweizeilig).
+ * CSS liefert statische Fallbacks pro Breakpoint, JS korrigiert --header-h
+ * auf die echte Höhe, damit .toolbar (top: var(--toolbar-top) + sat) und
+ * .folder-sidebar nie unter dem glasigen Header kleben – Portrait/Landscape,
+ * Safari-Tab (--sat≈0) wie PWA-standalone (Notch-Inset). Node-sicher (Tests). */
+(function syncHeaderH() {
+  try {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const update = () => {
+      try {
+        const h = document.querySelector('.header');
+        if (!h || !root || !root.style || typeof h.getBoundingClientRect !== 'function') return;
+        const rectH = Math.round(h.getBoundingClientRect().height);
+        if (rectH >= 40 && rectH <= 400) {
+          root.style.setProperty('--header-h', rectH + 'px');
+          // Toolbar-Offset = Header-Höhe + Lücke (12px mobil / 20px desktop-Nähe).
+          // Kurz halten: Header + 20px, mindestens 66px (historischer Mobil-Wert).
+          const gap = (typeof window.innerWidth === 'number' && window.innerWidth <= 860) ? 20 : 20;
+          root.style.setProperty('--toolbar-top', Math.max(66, rectH + gap) + 'px');
+        }
+      } catch { /* ignore */ }
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', update, { once: true });
+    else update();
+    window.addEventListener('load', update);
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+    try {
+      if (typeof ResizeObserver !== 'undefined') {
+        const h = document.querySelector('.header');
+        if (h) new ResizeObserver(update).observe(h);
+      }
+    } catch { /* ignore */ }
+    // Nach Fonts/Layout-Shift (Cinzel/Crimson via Google Fonts) erneut messen.
+    try { setTimeout(update, 500); setTimeout(update, 1500); } catch { /* ignore */ }
+  } catch { /* ignore */ }
+})();

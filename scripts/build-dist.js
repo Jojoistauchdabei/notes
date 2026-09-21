@@ -15,7 +15,7 @@ function copy(relativePath, options = undefined) {
 fs.rmSync(dist, { recursive: true, force: true });
 fs.mkdirSync(dist, { recursive: true });
 
-for (const file of ['index.html', 'manifest.webmanifest', 'sw.js', 'altes_Papier.png']) {
+for (const file of ['index.html', 'manifest.webmanifest', 'sw.js', 'altes_Papier.png', 'llms.txt', 'FEDERWERK_FORMAT.md', 'federwerk.schema.json']) {
   copy(file);
 }
 for (const dir of ['css', 'js', 'icons', 'screenshots']) {

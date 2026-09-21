@@ -170,6 +170,48 @@
     const item = q.shift() || null;
     return { item, rest: q };
   }
+  // Reine Registrierungs-Validierung (testbar, DOM-frei).
+  function validateRegister(input) {
+    const errors = [];
+    const i = input || {};
+    const name = String(i.name == null ? '' : i.name).trim();
+    const email = String(i.email == null ? '' : i.email).trim();
+    const password = String(i.password == null ? '' : i.password);
+    const confirm = String(i.confirm == null ? '' : i.confirm);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.push('Bitte eine gültige E-Mail-Adresse angeben.');
+    }
+    if (!password || password.length < 8) {
+      errors.push('Passwort muss mindestens 8 Zeichen haben.');
+    }
+    if (confirm !== password) {
+      errors.push('Passwörter stimmen nicht überein.');
+    }
+    if (name.length > 128) {
+      errors.push('Name ist zu lang (max. 128 Zeichen).');
+    }
+    return { ok: errors.length === 0, errors };
+  }
+  // Reiner Passwort-Stärke-Hinweis (testbar, DOM-frei). Score 0–4.
+  function passwordStrength(pw) {
+    pw = String(pw == null ? '' : pw);
+    if (!pw) return { score: 0, label: '—', hint: 'Mind. 8 Zeichen.' };
+    let score = 0;
+    if (pw.length >= 8) score++;
+    if (pw.length >= 12) score++;
+    if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+    if (/\d/.test(pw) && /[^A-Za-z0-9]/.test(pw)) score++;
+    score = Math.max(0, Math.min(4, score));
+    const labels = ['sehr schwach', 'schwach', 'mittel', 'stark', 'sehr stark'];
+    const hints = [
+      'Mind. 8 Zeichen wählen.',
+      'Länger + Groß-/Kleinschreibung mischen.',
+      'Noch Ziffern und Sonderzeichen ergänzen.',
+      'Gut – länger oder Sonderzeichen für sehr stark.',
+      'Sehr stark.',
+    ];
+    return { score, label: labels[score], hint: hints[score] };
+  }
 
   /* ---------- Konfiguration ---------- */
 
@@ -302,8 +344,17 @@
     });
   }
   // Skaliert + transkodiert; gibt Original zurück, wenn nichts zu holen ist.
+  // Nutzt die zentrale Lib (js/optimize.js, Aufgabe 4), fällt ohne sie auf
+  // das bisherige Verhalten zurück (max 1600px, JPEG 0.82/WebP 0.85, Alpha-Detect).
   async function optimizeImage(bytes, mime) {
     mime = normalizeMime(mime);
+    try {
+      const O = (typeof window !== 'undefined' && window.FederwerkOptimize) || null;
+      if (O && O.optimizeImageAdaptive && hasCanvas()) {
+        const out = await O.optimizeImageAdaptive(bytes, mime, { context: 'page' });
+        if (out && out.bytes) return out;
+      }
+    } catch { /* Fallback unten */ }
     if (!hasCanvas()) return { bytes, mime, optimized: false, reason: 'no-canvas' };
     const plan = pickTarget(mime, bytes.length);
     if (!plan.recompress && bytes.length < 200 * 1024) return { bytes, mime, optimized: false, reason: plan.reason };
@@ -409,6 +460,7 @@
     normalizeMime, extForMime, fileIdForHash, hashFromFileId, sha256Hex,
     dataUrlToBytes, bytesToBase64, base64ToBytes, pickTarget,
     planFileSync, findOrphans, storageReport, queueAdd, queueNext,
+    validateRegister, passwordStrength,
     collectLocalEntries, optimizeImage, uploadEntry, downloadEntry, listAllFiles,
 
     async session() {
@@ -425,6 +477,20 @@
       // Secret sichern: trägt im Tauri-WebView die Auth, wenn Cookies blockiert sind.
       if (j && j.secret) saveSession({ secret: j.secret, userId: j.userId || null, at: new Date().toISOString() });
       return j;
+    },
+    // Registrieren + Auto-Login (Session-Handling wie loginEmail wiederverwenden).
+    async registerAccount(input) {
+      const cfg = loadConfig();
+      const i = input || {};
+      const name = String(i.name == null ? '' : i.name).trim();
+      const email = String(i.email == null ? '' : i.email).trim();
+      const password = String(i.password == null ? '' : i.password);
+      if (!email || !password) throw new Error('E-Mail und Passwort erforderlich.');
+      if (password.length < 8) throw new Error('Passwort muss mindestens 8 Zeichen haben.');
+      const body = { userId: 'unique()', email, password };
+      if (name) body.name = name.slice(0, 128);
+      await rest(cfg, 'POST', '/account', { body });
+      return Files.loginEmail(email, password);
     },
     async logout() {
       const cfg = loadConfig();
@@ -541,11 +607,37 @@
   /* ---------- UI-Glue (nur Browser) ---------- */
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     const UI = {
+      _authTab: 'login',
       _el(id) { try { return document.getElementById(id); } catch { return null; } },
       _say(t) { const el = UI._el('awStatus'); if (el) el.textContent = t; },
       _msg(t, isErr) {
         const el = UI._el('awMsg');
-        if (el) { el.textContent = t; el.style.color = isErr ? '#a33' : ''; }
+        if (el) { el.textContent = t; el.style.color = isErr ? 'var(--aw-err, #a33)' : ''; }
+      },
+      switchAuthTab(tab) {
+        UI._authTab = tab === 'register' ? 'register' : 'login';
+        const isReg = UI._authTab === 'register';
+        const tL = UI._el('awTabLogin'), tR = UI._el('awTabRegister');
+        if (tL) { tL.classList.toggle('active', !isReg); tL.setAttribute('aria-selected', String(!isReg)); }
+        if (tR) { tR.classList.toggle('active', isReg); tR.setAttribute('aria-selected', String(isReg)); }
+        const pL = UI._el('awLoginPane'), pR = UI._el('awRegisterPane');
+        if (pL) pL.hidden = isReg;
+        if (pR) pR.hidden = !isReg;
+        const bL = UI._el('awBtnLogin'), bR = UI._el('awBtnRegister');
+        if (bL) bL.style.display = isReg ? 'none' : '';
+        if (bR) bR.style.display = isReg ? '' : 'none';
+        UI._msg('');
+        UI.updatePwStrength();
+      },
+      updatePwStrength() {
+        const pwEl = UI._el('awRegPass');
+        const hint = UI._el('awPwHint');
+        if (!hint) return;
+        try {
+          const s = Files.passwordStrength(pwEl ? pwEl.value : '');
+          hint.textContent = pwEl && pwEl.value ? `Stärke: ${s.label} – ${s.hint}` : 'Mind. 8 Zeichen, am besten lang + gemischt.';
+          hint.dataset.score = String(s.score);
+        } catch { /* ignore */ }
       },
       refresh(showLogin) {
         try {
@@ -568,6 +660,7 @@
         UI._msg('');
         const ov = UI._el('awOverlay');
         if (ov) ov.classList.add('active');
+        UI.switchAuthTab(UI._authTab || 'login');
         UI.refresh(true);
       },
       closeSettings() { const ov = UI._el('awOverlay'); if (ov) ov.classList.remove('active'); },
@@ -591,6 +684,31 @@
           UI._msg('Eingeloggt.');
           UI.refresh(true);
         } catch (e) { UI._msg('Login fehlgeschlagen: ' + e.message, true); }
+      },
+      async register() {
+        const get = id => { const el = UI._el(id); return el ? el.value : ''; };
+        const input = {
+          name: get('awRegName'),
+          email: get('awRegEmail'),
+          password: get('awRegPass'),
+          confirm: get('awRegPass2'),
+        };
+        const v = Files.validateRegister(input);
+        if (!v.ok) {
+          UI._msg('Registrierung prüfen: ' + v.errors.join(' '), true);
+          return;
+        }
+        UI._msg('Registriere …');
+        try {
+          await Files.registerAccount({ name: input.name, email: input.email, password: input.password });
+          for (const id of ['awRegPass', 'awRegPass2']) {
+            const el = UI._el(id); if (el) el.value = '';
+          }
+          UI.updatePwStrength();
+          UI._msg('Konto erstellt – eingeloggt.');
+          UI.refresh(true);
+          UI.closeSettings();
+        } catch (e) { UI._msg('Registrierung fehlgeschlagen: ' + e.message, true); }
       },
       async logout() {
         await Files.logout();
