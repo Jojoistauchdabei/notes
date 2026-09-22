@@ -597,13 +597,15 @@
           }
         }
       } catch { /* Mirror bleibt */ }
-      const rows = await listRows(cfg, 'folders', [Q.equal('userId', userId), Q.orderAsc('updatedAt')]);
+      // folders uses Appwrite's system timestamps; updatedAt is not a custom
+      // attribute in the table schema.
+      const rows = await listRows(cfg, 'folders', [Q.equal('userId', userId)]);
       const remote = {};
       for (const r of rows) remote[r.$id] = r;
       // Pull: remote neuer/ unbekannt
       for (const rid of Object.keys(remote)) {
         const r = remote[rid];
-        const rms = isoToMs(r.updatedAt);
+        const rms = isoToMs(r.$updatedAt || r.updatedAt);
         const m = fmeta[rid];
         const cur = mirror[rid];
         const curHash = cur ? folderHash(cur) : undefined;
@@ -629,8 +631,7 @@
         if (cur.deleted) {
           if (!remote[fid]) { delete mirror[fid]; delete fmeta[fid]; continue; }
           const nowIso = msToIso(Date.now());
-          await tablesRest(cfg, 'PUT', `/tablesdb/${cfg.databaseId}/tables/folders/rows/${fid}`,
-            { data: { name: cur.name || '(gelöscht)', parentId: null, deletedAt: nowIso, updatedAt: nowIso } }).catch(() => null);
+          await tablesRest(cfg, 'DELETE', `/tablesdb/${cfg.databaseId}/tables/folders/rows/${fid}`).catch(() => null);
           delete mirror[fid]; delete fmeta[fid];
           continue;
         }
@@ -638,7 +639,7 @@
         if (m.hash !== h) {
           const nowIso = msToIso(Date.now());
           await upsertRow(cfg, 'folders', rowIdForBook(fid), {
-            userId, name: cur.name || '', parentId: cur.parentId || null, updatedAt: nowIso,
+            userId, name: cur.name || '', parentId: cur.parentId || null,
           }, userId);
           fmeta[fid] = { hash: h, remoteUpdatedAtMs: isoToMs(nowIso) };
         }

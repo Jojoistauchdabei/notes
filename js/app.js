@@ -97,9 +97,9 @@ function saveEraserPrefs() {
 }
 function setEraserMode(v) { eraserMode = (v === 'precision' || v === 'stroke') ? v : 'standard'; saveEraserPrefs(); syncToolbar(); }
 function setEraserHighlighterOnly(v) { eraserHighlighterOnly = !!v; saveEraserPrefs(); syncToolbar(); }
-/* ---------- Eingabe: Apple Pencil vs. Finger (Schreiben vs. Scrollen) ----------
- * Default: Stift (pen) + Maus schreiben, Finger scrollt (native Touch-Scroll).
- * "Finger zeichnen" per Toggle (persistiert unter grimoireInputPrefs).
+/* ---------- Eingabe: Apple Pencil vs. Finger/Maus ----------
+ * Apple Pencil schreibt immer. Finger und Maus scrollen standardmäßig; der
+ * eine Schreib-Button schaltet Finger/Maus-Eingabe zum Zeichnen frei.
  * Palm-Rejection: Touch kurz nach Pen-Kontakt wird ignoriert. */
 let inputPrefs = { fingerDraw: false, penOnly: true };
 try {
@@ -147,7 +147,6 @@ function applyStageTouchAction() {
  * persistiert unter federwerkScrollNavV1 (s. js/scrollnav.js). */
 let scrollNavEnabled = true;
 let scrollNavPane = { 0: null, 1: null };
-let scrollNavSwipe = { 0: null, 1: null }; // Touch-Swipe-States (eigener acc)
 try {
   if (typeof GrimoireScrollNav !== 'undefined') {
     scrollNavEnabled = GrimoireScrollNav.loadEnabled(typeof localStorage !== 'undefined' ? localStorage : null);
@@ -1761,24 +1760,15 @@ function syncToolbar() {
   const fd = $('fingerDrawToggle');
   if (fd) {
     fd.classList.toggle('picked', !!inputPrefs.fingerDraw);
-    fd.textContent = inputPrefs.fingerDraw ? '☝ Finger: an' : '☝ Finger: scrollt';
+    fd.textContent = inputPrefs.fingerDraw ? '✍ Schreiben: an' : '✍ Schreiben: aus';
     fd.title = inputPrefs.fingerDraw
-      ? 'Finger zeichnet (an). Ausschalten: Finger scrollt, nur Pencil/Maus schreiben.'
-      : 'Finger scrollt, nur Pencil/Maus schreiben (an). Einschalten: Finger zeichnet auch.';
-  }
-  const sn = $('scrollNavToggle');
-  if (sn) {
-    sn.classList.toggle('picked', isScrollNavEnabled());
-    sn.textContent = isScrollNavEnabled() ? '⇅ Scroll: an' : '⇅ Scroll: aus';
-    sn.setAttribute('aria-pressed', isScrollNavEnabled() ? 'true' : 'false');
-    sn.title = isScrollNavEnabled()
-      ? 'Mausrad über der Seite blättert vor/zurück, Zwei-Finger-Swipe auf Touch (an). Ausschalten: Rad/Wisch scrollt normal.'
-      : 'Blättern per Rad/Swipe aus (aus). Einschalten: Rad über der Seite bzw. Zwei-Finger-Swipe wechselt die Seite.';
+      ? 'Finger und Maus schreiben (an). Ausschalten: Finger und Maus scrollen.'
+      : 'Finger und Maus scrollen. Einschalten, um mit Finger oder Maus zu schreiben.';
   }
   const st0 = $('statusTool');
   if (st0) {
     const names = { pen: '✒ Stift', marker: '🖍 Marker', eraser: '⌫ Radierer', text: 'T Text', move: '✥ Auswahl', laser: '🔦 Laser' };
-    st0.textContent = (names[tool] || tool) + (inputPrefs.fingerDraw ? '' : ' · ☝ scrollt');
+    st0.textContent = (names[tool] || tool) + (inputPrefs.fingerDraw ? ' · Finger/Maus schreiben' : ' · Finger/Maus scrollen');
   }
 }
 function openTextEditorForSelected() {
@@ -2066,8 +2056,8 @@ function bindStageFor(idx) {
     } catch { /* Fallback unten */ }
     const t = (ev.pointerType || 'mouse');
     if (t === 'pen') return true;
-    if (t === 'touch') return !!inputPrefs.fingerDraw;
-    return true;
+    if (t === 'touch' || t === 'mouse') return !!inputPrefs.fingerDraw;
+    return false;
   };
   const pushCoalesced = (ev, into) => {
     let list = [ev];
@@ -2414,52 +2404,8 @@ function bindScrollNavFor(idx) {
       if (scrollNavCanFlip(key, dir)) ev.preventDefault();
     } catch { /* Wheel-Navigation optional, Zeichnung unberührt */ }
   }, { passive: false });
-  // Zwei-Finger-Vertikal-Swipe blättert auf Touch-Geräten (iPad: kein Wheel).
-  // Wichtig: touchstart ist NICHT passiv und ruft bei genau 2 Fingern sofort
-  // preventDefault – sonst krallt sich der Browser die Geste für natives
-  // Scrollen/Zoomen und es kommen keine touchmove-Events mehr an (dann würde
-  // der Swipe nie die Schwelle erreichen). Tap-Gesten (Undo/Redo, touchend-
-  // gesteuert) und Ein-Finger-Verhalten bleiben unberührt; Pinch-Zoom auf der
-  // Bühne ist bei aktivierter Scroll-Navigation dem Blättern gewichen
-  // (über „⇅ Scroll: aus" abschaltbar).
-  stage.addEventListener('touchstart', (ev) => {
-    try {
-      stage._swipe = null;
-      if (!scrollNavGuardsPass()) return;
-      if (!ev.touches || ev.touches.length !== 2) return;
-      try { ev.preventDefault(); } catch { /* ignore */ }
-      const c = { x: (ev.touches[0].clientX + ev.touches[1].clientX) / 2, y: (ev.touches[0].clientY + ev.touches[1].clientY) / 2 };
-      stage._swipe = { x0: c.x, y0: c.y, lx: c.x, ly: c.y, engaged: false };
-    } catch { stage._swipe = null; }
-  }, { passive: false });
-  stage.addEventListener('touchmove', (ev) => {
-    try {
-      const sw = stage._swipe;
-      if (!sw) return;
-      if (!scrollNavGuardsPass()) { stage._swipe = null; return; }
-      if (!ev.touches || ev.touches.length !== 2) { stage._swipe = null; return; }
-      const cx = (ev.touches[0].clientX + ev.touches[1].clientX) / 2;
-      const cy = (ev.touches[0].clientY + ev.touches[1].clientY) / 2;
-      if (!sw.engaged) {
-        // Erst einrasten, sonst loslassen (Tap/Pinch bleiben nativ).
-        if (!GrimoireScrollNav.swipeEngage(cx - sw.x0, cy - sw.y0)) {
-          if (Math.abs(cx - sw.x0) > Math.abs(cy - sw.y0) && Math.abs(cx - sw.x0) >= 24) stage._swipe = null;
-          return;
-        }
-        sw.engaged = true;
-        sw.lx = cx; sw.ly = cy;
-      }
-      ev.preventDefault(); // vertikaler Swipe gehört dem Seitenwechsel
-      const key = (idx === 1) ? 1 : 0;
-      if (!scrollNavSwipe[key]) scrollNavSwipe[key] = GrimoireScrollNav.createSwipeState();
-      const r = GrimoireScrollNav.stepSwipe(scrollNavSwipe[key], cy - sw.ly, Date.now());
-      sw.lx = cx; sw.ly = cy;
-      if (r.flip) scrollNavFlipInPane(key, r.flip);
-    } catch { /* Swipe-Navigation optional, Zeichnung unberührt */ }
-  }, { passive: false });
-  const swipeEnd = () => { try { stage._swipe = null; } catch { /* ignore */ } };
-  stage.addEventListener('touchend', swipeEnd);
-  stage.addEventListener('touchcancel', swipeEnd);
+  // Touch bleibt vollständig beim Browser: Finger kann die Seite scrollen,
+  // Apple Pencil wird ausschließlich über Pointer-Events als Tinte behandelt.
 }
 function bindScrollNav() { bindScrollNavFor(0); bindScrollNavFor(1); }
 

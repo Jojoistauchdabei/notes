@@ -120,12 +120,8 @@
           </label>
         </div>
         <div class="sep" role="separator" aria-hidden="true"></div>
-        <div class="tool-group" title="Eingabe: Apple Pencil schreibt, Finger scrollt" role="group" aria-label="Stift- und Finger-Eingabe">
-          <button class="mini-button" id="fingerDrawToggle" onclick="setFingerDraw(!inputPrefs.fingerDraw)" aria-label="Finger-Zeichnen umschalten" title="Finger scrollt (aus) / Finger zeichnet (an) – Stift schreibt immer">☝ Finger: scrollt</button>
-        </div>
-        <div class="sep" role="separator" aria-hidden="true"></div>
-        <div class="tool-group" title="Mausrad über der Seite blättert vor/zurück" role="group" aria-label="Scroll-Navigation">
-          <button class="mini-button picked" id="scrollNavToggle" onclick="toggleScrollNav(event)" aria-label="Scroll-Wechsel umschalten" aria-pressed="true" title="Mausrad über der Seite blättert vor/zurück – Pinch-Zoom bleibt Browser-Sache">⇅ Scroll: an</button>
+        <div class="tool-group" title="Apple Pencil schreibt immer; Finger und Maus scrollen standardmäßig" role="group" aria-label="Finger- und Maus-Schreiben">
+          <button class="mini-button" id="fingerDrawToggle" onclick="setFingerDraw(!inputPrefs.fingerDraw)" aria-label="Finger- und Maus-Schreiben umschalten" title="Finger und Maus scrollen; zum Schreiben einschalten">✍ Schreiben: aus</button>
         </div>
         <div class="sep" role="separator" aria-hidden="true"></div>
         <div class="tool-group tool-group--actions" role="group" aria-label="Aktionen">
