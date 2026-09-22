@@ -384,13 +384,27 @@
       const remote = {};
       let maxSeen = lastPull.notes || null;
       for (const r of rows) {
-        const bid = Object.keys(map).find(k => (map[k] || {}).rowId === r.$id) || r.$id;
+        const bid = books.find(b => b && b.cloudRowId === r.$id)?.id
+          || Object.keys(map).find(k => (map[k] || {}).rowId === r.$id) || r.$id;
         remote[bid] = Object.assign(rowToNoteMeta(r), { row: r });
         if (!maxSeen || r.updatedAt > maxSeen) maxSeen = r.updatedAt;
       }
       const local = {};
       for (const b of books) {
         local[b.id] = { hash: '', updatedAtMs: b.updatedAt || 0 };
+      }
+      // A fresh browser has no local row map. Reconnect same-title documents
+      // so the same Appwrite row is used instead of creating a duplicate.
+      for (const rid of Object.keys(remote)) {
+        if (local[rid]) continue;
+        const title = remote[rid].title;
+        const matches = books.filter(b => b && b.title === title && !map[b.id]);
+        if (matches.length === 1) {
+          const bid = matches[0].id;
+          remote[bid] = remote[rid];
+          delete remote[rid];
+          map[bid] = { rowId: remote[bid].row.$id, remoteUpdatedAtMs: remote[bid].updatedAtMs };
+        }
       }
       const F2 = F;
       const contentHashOf = async (b) => {
@@ -408,6 +422,20 @@
       const localClean = {};
       for (const k of Object.keys(local)) if (local[k]) localClean[k] = local[k];
       const plan = planRows(localClean, remote, map);
+      // Collaboration mode: the newest complete document wins. The old
+      // conflict-copy behavior remains available through the pure planner.
+      const lastWritePull = [];
+      const lastWritePush = [];
+      const unresolved = [];
+      for (const item of plan.conflict) {
+        const localTime = localClean[item.id] ? localClean[item.id].updatedAtMs : 0;
+        const remoteTime = remote[item.id] ? remote[item.id].updatedAtMs : 0;
+        if (localTime > remoteTime) lastWritePush.push({ id: item.id, reason: 'last-write-local' });
+        else lastWritePull.push(item);
+      }
+      plan.push.push(...lastWritePush);
+      plan.pull.push(...lastWritePull);
+      plan.conflict = unresolved;
 
       const touchMeta = (id, patch) => { map[id] = Object.assign({}, map[id], patch); };
 
@@ -472,6 +500,7 @@
             id: r.$id && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/.test(r.$id) ? r.$id : rowIdForBook(id),
             title: r.title || 'Importiert', paper: 'grid', updatedAt: remote[id].updatedAtMs,
             folderId: r.folderId || null, pages,
+            cloudRowId: r.$id,
           };
           if (store && store.extractBook) await store.extractBook(nb).catch(() => {});
           books.unshift(nb);
@@ -488,7 +517,7 @@
         if (!b) continue;
         say(`Lade hoch (${reason}) …`);
         try {
-          const rowId = (map[id] && map[id].rowId) || rowIdForBook(id);
+          const rowId = (byId[id] && byId[id].cloudRowId) || (map[id] && map[id].rowId) || rowIdForBook(id);
           const hashed = await hashRefsInPages(b.pages, store, F);
           await ensureUploaded(F, cfg, hashed);
           const payload = await contentToPayload(F, cfg, b, hashed);
@@ -505,6 +534,7 @@
             deletedAt: null,
           };
           await upsertRow(cfg, 'notes', rowId, data, userId);
+          b.cloudRowId = rowId;
           touchMeta(id, {
             rowId, hash: await contentHashOf(b),
             remoteUpdatedAtMs: isoToMs(nowIso),
@@ -632,7 +662,7 @@
     },
 
     /* ---------- Realtime ---------- */
-    _rt: { ws: null, onChange: null, retry: null, connected: false },
+    _rt: { ws: null, onChange: null, retry: null, poll: null, connected: false },
     rtChannels(cfg) {
       return [
         `databases.${cfg.databaseId}.tables.notes.rows`,
@@ -651,6 +681,10 @@
       const ws = new WebSocket(url);
       st.ws = ws;
       let deb = null, hb = null;
+      clearInterval(st.poll);
+      st.poll = setInterval(() => {
+        if (st.onChange) { try { st.onChange(); } catch { /* manual sync remains available */ } }
+      }, 5000);
       const fire = () => {
         clearTimeout(deb);
         deb = setTimeout(() => { try { st.onChange && st.onChange(); } catch { /* ignore */ } }, 2500);
@@ -692,6 +726,7 @@
         st.ws = null;
         try { clearInterval(hb); } catch { /* ignore */ }
         clearTimeout(st.retry);
+        clearInterval(st.poll);
         st.retry = setTimeout(() => {
           if (st.onChange) { try { Sync.startRealtime(st.onChange); } catch { /* ignore */ } }
         }, 15000);
@@ -701,6 +736,7 @@
     stopRealtime() {
       const st = Sync._rt;
       clearTimeout(st.retry);
+      clearInterval(st.poll);
       st.onChange = null;
       try { if (st.ws) st.ws.close(); } catch { /* ignore */ }
       st.ws = null; st.connected = false;
@@ -711,8 +747,15 @@
   /* ---------- UI-Glue (nur Browser) ---------- */
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     const UI = {
+      _errors: [],
       _el(id) { try { return document.getElementById(id); } catch { return null; } },
       _say(t) { const el = UI._el('awDbStatus'); if (el) el.textContent = t; },
+      _log(message) {
+        UI._errors.push(new Date().toLocaleTimeString('de-DE') + ' ' + message);
+        if (UI._errors.length > 50) UI._errors.shift();
+        const el = UI._el('awDiagnosticsLog');
+        if (el) el.textContent = UI._errors.join('\n');
+      },
       async syncNow() {
         UI._say('☁ Notizen werden synchronisiert …');
         try {
@@ -721,10 +764,12 @@
           if (r.conflicts.length) s += ` | ⚠ Konflikt: ${r.conflicts.join(', ')} (als Kopie behalten)`;
           if (r.deleted) s += ` | 🗑 ${r.deleted} gelöscht`;
           if (r.errors.length) s += ` | ⚠ ${r.errors.length} Fehler`;
+          for (const e of r.errors) UI._log(e);
           UI._say(s);
           const fw = window.FederwerkFilesUI;
           if (fw && fw.refresh) fw.refresh(false);
         } catch (e) {
+          UI._log('Sync: ' + (e && e.message ? e.message : e));
           UI._say('☁ Sync fehlgeschlagen: ' + e.message);
           if (typeof alert !== 'undefined') alert('Notizen-Sync fehlgeschlagen:\n' + e.message);
         }
@@ -736,12 +781,60 @@
           if (F) F.saveConfig({ realtime: !!on });
           if (on) {
             Sync.startRealtime(() => UI.syncNow());
-            UI._say('☁ Realtime an – Änderungen stoßen Sync an.');
+            UI._say('☁ Live-Sync an – Realtime + 5-Sekunden-Fallback aktiv.');
           } else {
             Sync.stopRealtime();
             UI._say('☁ Realtime aus – nur manueller Sync.');
           }
         } catch (e) { UI._say('☁ Realtime-Fehler: ' + e.message); }
+      },
+      openDiagnostics() {
+        const el = UI._el('awDiagnosticsOverlay');
+        if (el) el.classList.add('active');
+        UI.runDiagnostics();
+      },
+      closeDiagnostics() {
+        const el = UI._el('awDiagnosticsOverlay');
+        if (el) el.classList.remove('active');
+      },
+      clearDiagnostics() {
+        UI._errors = [];
+        const el = UI._el('awDiagnosticsLog');
+        if (el) el.textContent = '';
+        const summary = UI._el('awDiagnosticsSummary');
+        if (summary) summary.textContent = 'Protokoll gelöscht.';
+      },
+      async runDiagnostics() {
+        const summary = UI._el('awDiagnosticsSummary');
+        const F = window.FederwerkFiles;
+        const cfg = F && F.loadConfig ? F.loadConfig() : {};
+        const lines = [
+          `Endpoint: ${cfg.endpoint || 'fehlt'}`,
+          `Projekt: ${cfg.projectId || 'fehlt'}`,
+          `Realtime: ${Sync.rtStatus()}`,
+          `Lokale Bücher: ${getBooks().length}`,
+        ];
+        try {
+          if (!F || !F.session) throw new Error('Datei-Sync-Modul fehlt');
+          const me = await F.session();
+          lines.push(me ? `Session: OK (${me.$id})` : 'Session: FEHLT – zuerst einloggen');
+          if (me) {
+            const response = await fetch(cfg.endpoint + `/tablesdb/${cfg.databaseId}/tables/notes/rows?queries[0]=${encodeURIComponent(Q.limit(1))}`, {
+              headers: F.authHeaders(cfg), credentials: 'include',
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(`Notes-Tabelle HTTP ${response.status}: ${body.message || 'unbekannt'}`);
+            lines.push(`Notes-Tabelle: OK (${body.total || 0} Rows)`);
+          }
+          lines.push('Hinweis: Live-Sync sendet bei aktivierter Option zusätzlich alle 5 Sekunden einen Delta-Pull.');
+        } catch (e) {
+          const msg = e && e.message ? e.message : String(e);
+          lines.push('FEHLER: ' + msg);
+          UI._log('Diagnose: ' + msg);
+        }
+        if (summary) summary.textContent = lines.join('\n');
+        const log = UI._el('awDiagnosticsLog');
+        if (log) log.textContent = UI._errors.join('\n');
       },
       boot() {
         try {

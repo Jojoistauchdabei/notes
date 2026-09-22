@@ -72,6 +72,7 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" class="no-print">
             <button class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.syncNow()" aria-label="Notizen mit Appwrite synchronisieren">🗂 Notizen syncen</button>
             <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien mit Appwrite synchronisieren">⬆⬇ Dateien syncen</button>
+            <button class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.openDiagnostics()" aria-label="Appwrite-Synchronisation diagnostizieren">🛠 Diagnose</button>
             <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.openSettings()" aria-label="Appwrite-Einstellungen öffnen">⚙ Einstellungen</button>
           </div>
         </div>
@@ -390,6 +391,26 @@
           <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.logout()" aria-label="Ausloggen">Logout</button>
           <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien synchronisieren">⬆⬇ Sync</button>
           <button type="button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.save()" aria-label="Einstellungen speichern">💾 Speichern</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div id="awDiagnosticsOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkSyncUI) FederwerkSyncUI.closeDiagnostics()">
+    <div class="editor-modal" style="max-width:620px">
+      <div class="editor-header">
+        <div class="editor-header-title">🛠 SYNC-DIAGNOSE</div>
+        <button type="button" class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.closeDiagnostics()" aria-label="Diagnose schließen">✕</button>
+      </div>
+      <div style="padding:14px 16px">
+        <div id="awDiagnosticsSummary" style="font-size:13px;white-space:pre-wrap" aria-live="polite">Noch kein Test ausgeführt.</div>
+        <pre id="awDiagnosticsLog" style="max-height:220px;overflow:auto;background:var(--field-bg);padding:8px;font-size:11px;white-space:pre-wrap"></pre>
+      </div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <button type="button" class="inactive" onclick="window.FederwerkSyncUI && FederwerkSyncUI.clearDiagnostics()">Protokoll löschen</button>
+        <span style="display:flex;gap:8px">
+          <button type="button" class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.runDiagnostics()">Tests ausführen</button>
+          <button type="button" class="inactive" onclick="window.FederwerkSyncUI && FederwerkSyncUI.syncNow()">Jetzt synchronisieren</button>
         </span>
       </div>
     </div>
