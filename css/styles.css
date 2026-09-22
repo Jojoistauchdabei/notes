@@ -354,6 +354,9 @@ select { cursor: pointer; }
 }
 /* Finger zeichnet (Toggle an): Scroll-Sperre auf der Seite, volle Kontrolle für Ink */
 .stage.finger-ink { touch-action: none; }
+/* Laserpointer: kein System-Cursor (der Glow-Dot ersetzt ihn), Touch-Scroll
+   gesperrt, damit Zeigen mit dem Finger nicht versehentlich scrollt. */
+.stage.tool-laser { cursor: none; touch-action: none; }
 .stage.lined { background-image: linear-gradient(transparent 95%, var(--border-light) 100%), var(--bg-image); background-size: 100% 32px, auto; }
 .stage.grid { background-color: #fff; background-image: linear-gradient(var(--border-light) 1px, transparent 1px), linear-gradient(90deg, var(--border-light) 1px, transparent 1px); background-size: 24px 24px, 24px 24px; }
 /* ===== Papier-Vorlagen (js/paper-templates.js) – rein CSS, druckfreundlich ===== */

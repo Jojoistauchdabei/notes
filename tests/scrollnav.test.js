@@ -126,6 +126,47 @@ describe('scrollnav/nachbar (kein Wrap)', () => {
   });
 });
 
+describe('scrollnav/swipe (Touch, Zwei-Finger)', () => {
+  it('rastet erst ab 24px und nur vertikal dominant ein', () => {
+    assert.equal(SN.swipeEngage(0, 10), false);   // zu kurz (Tap bleibt Tap)
+    assert.equal(SN.swipeEngage(0, 23), false);   // unter der Schwelle
+    assert.equal(SN.swipeEngage(0, 24), true);    // Schwelle (inklusiv)
+    assert.equal(SN.swipeEngage(0, -60), true);   // hoch geht auch
+    assert.equal(SN.swipeEngage(60, 25), false);  // horizontal -> Browser/Pinch
+    assert.equal(SN.swipeEngage(20, 30), true);   // leicht diagonal ok
+  });
+  it('90px Swipe flippt genau einmal (runter = vor)', () => {
+    const st = SN.createSwipeState();
+    let r = SN.stepSwipe(st, 40, 1000);
+    assert.equal(r.flip, 0);
+    r = SN.stepSwipe(st, 50, 1100); // 90 kumuliert
+    assert.equal(r.flip, 1);
+    assert.equal(r.acc, 0);
+  });
+  it('Swipe hoch flippt zurück, Cooldown gilt auch für Touch', () => {
+    const st = SN.createSwipeState();
+    assert.equal(SN.stepSwipe(st, -120, 1000).flip, -1);
+    assert.equal(SN.stepSwipe(st, -120, 1100).flip, 0); // 100ms < 500ms
+    assert.equal(SN.stepSwipe(st, -120, 1600).flip, -1); // 600ms > 500ms
+  });
+  it('Wheel- und Swipe-State sind getrennt (eigener acc)', () => {
+    const w = SN.createPaneState();
+    const s = SN.createSwipeState();
+    SN.stepWheel(w, { deltaY: 30 }, 1000);
+    assert.equal(w.acc, 30);
+    assert.equal(s.acc, 0); // Swipe unberührt
+    SN.stepSwipe(s, 30, 1000);
+    assert.equal(s.acc, 30);
+    assert.equal(w.acc, 30); // Wheel unberührt
+  });
+  it('stepWheel liefert dy für Boundary-Entscheidung mit', () => {
+    const st = SN.createPaneState();
+    const r = SN.stepWheel(st, { deltaY: 10 }, 1000);
+    assert.equal(r.handled, true);
+    assert.equal(r.dy, 10);
+  });
+});
+
 describe('scrollnav/persistenz', () => {
   it('Default ist AN (kein Eintrag)', () => {
     assert.equal(SN.loadEnabled(memStore()), true);

@@ -21,6 +21,9 @@
   var LS_KEY = 'federwerkScrollNavV1';
   var DEFAULT_COOLDOWN_MS = 600;
   var DEFAULT_THRESHOLD_PX = 40;
+  var DEFAULT_SWIPE_THRESHOLD_PX = 90;  // Zwei-Finger-Swipe (CSS-px, Touch)
+  var DEFAULT_SWIPE_COOLDOWN_MS = 500;
+  var SWIPE_ENGAGE_PX = 24; // erst ab dieser Bewegung gilt es als Swipe (Tap bleibt Tap)
   var LINE_PX = 16;   // DOM_DELTA_LINE -> px (Näherung)
   var PAGE_PX = 500;  // DOM_DELTA_PAGE -> px (Näherung)
 
@@ -88,6 +91,44 @@
   /* Pro-Pane-Laufzeitstand (acc-Sammler + letzter Flip-Zeitpunkt). */
   function createPaneState() { return { acc: 0, lastFlip: -Infinity }; }
 
+  /* Zwei-Finger-Swipe einrasten? Erst ab SWIPE_ENGAGE_PX und nur vertikal
+   * dominant – Pinch/horizontales Pannen bleibt beim Browser. */
+  function swipeEngage(totalDx, totalDy, slop) {
+    var s = num(slop, SWIPE_ENGAGE_PX);
+    if (!(s > 0)) s = SWIPE_ENGAGE_PX;
+    var dx = num(totalDx, 0), dy = num(totalDy, 0);
+    if (!isFinite(dx) || !isFinite(dy)) return false;
+    if (Math.abs(dy) < s) return false;
+    return Math.abs(dy) > Math.abs(dx);
+  }
+
+  /* Touch-Laufzeitstand (eigener acc, damit Wheel und Swipe sich nicht
+   * gegenseitig den Reststand klauen). */
+  function createSwipeState() { return { acc: 0, lastFlip: -Infinity }; }
+
+  function swipeOptsOf(o) {
+    o = o || {};
+    var cooldown = num(o.cooldownMs, DEFAULT_SWIPE_COOLDOWN_MS);
+    if (!(cooldown >= 0)) cooldown = DEFAULT_SWIPE_COOLDOWN_MS;
+    var threshold = num(o.threshold, DEFAULT_SWIPE_THRESHOLD_PX);
+    if (!(threshold > 0)) threshold = DEFAULT_SWIPE_THRESHOLD_PX;
+    return { cooldownMs: cooldown, threshold: threshold };
+  }
+
+  /* Ein Swipe-Delta (CSS-px, vorzeichenbehaftet, + = runter) gegen den
+   * Touch-State fahren (mutiert st). Zurück: { flip: 1|-1|0, acc }. */
+  function stepSwipe(st, dyPx, now, opts) {
+    if (!st || typeof st !== 'object') st = createSwipeState();
+    if (typeof st.acc !== 'number' || !isFinite(st.acc)) st.acc = 0;
+    if (typeof st.lastFlip !== 'number') st.lastFlip = -Infinity;
+    var o = swipeOptsOf(opts);
+    var t = (now == null) ? Date.now() : num(now, Date.now());
+    var r = shouldFlip(num(dyPx, 0), st.acc, t, st.lastFlip, o);
+    st.acc = r.acc;
+    if (r.flip) st.lastFlip = t;
+    return { flip: r.flip, acc: st.acc };
+  }
+
   /* Ein Wheel-Event gegen einen Pane-State fahren (mutiert st).
    * Zurück: { handled, flip, acc }. handled=true heißt: Event wurde als
    * vertikaler Scroll erkannt (app.js ruft dann preventDefault). */
@@ -96,12 +137,12 @@
     if (typeof st.acc !== 'number' || !isFinite(st.acc)) st.acc = 0;
     if (typeof st.lastFlip !== 'number') st.lastFlip = -Infinity;
     var gate = shouldHandleWheel(ev);
-    if (!gate.handle) return { handled: false, flip: 0, acc: st.acc };
+    if (!gate.handle) return { handled: false, flip: 0, acc: st.acc, dy: gate.dy };
     var t = (now == null) ? Date.now() : num(now, Date.now());
     var r = shouldFlip(gate.dy, st.acc, t, st.lastFlip, opts);
     st.acc = r.acc;
     if (r.flip) st.lastFlip = t;
-    return { handled: true, flip: r.flip, acc: st.acc };
+    return { handled: true, flip: r.flip, acc: st.acc, dy: gate.dy };
   }
 
   /* Nachbar-Index ohne Wrap: pos + dir, oder null an den Rändern. */
@@ -139,12 +180,18 @@
     LS_KEY: LS_KEY,
     DEFAULT_COOLDOWN_MS: DEFAULT_COOLDOWN_MS,
     DEFAULT_THRESHOLD_PX: DEFAULT_THRESHOLD_PX,
+    DEFAULT_SWIPE_THRESHOLD_PX: DEFAULT_SWIPE_THRESHOLD_PX,
+    DEFAULT_SWIPE_COOLDOWN_MS: DEFAULT_SWIPE_COOLDOWN_MS,
+    SWIPE_ENGAGE_PX: SWIPE_ENGAGE_PX,
     normalizeWheel: normalizeWheel,
     isVerticalDominant: isVerticalDominant,
     shouldHandleWheel: shouldHandleWheel,
     shouldFlip: shouldFlip,
     createPaneState: createPaneState,
     stepWheel: stepWheel,
+    swipeEngage: swipeEngage,
+    createSwipeState: createSwipeState,
+    stepSwipe: stepSwipe,
     neighborIndex: neighborIndex,
     loadEnabled: loadEnabled,
     saveEnabled: saveEnabled,

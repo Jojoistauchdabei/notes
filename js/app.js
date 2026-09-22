@@ -126,13 +126,18 @@ function setFingerDraw(v) {
 function applyStageTouchAction() {
   // Finger scrollt nativ (pan-y), Stift zeichnet trotzdem (Pointer Events).
   // Nur wenn "Finger zeichnen" an ist, wird Scrollen auf der Seite gesperrt.
+  // Laserpointer sperrt immer (Zeigen statt Scrollen, speichert nichts).
   try {
-    const mode = inputPrefs.fingerDraw ? 'none' : 'pan-x pan-y';
+    const laserOn = (typeof GrimoireLaser !== 'undefined' && GrimoireLaser.isLaserTool)
+      ? GrimoireLaser.isLaserTool(tool) : tool === 'laser';
+    const mode = (laserOn || inputPrefs.fingerDraw) ? 'none' : 'pan-x pan-y';
     ['stage', 'stageB'].forEach(id => {
       const el = $(id);
       if (!el) return;
       el.style.touchAction = mode;
       el.classList.toggle('finger-ink', !!inputPrefs.fingerDraw);
+      el.classList.toggle('tool-laser', !!laserOn);
+      if (laserOn) el.style.cursor = 'none';
     });
   } catch { /* ignore */ }
 }
@@ -142,6 +147,7 @@ function applyStageTouchAction() {
  * persistiert unter federwerkScrollNavV1 (s. js/scrollnav.js). */
 let scrollNavEnabled = true;
 let scrollNavPane = { 0: null, 1: null };
+let scrollNavSwipe = { 0: null, 1: null }; // Touch-Swipe-States (eigener acc)
 try {
   if (typeof GrimoireScrollNav !== 'undefined') {
     scrollNavEnabled = GrimoireScrollNav.loadEnabled(typeof localStorage !== 'undefined' ? localStorage : null);
@@ -997,6 +1003,7 @@ function setActivePane(i, silent) {
   if (splitApi()) splitApi().setActive(split, next);
   else split.active = next;
   drawing = null; eraseTrail = null;
+  try { if (typeof stopLaser === 'function') stopLaser(); } catch { /* ignore */ }
   try { clearOverlayFor(0); } catch { /* ignore */ }
   try { clearOverlayFor(1); } catch { /* ignore */ }
   unparkActiveUI();
@@ -1476,6 +1483,7 @@ function moveHistory(from, to) {
 function undo() { moveHistory(undoStack, redoStack); }
 function redo() { moveHistory(redoStack, undoStack); }
 function setPanePageAndRender(i, pid) {
+  try { if (typeof stopLaser === 'function') stopLaser(); } catch { /* ignore */ }
   const api = splitApi();
   const bid = paneBookId(i);
   if (api) api.setPaneDoc(split, i, bid, pid);
@@ -1725,16 +1733,20 @@ document.addEventListener('keydown', e => {
 /* ---------- Toolbar ---------- */
 function setTool(t) {
   tool = t; selectedBox = null; selectedImg = null;
+  try { if (typeof stopLaser === 'function') stopLaser(); } catch { /* ignore */ }
   parkActiveUI();
   syncToolbar(); renderTextLayer(); renderImgLayer();
-  const names = { pen: '✒ Stift', marker: '🖍 Marker', eraser: '⌫ Radierer', text: 'T Text', move: '✥ Auswahl' };
+  try { if (typeof applyStageTouchAction === 'function') applyStageTouchAction(); } catch { /* ignore */ }
+  const names = { pen: '✒ Stift', marker: '🖍 Marker', eraser: '⌫ Radierer', text: 'T Text', move: '✥ Auswahl', laser: '🔦 Laser' };
   const st0 = $('statusTool'), st1 = $('statusToolB');
   if (st0) st0.textContent = names[t] || t;
   if (st1) st1.textContent = names[t] || t;
   const s0 = $('stage'), s1 = $('stageB');
-  const cur = t === 'text' ? 'text' : t === 'move' ? 'move' : 'crosshair';
-  if (s0) s0.style.cursor = cur;
-  if (s1) s1.style.cursor = cur;
+  const isLaser = (typeof GrimoireLaser !== 'undefined' && GrimoireLaser.isLaserTool)
+    ? GrimoireLaser.isLaserTool(t) : t === 'laser';
+  const cur = isLaser ? 'none' : t === 'text' ? 'text' : t === 'move' ? 'move' : 'crosshair';
+  if (s0) { s0.style.cursor = cur; s0.classList.toggle('tool-laser', isLaser); }
+  if (s1) { s1.style.cursor = cur; s1.classList.toggle('tool-laser', isLaser); }
 }
 function setColor(v) { penColor = v; }
 function setSize(v) { penSize = +v; $('sizeLabel').textContent = v + 'px'; }
@@ -1760,12 +1772,12 @@ function syncToolbar() {
     sn.textContent = isScrollNavEnabled() ? '⇅ Scroll: an' : '⇅ Scroll: aus';
     sn.setAttribute('aria-pressed', isScrollNavEnabled() ? 'true' : 'false');
     sn.title = isScrollNavEnabled()
-      ? 'Mausrad über der Seite blättert vor/zurück (an). Ausschalten: Rad scrollt normal.'
-      : 'Mausrad blättert nicht (aus). Einschalten: Rad über der Seite wechselt die Seite.';
+      ? 'Mausrad über der Seite blättert vor/zurück, Zwei-Finger-Swipe auf Touch (an). Ausschalten: Rad/Wisch scrollt normal.'
+      : 'Blättern per Rad/Swipe aus (aus). Einschalten: Rad über der Seite bzw. Zwei-Finger-Swipe wechselt die Seite.';
   }
   const st0 = $('statusTool');
   if (st0) {
-    const names = { pen: '✒ Stift', marker: '🖍 Marker', eraser: '⌫ Radierer', text: 'T Text', move: '✥ Auswahl' };
+    const names = { pen: '✒ Stift', marker: '🖍 Marker', eraser: '⌫ Radierer', text: 'T Text', move: '✥ Auswahl', laser: '🔦 Laser' };
     st0.textContent = (names[tool] || tool) + (inputPrefs.fingerDraw ? '' : ' · ☝ scrollt');
   }
 }
@@ -1949,6 +1961,87 @@ function drawHoverPreview(pos) {
   g.beginPath(); g.arc(pos.x, pos.y, 2, 0, 7); g.fill();
   g.restore();
 }
+/* ---------- Laserpointer (nur Overlay, nie persistent) ----------
+ * Trail aus {x,y,t} in Seiten-Koordinaten, pro aktivem Pane (laserIdx).
+ * Rendert Glow-Dot + kurze Spur, verblasst via rAF – kein Snapshot,
+ * kein Undo, kein Persist, kein Export (Export nutzt nur drawCanvas). */
+let laserTrail = [], laserIdx = 0, laserRaf = 0, laserDown = false;
+function laserApi() { try { return (typeof GrimoireLaser !== 'undefined') ? GrimoireLaser : null; } catch { return null; } }
+function isLaserActive() { const L = laserApi(); return L ? L.isLaserTool(tool) : tool === 'laser'; }
+function laserColor() { const L = laserApi(); return (L && L.COLOR) || '#ff2211'; }
+function laserFadeMs() { const L = laserApi(); return (L && L.FADE_MS) || 700; }
+function drawLaserFrame() {
+  laserRaf = 0;
+  const L = laserApi();
+  const now = Date.now();
+  laserTrail = L ? L.prune(laserTrail, now, laserFadeMs()) : [];
+  const oc = overlayEl(laserIdx);
+  if (!oc) { if (laserTrail.length) scheduleLaserFrame(); return; }
+  const g = oc.getContext('2d');
+  let d = { w: 1000, h: 1414 };
+  try { d = paneDims(laserIdx); } catch { /* Fallback */ }
+  try { g.clearRect(0, 0, d.w, d.h); } catch { /* ignore */ }
+  if (!laserTrail.length) return;
+  const col = laserColor(), fade = laserFadeMs();
+  const dotR = (L && L.DOT_R) || 9;
+  g.save();
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  // Spur (älter = transparenter, dünner)
+  for (let i = 1; i < laserTrail.length; i++) {
+    const a = L ? L.alphaFor(now - laserTrail[i].t, fade) : 1;
+    if (a <= 0) continue;
+    g.save();
+    g.globalAlpha = Math.min(1, 0.55 * a + 0.05);
+    g.strokeStyle = col;
+    g.lineWidth = Math.max(1, dotR * 0.7 * a + 1);
+    g.shadowColor = col; g.shadowBlur = 12 * a;
+    g.beginPath();
+    g.moveTo(laserTrail[i - 1].x, laserTrail[i - 1].y);
+    g.lineTo(laserTrail[i].x, laserTrail[i].y);
+    g.stroke();
+    g.restore();
+  }
+  // Kopf: heller Kern + Glow-Ring
+  const head = laserTrail[laserTrail.length - 1];
+  const ha = L ? L.alphaFor(now - head.t, fade) : 1;
+  if (ha > 0) {
+    g.save();
+    g.globalAlpha = Math.min(1, ha + 0.15);
+    g.shadowColor = col; g.shadowBlur = 22;
+    g.fillStyle = col;
+    g.beginPath(); g.arc(head.x, head.y, dotR, 0, 7); g.fill();
+    g.shadowBlur = 0;
+    g.globalAlpha = 1;
+    g.fillStyle = 'rgba(255,255,255,0.9)';
+    g.beginPath(); g.arc(head.x - dotR * 0.18, head.y - dotR * 0.18, Math.max(1.5, dotR * 0.32), 0, 7); g.fill();
+    g.restore();
+  }
+  g.restore();
+  if (laserTrail.length) scheduleLaserFrame();
+}
+function scheduleLaserFrame() {
+  if (laserRaf) return;
+  try {
+    laserRaf = requestAnimationFrame(drawLaserFrame);
+  } catch {
+    // Node/kein rAF (Tests): synchron einmal rendern
+    try { drawLaserFrame(); } catch { /* ignore */ }
+    laserRaf = 0;
+  }
+}
+function laserPushFor(idx, pos) {
+  const L = laserApi();
+  laserIdx = idx;
+  if (L) laserTrail = L.push(laserTrail, { x: pos.x, y: pos.y, t: Date.now() });
+  else { laserTrail.push({ x: pos.x, y: pos.y, t: Date.now() }); while (laserTrail.length > 24) laserTrail.shift(); }
+  scheduleLaserFrame();
+}
+function stopLaser() {
+  laserTrail = []; laserDown = false;
+  if (laserRaf) { try { cancelAnimationFrame(laserRaf); } catch { /* ignore */ } laserRaf = 0; }
+  try { clearOverlayFor(laserIdx); } catch { /* ignore */ }
+  try { clearOverlayFor(activePaneIdx()); } catch { /* ignore */ }
+}
 function clearHoverPreview() {
   if (drawing) return;
   clearOverlayFor(activePaneIdx());
@@ -2029,6 +2122,18 @@ function bindStageFor(idx) {
     // Finger scrollt nativ: kein Ink-Start, kein Capture, kein preventDefault
     // (Browser übernimmt das Scrollen). Nur Ink-Tools sind betroffen;
     // Text/Auswahl bleiben per Tap bedienbar.
+    // Laserpointer: immer aktiv (auch Finger), speichert nichts.
+    if (isLaserActive()) {
+      if (ev.isPrimary === false) return;
+      activePointers.add(ev.pointerId);
+      const posL = stagePosFor(ev, idx);
+      if (!currentPage()) return;
+      try { stage.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
+      try { ev.preventDefault(); } catch { /* ignore */ }
+      laserDown = true;
+      laserPushFor(idx, posL);
+      return;
+    }
     const inkTool = (tool === 'pen' || tool === 'marker' || tool === 'eraser');
     if (inkTool && !wantsInk(ev)) return;
     activePointers.add(ev.pointerId);
@@ -2066,6 +2171,13 @@ function bindStageFor(idx) {
     }
   });
   stage.addEventListener('pointermove', ev => {
+    // Laserpointer: folgt jeder Bewegung (auch Hover ohne Buttons), nur Overlay.
+    if (isLaserActive()) {
+      if (ev.isPrimary === false) return;
+      if (activePaneIdx() !== idx) { try { setActivePane(idx, true); } catch { /* ignore */ } }
+      laserPushFor(idx, stagePosFor(ev, idx));
+      return;
+    }
     // Apple Pencil Hover (pen, keine Buttons, Stift/Marker): nur Ghost-Vorschau, kein Zeichnen.
     if (!drawing && ev.pointerType === 'pen' && ev.buttons === 0 && (tool === 'pen' || tool === 'marker')) {
       drawHoverPreview(stagePosFor(ev, idx));
@@ -2090,9 +2202,11 @@ function bindStageFor(idx) {
       previewStroke(drawing.points, drawing.color, drawing.size, drawing.tool);
     }
   });
-  stage.addEventListener('pointerleave', () => { clearHoverPreview(); });
+  stage.addEventListener('pointerleave', () => { if (isLaserActive()) return; clearHoverPreview(); });
   const finish = (ev) => {
     if (ev && ev.pointerId != null) activePointers.delete(ev.pointerId);
+    // Laser: Button loslassen beendet nur den Druck – der Trail verblasst von selbst.
+    if (isLaserActive()) { laserDown = false; return; }
     try {
       if (ev && String(ev.pointerType || '') === 'pen') {
         penActive = false;
@@ -2242,6 +2356,29 @@ function scrollNavBoundaryFeedback(idx) {
     }
   } catch { /* Feedback optional */ }
 }
+function scrollNavCanFlip(key, dir) {
+  // Gibt es in Richtung dir überhaupt eine Nachbarseite? (kein Wrap)
+  try {
+    const b = paneBook(key); if (!b || !b.pages.length) return false;
+    const pos = b.pages.findIndex(p => p.id === panePageId(key));
+    const api = (typeof GrimoireScrollNav !== 'undefined') ? GrimoireScrollNav : null;
+    const next = api ? api.neighborIndex(pos < 0 ? 0 : pos, dir, b.pages.length)
+      : ((pos + dir >= 0 && pos + dir < b.pages.length) ? pos + dir : null);
+    return next != null;
+  } catch { return false; }
+}
+function scrollNavGuardsPass() {
+  // Gemeinsame Vorbedingungen für Wheel- und Swipe-Blättern.
+  if (!isScrollNavEnabled()) return false;
+  if (!$('viewBook') || !$('viewBook').classList.contains('active')) return false;
+  // Overlays (Texteditor/Preview/Graph/Cloud) nicht stören.
+  if (($('editorOverlay') && $('editorOverlay').classList.contains('active'))
+    || ($('previewOverlay') && $('previewOverlay').classList.contains('active'))
+    || ($('graphOverlay') && $('graphOverlay').classList.contains('active'))
+    || ($('awOverlay') && $('awOverlay').classList.contains('active'))) return false;
+  if (typeof GrimoireScrollNav === 'undefined') return false;
+  return true;
+}
 function bindScrollNavFor(idx) {
   const stage = $(eid('stage', idx));
   if (!stage) return;
@@ -2250,24 +2387,64 @@ function bindScrollNavFor(idx) {
   wrap._scrollNavBound = true;
   wrap.addEventListener('wheel', (ev) => {
     try {
-      if (!isScrollNavEnabled()) return; // Default-Browserverhalten
-      if (!$('viewBook') || !$('viewBook').classList.contains('active')) return;
-      // Overlays (Texteditor/Preview/Graph/Cloud) nicht stören – Tastatur/
-      // Preview-Pfeile bleiben wie bisher.
-      const overlayOpen = ($('editorOverlay') && $('editorOverlay').classList.contains('active'))
-        || ($('previewOverlay') && $('previewOverlay').classList.contains('active'))
-        || ($('graphOverlay') && $('graphOverlay').classList.contains('active'))
-        || ($('awOverlay') && $('awOverlay').classList.contains('active'));
-      if (overlayOpen) return;
-      if (typeof GrimoireScrollNav === 'undefined') return;
+      if (!scrollNavGuardsPass()) return; // aus / Overlay / kein Modul -> nativ
       const key = (idx === 1) ? 1 : 0;
       if (!scrollNavPane[key]) scrollNavPane[key] = GrimoireScrollNav.createPaneState();
       const r = GrimoireScrollNav.stepWheel(scrollNavPane[key], ev || {}, Date.now());
       if (!r.handled) return; // horizontal / Pinch-Zoom -> Browser
-      ev.preventDefault(); // vertikaler Scroll gehört dem Seitenwechsel
-      if (r.flip) scrollNavFlipInPane(key, r.flip);
+      if (r.flip) {
+        ev.preventDefault();
+        scrollNavFlipInPane(key, r.flip);
+        return;
+      }
+      // Unter der Schwelle / im Cooldown: nur schlucken, wenn Blättern in diese
+      // Richtung überhaupt möglich ist – am Buchanfang/-ende läuft der native
+      // Scroll weiter, statt sich „festgefahren" anzufühlen.
+      const dir = (r.dy || 0) > 0 ? 1 : -1;
+      if (scrollNavCanFlip(key, dir)) ev.preventDefault();
     } catch { /* Wheel-Navigation optional, Zeichnung unberührt */ }
   }, { passive: false });
+  // Zwei-Finger-Vertikal-Swipe blättert auf Touch-Geräten (iPad: kein Wheel).
+  // Ein Finger bleibt Zeichnen bzw. nativem Scrollen vorbehalten (fingerDraw),
+  // Zwei-Finger-Tap (Undo) und Drei-Finger-Tap (Redo) greifen nur ohne
+  // Bewegung – kein Konflikt. Pinch-Zoom läuft weiter an den Browser.
+  stage.addEventListener('touchstart', (ev) => {
+    try {
+      stage._swipe = null;
+      if (!scrollNavGuardsPass()) return;
+      if (!ev.touches || ev.touches.length !== 2) return;
+      const c = { x: (ev.touches[0].clientX + ev.touches[1].clientX) / 2, y: (ev.touches[0].clientY + ev.touches[1].clientY) / 2 };
+      stage._swipe = { x0: c.x, y0: c.y, lx: c.x, ly: c.y, engaged: false };
+    } catch { stage._swipe = null; }
+  }, { passive: true });
+  stage.addEventListener('touchmove', (ev) => {
+    try {
+      const sw = stage._swipe;
+      if (!sw) return;
+      if (!scrollNavGuardsPass()) { stage._swipe = null; return; }
+      if (!ev.touches || ev.touches.length !== 2) { stage._swipe = null; return; }
+      const cx = (ev.touches[0].clientX + ev.touches[1].clientX) / 2;
+      const cy = (ev.touches[0].clientY + ev.touches[1].clientY) / 2;
+      if (!sw.engaged) {
+        // Erst einrasten, sonst loslassen (Tap/Pinch bleiben nativ).
+        if (!GrimoireScrollNav.swipeEngage(cx - sw.x0, cy - sw.y0)) {
+          if (Math.abs(cx - sw.x0) > Math.abs(cy - sw.y0) && Math.abs(cx - sw.x0) >= 24) stage._swipe = null;
+          return;
+        }
+        sw.engaged = true;
+        sw.lx = cx; sw.ly = cy;
+      }
+      ev.preventDefault(); // vertikaler Swipe gehört dem Seitenwechsel
+      const key = (idx === 1) ? 1 : 0;
+      if (!scrollNavSwipe[key]) scrollNavSwipe[key] = GrimoireScrollNav.createSwipeState();
+      const r = GrimoireScrollNav.stepSwipe(scrollNavSwipe[key], cy - sw.ly, Date.now());
+      sw.lx = cx; sw.ly = cy;
+      if (r.flip) scrollNavFlipInPane(key, r.flip);
+    } catch { /* Swipe-Navigation optional, Zeichnung unberührt */ }
+  }, { passive: false });
+  const swipeEnd = () => { try { stage._swipe = null; } catch { /* ignore */ } };
+  stage.addEventListener('touchend', swipeEnd);
+  stage.addEventListener('touchcancel', swipeEnd);
 }
 function bindScrollNav() { bindScrollNavFor(0); bindScrollNavFor(1); }
 
@@ -3336,6 +3513,10 @@ document.addEventListener('keydown', e => {
         setActivePane(e.key === 'ArrowRight' ? 1 : 0, true);
         return;
       }
+      // Werkzeug-Kürzel: L = Laserpointer (speichert nichts), Esc verlässt den Laser.
+      if (!mod && !e.altKey && (e.key === 'l' || e.key === 'L')) { e.preventDefault(); setTool('laser'); return; }
+      if (!mod && !e.altKey && (e.key === 'p' || e.key === 'P')) { e.preventDefault(); setTool('pen'); return; }
+      if (e.key === 'Escape' && isLaserActive()) { e.preventDefault(); setTool('pen'); return; }
     }
   } catch { /* Shortcuts optional */ }
 });
