@@ -7,7 +7,8 @@
  *   (id, userId, title, content, contentFileId, folderId,
  *    createdAt, updatedAt, deletedAt).
  * - Ordner: Tabelle `folders` <-> lokaler Spiegel (Bücher tragen folderId).
- * - Delta: nur Rows mit updatedAt > lastPull; lokal via Content-Hash.
+ * - Notizen: vollständiger paginierter Bestand für sichere Lösch-Erkennung;
+ *   lokal via Content-Hash.
  * - Tombstones: gelöschte Bücher werden als deletedAt-Row hochgeschoben,
  *   remote gelöschte lokal entfernt.
  * - Konflikt (beide Seiten geändert): Remote gewinnt, lokale Version bleibt
@@ -376,11 +377,12 @@
       const lastPull = loadLastPull();
       const summary = { pushed: 0, pulled: 0, downloaded: 0, conflicts: [], deleted: 0, errors: [] };
 
-      // --- Remote-Delta holen ---
+      // --- Vollständigen Remote-Bestand holen ---
+      // Eine reine Delta-Abfrage kann nicht zwischen „unverändert“ und
+      // „lokal gelöscht“ unterscheiden. Der vollständige, paginierte Bestand
+      // ist nötig, damit Löschungen als Tombstones synchronisiert werden.
       say('Frage Cloud-Stand ab …');
-      const userQ = [Q.equal('userId', userId)];
-      if (lastPull.notes) userQ.push(Q.greaterThan('updatedAt', lastPull.notes));
-      const rows = await listRows(cfg, 'notes', [...userQ, Q.orderAsc('updatedAt')]);
+      const rows = await listRows(cfg, 'notes', [Q.equal('userId', userId), Q.orderAsc('updatedAt')]);
       const remote = {};
       let maxSeen = lastPull.notes || null;
       for (const r of rows) {
@@ -392,22 +394,6 @@
       const local = {};
       for (const b of books) {
         local[b.id] = { hash: '', updatedAtMs: b.updatedAt || 0 };
-      }
-      // This is a delta query, not a complete remote snapshot. Rows omitted
-      // because they were unchanged must not be interpreted as deletions.
-      // Only create a baseline for books that still exist locally; for a
-      // locally removed book, dropping metadata is safer than deleting the
-      // remote row when the delta did not include it.
-      if (lastPull.notes) {
-        for (const id of Object.keys(local)) {
-          if (remote[id] || !map[id]) continue;
-          remote[id] = {
-            updatedAtMs: map[id].remoteUpdatedAtMs || 0,
-            deletedAtMs: null,
-            title: '',
-            row: null,
-          };
-        }
       }
       // A fresh browser has no local row map. Reconnect same-title documents
       // so the same Appwrite row is used instead of creating a duplicate.
