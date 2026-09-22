@@ -1,0 +1,8 @@
+{
+  "name": "federwerk-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Federwerk Model Context Protocol (MCP) server for Appwrite Functions",
+  "main": "index.js",
+  "type": "commonjs"
+}
