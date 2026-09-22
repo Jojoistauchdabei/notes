@@ -2333,6 +2333,16 @@ function scrollNavFlipInPane(idx, dir) {
   if (next == null) { scrollNavBoundaryFeedback(key); return false; }
   setActivePane(key, true);
   setPanePageAndRender(key, b.pages[next].id);
+  // Weiche Blende statt hartem Schnitt (reine Optik, kein Einfluss auf State).
+  try {
+    const st = $(eid('stage', key));
+    if (st) {
+      st.classList.remove('scrollnav-flip');
+      void st.offsetWidth; // Animation neu starten
+      st.classList.add('scrollnav-flip');
+      setTimeout(() => { try { st.classList.remove('scrollnav-flip'); } catch { /* ignore */ } }, 240);
+    }
+  } catch { /* Feedback optional */ }
   return true;
 }
 function scrollNavBoundaryFeedback(idx) {
@@ -2405,18 +2415,23 @@ function bindScrollNavFor(idx) {
     } catch { /* Wheel-Navigation optional, Zeichnung unberührt */ }
   }, { passive: false });
   // Zwei-Finger-Vertikal-Swipe blättert auf Touch-Geräten (iPad: kein Wheel).
-  // Ein Finger bleibt Zeichnen bzw. nativem Scrollen vorbehalten (fingerDraw),
-  // Zwei-Finger-Tap (Undo) und Drei-Finger-Tap (Redo) greifen nur ohne
-  // Bewegung – kein Konflikt. Pinch-Zoom läuft weiter an den Browser.
+  // Wichtig: touchstart ist NICHT passiv und ruft bei genau 2 Fingern sofort
+  // preventDefault – sonst krallt sich der Browser die Geste für natives
+  // Scrollen/Zoomen und es kommen keine touchmove-Events mehr an (dann würde
+  // der Swipe nie die Schwelle erreichen). Tap-Gesten (Undo/Redo, touchend-
+  // gesteuert) und Ein-Finger-Verhalten bleiben unberührt; Pinch-Zoom auf der
+  // Bühne ist bei aktivierter Scroll-Navigation dem Blättern gewichen
+  // (über „⇅ Scroll: aus" abschaltbar).
   stage.addEventListener('touchstart', (ev) => {
     try {
       stage._swipe = null;
       if (!scrollNavGuardsPass()) return;
       if (!ev.touches || ev.touches.length !== 2) return;
+      try { ev.preventDefault(); } catch { /* ignore */ }
       const c = { x: (ev.touches[0].clientX + ev.touches[1].clientX) / 2, y: (ev.touches[0].clientY + ev.touches[1].clientY) / 2 };
       stage._swipe = { x0: c.x, y0: c.y, lx: c.x, ly: c.y, engaged: false };
     } catch { stage._swipe = null; }
-  }, { passive: true });
+  }, { passive: false });
   stage.addEventListener('touchmove', (ev) => {
     try {
       const sw = stage._swipe;

@@ -8,8 +8,11 @@
  * Regeln (s. Task):
  * - Nur vertikaler Scroll (deltaY dominiert) löst aus, kein Touch/Pointer.
  * - Pinch-Zoom (ctrlKey/metaKey + Wheel) wird NIE gehandelt (Browser-Zoom).
- * - Akkumulations-Schwelle (Default 40px) + Cooldown (Default 600ms):
- *   ein Wheel-Schub = genau eine Seite, Trackpad-Rauschen springt nicht doppelt.
+ * - Akkumulations-Schwelle (Wheel 40px, Touch-Swipe 90px): ein Schub = eine Seite.
+ * - Post-Flip-Lock (Wheel 350ms, Swipe 500ms): kein Doppelsprung aus derselben
+ *   Geste – Energie bleibt erhalten (kein Verschlucken schneller Folgeschübe).
+ * - Idle-Reset (Wheel 200ms, Swipe 250ms ohne Events = neue Geste): Momentum-
+ *   Reste lösen keinen Phantom-Flip aus, nachdem der Finger/das Rad stillsteht.
  * - Am Anfang/Ende: kein Wrap (neighborIndex -> null, UI gibt Feedback).
  * - An/Aus-Persistenz unter federwerkScrollNavV1 (Default AN).
  *
@@ -19,10 +22,12 @@
   'use strict';
 
   var LS_KEY = 'federwerkScrollNavV1';
-  var DEFAULT_COOLDOWN_MS = 600;
+  var DEFAULT_COOLDOWN_MS = 350; // Post-Flip-Lock: kein Zweit-Flip aus derselben Geste
   var DEFAULT_THRESHOLD_PX = 40;
+  var DEFAULT_IDLE_RESET_MS = 300; // Stille = neue Geste (Momentum-Reste verfallen)
   var DEFAULT_SWIPE_THRESHOLD_PX = 90;  // Zwei-Finger-Swipe (CSS-px, Touch)
   var DEFAULT_SWIPE_COOLDOWN_MS = 500;
+  var DEFAULT_SWIPE_IDLE_MS = 250;
   var SWIPE_ENGAGE_PX = 24; // erst ab dieser Bewegung gilt es als Swipe (Tap bleibt Tap)
   var LINE_PX = 16;   // DOM_DELTA_LINE -> px (Näherung)
   var PAGE_PX = 500;  // DOM_DELTA_PAGE -> px (Näherung)
@@ -66,30 +71,33 @@
     if (!(cooldown >= 0)) cooldown = DEFAULT_COOLDOWN_MS;
     var threshold = num(o.threshold, DEFAULT_THRESHOLD_PX);
     if (!(threshold > 0)) threshold = DEFAULT_THRESHOLD_PX;
-    return { cooldownMs: cooldown, threshold: threshold };
+    var idle = num(o.idleMs, DEFAULT_IDLE_RESET_MS);
+    if (!(idle >= 0)) idle = DEFAULT_IDLE_RESET_MS;
+    return { cooldownMs: cooldown, threshold: threshold, idleMs: idle };
   }
 
   /* Reine Flip-Entscheidung: deltaY gegen akkumulierten Reststand acc.
    * now/lastFlip in ms (z. B. Date.now()). Zurück: { flip: 1|-1|0, acc }.
    * flip=1 -> nächste Seite (runter), flip=-1 -> vorherige (hoch).
-   * Innerhalb des Cooldowns: kein Flip, acc wird zurückgesetzt. */
+   * Im Post-Flip-Lock: kein Flip, aber acc bleibt erhalten (Energie des
+   * Folgeschubs geht nicht verloren, Idle-Reset räumt ihn ggf. ab). */
   function shouldFlip(deltaY, acc, now, lastFlip, opts) {
     var o = optsOf(opts);
     acc = num(acc, 0);
     now = num(now, 0);
     lastFlip = num(lastFlip, -Infinity);
     var d = num(deltaY, 0);
-    if (isFinite(lastFlip) && (now - lastFlip) < o.cooldownMs) return { flip: 0, acc: 0 };
     if (!d) return { flip: 0, acc: acc };
     // Richtungswechsel: neu sammeln (kein Hin-und-Her-Aufschaukeln).
     if (acc !== 0 && ((acc > 0) !== (d > 0))) acc = 0;
     acc += d;
-    if (Math.abs(acc) >= o.threshold) return { flip: acc > 0 ? 1 : -1, acc: 0 };
-    return { flip: 0, acc: acc };
+    if (Math.abs(acc) < o.threshold) return { flip: 0, acc: acc };
+    if (isFinite(lastFlip) && (now - lastFlip) < o.cooldownMs) return { flip: 0, acc: acc };
+    return { flip: acc > 0 ? 1 : -1, acc: 0 };
   }
 
-  /* Pro-Pane-Laufzeitstand (acc-Sammler + letzter Flip-Zeitpunkt). */
-  function createPaneState() { return { acc: 0, lastFlip: -Infinity }; }
+  /* Pro-Pane-Laufzeitstand (acc-Sammler + letzter Flip + letztes Event). */
+  function createPaneState() { return { acc: 0, lastFlip: -Infinity, lastEvent: -Infinity }; }
 
   /* Zwei-Finger-Swipe einrasten? Erst ab SWIPE_ENGAGE_PX und nur vertikal
    * dominant – Pinch/horizontales Pannen bleibt beim Browser. */
@@ -104,7 +112,7 @@
 
   /* Touch-Laufzeitstand (eigener acc, damit Wheel und Swipe sich nicht
    * gegenseitig den Reststand klauen). */
-  function createSwipeState() { return { acc: 0, lastFlip: -Infinity }; }
+  function createSwipeState() { return { acc: 0, lastFlip: -Infinity, lastEvent: -Infinity }; }
 
   function swipeOptsOf(o) {
     o = o || {};
@@ -112,7 +120,9 @@
     if (!(cooldown >= 0)) cooldown = DEFAULT_SWIPE_COOLDOWN_MS;
     var threshold = num(o.threshold, DEFAULT_SWIPE_THRESHOLD_PX);
     if (!(threshold > 0)) threshold = DEFAULT_SWIPE_THRESHOLD_PX;
-    return { cooldownMs: cooldown, threshold: threshold };
+    var idle = num(o.idleMs, DEFAULT_SWIPE_IDLE_MS);
+    if (!(idle >= 0)) idle = DEFAULT_SWIPE_IDLE_MS;
+    return { cooldownMs: cooldown, threshold: threshold, idleMs: idle };
   }
 
   /* Ein Swipe-Delta (CSS-px, vorzeichenbehaftet, + = runter) gegen den
@@ -121,8 +131,11 @@
     if (!st || typeof st !== 'object') st = createSwipeState();
     if (typeof st.acc !== 'number' || !isFinite(st.acc)) st.acc = 0;
     if (typeof st.lastFlip !== 'number') st.lastFlip = -Infinity;
+    if (typeof st.lastEvent !== 'number') st.lastEvent = -Infinity;
     var o = swipeOptsOf(opts);
     var t = (now == null) ? Date.now() : num(now, Date.now());
+    if (t - st.lastEvent > o.idleMs) st.acc = 0;
+    st.lastEvent = t;
     var r = shouldFlip(num(dyPx, 0), st.acc, t, st.lastFlip, o);
     st.acc = r.acc;
     if (r.flip) st.lastFlip = t;
@@ -136,10 +149,16 @@
     if (!st || typeof st !== 'object') st = createPaneState();
     if (typeof st.acc !== 'number' || !isFinite(st.acc)) st.acc = 0;
     if (typeof st.lastFlip !== 'number') st.lastFlip = -Infinity;
+    if (typeof st.lastEvent !== 'number') st.lastEvent = -Infinity;
     var gate = shouldHandleWheel(ev);
     if (!gate.handle) return { handled: false, flip: 0, acc: st.acc, dy: gate.dy };
+    var o = optsOf(opts);
     var t = (now == null) ? Date.now() : num(now, Date.now());
-    var r = shouldFlip(gate.dy, st.acc, t, st.lastFlip, opts);
+    // Neue Geste (lange genug still): alten Reststand verwerfen, sonst würde
+    // Momentum-Drift nach der Pause einen Phantom-Flip auslösen.
+    if (t - st.lastEvent > o.idleMs) st.acc = 0;
+    st.lastEvent = t;
+    var r = shouldFlip(gate.dy, st.acc, t, st.lastFlip, o);
     st.acc = r.acc;
     if (r.flip) st.lastFlip = t;
     return { handled: true, flip: r.flip, acc: st.acc, dy: gate.dy };
@@ -182,6 +201,8 @@
     DEFAULT_THRESHOLD_PX: DEFAULT_THRESHOLD_PX,
     DEFAULT_SWIPE_THRESHOLD_PX: DEFAULT_SWIPE_THRESHOLD_PX,
     DEFAULT_SWIPE_COOLDOWN_MS: DEFAULT_SWIPE_COOLDOWN_MS,
+    DEFAULT_IDLE_RESET_MS: DEFAULT_IDLE_RESET_MS,
+    DEFAULT_SWIPE_IDLE_MS: DEFAULT_SWIPE_IDLE_MS,
     SWIPE_ENGAGE_PX: SWIPE_ENGAGE_PX,
     normalizeWheel: normalizeWheel,
     isVerticalDominant: isVerticalDominant,

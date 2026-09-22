@@ -66,10 +66,10 @@ describe('scrollnav/schwelle', () => {
 });
 
 describe('scrollnav/cooldown', () => {
-  it('zweiter Schub im Cooldown flippt nicht (kein Doppelsprung)', () => {
-    const r = SN.shouldFlip(120, 0, 1000, 900); // 100ms < 600ms
+  it('zweiter Schub im Lock flippt nicht, Energie bleibt (kein Doppelsprung)', () => {
+    const r = SN.shouldFlip(120, 0, 1000, 900); // 100ms < 350ms Lock
     assert.equal(r.flip, 0);
-    assert.equal(r.acc, 0);
+    assert.equal(r.acc, 120); // Energie erhalten (Idle-Reset räumt ggf. ab)
   });
   it('nach dem Cooldown flippt es wieder', () => {
     const r = SN.shouldFlip(120, 0, 1600, 900); // 700ms > 600ms
@@ -164,6 +164,30 @@ describe('scrollnav/swipe (Touch, Zwei-Finger)', () => {
     const r = SN.stepWheel(st, { deltaY: 10 }, 1000);
     assert.equal(r.handled, true);
     assert.equal(r.dy, 10);
+  });
+});
+
+describe('scrollnav/gesten (Idle-Reset + Lock mit Energie)', () => {
+  it('ein Maus-Notch (Burst) = genau ein Flip', () => {
+    const st = SN.createPaneState();
+    const r1 = SN.stepWheel(st, { deltaY: 40 }, 1000);
+    const r2 = SN.stepWheel(st, { deltaY: 40 }, 1015);
+    const r3 = SN.stepWheel(st, { deltaY: 40 }, 1030);
+    assert.equal([r1.flip, r2.flip, r3.flip].filter(Boolean).length, 1);
+  });
+  it('Momentum-Rest nach Pause löst keinen Phantom-Flip aus', () => {
+    const st = SN.createPaneState();
+    assert.equal(SN.stepWheel(st, { deltaY: 120 }, 1000).flip, 1);
+    SN.stepWheel(st, { deltaY: 8 }, 1100); // Momentum trudelt aus (Lock)
+    SN.stepWheel(st, { deltaY: 8 }, 1200);
+    assert.equal(SN.stepWheel(st, { deltaY: 8 }, 2000).flip, 0); // Idle -> Reset
+    assert.equal(SN.stepWheel(st, { deltaY: 50 }, 2050).flip, 1); // echter Schub flippt
+  });
+  it('zügiger Zweitschub geht nicht verloren', () => {
+    const st = SN.createPaneState();
+    assert.equal(SN.stepWheel(st, { deltaY: 120 }, 1000).flip, 1);
+    assert.equal(SN.stepWheel(st, { deltaY: 120 }, 1150).flip, 0); // Lock, Energie bleibt
+    assert.equal(SN.stepWheel(st, { deltaY: 10 }, 1400).flip, 1); // Rest löst nach Lock aus
   });
 });
 

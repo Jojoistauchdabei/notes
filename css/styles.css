@@ -424,8 +424,15 @@ select { cursor: pointer; }
   60% { transform: translateX(-2px); }
   100% { transform: translateX(0); }
 }
+/* Scroll-Navigation: weiche Blende beim Seitenwechsel (statt hartem Schnitt) */
+.stage.scrollnav-flip { animation: scrollnav-flip 0.18s ease; }
+@keyframes scrollnav-flip {
+  from { opacity: 0.25; }
+  to { opacity: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
   .page-thumb.scrollnav-bump { animation: none; }
+  .stage.scrollnav-flip { animation: none; }
 }
 
 /* ===== Seiten-Preview-Pop-up ===== */
