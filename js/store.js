@@ -35,7 +35,7 @@
     putBlob, putDataUrl,
     url, dataUrl,
     inlineBook, extractBook,
-    subscribe,
+    subscribe, blobStats,
     get available() { return hasIdb(); },
     _internals: {},
   };
@@ -110,13 +110,22 @@
     }
     return 'data:' + mime + ';base64,' + btoa(bin);
   }
-  // Alle Bild-Referenzen eines Buchs einsammeln (src + bg)
+  // Alle Bild-Referenzen eines Buchs einsammeln (src + bg + Karteikarten-Bilder)
   function collectRefs(book) {
     const refs = [];
-    if (!book || !Array.isArray(book.pages)) return refs;
-    for (const p of book.pages) {
-      if (Array.isArray(p.images)) for (const im of p.images) if (im && im.src) refs.push(im.src);
-      if (p.bg) refs.push(p.bg);
+    if (!book) return refs;
+    if (Array.isArray(book.pages)) {
+      for (const p of book.pages) {
+        if (Array.isArray(p.images)) for (const im of p.images) if (im && im.src) refs.push(im.src);
+        if (p.bg) refs.push(p.bg);
+      }
+    }
+    // Karteikarten (js/flashcards.js): frontImg/backImg nutzen denselben Blob-Store
+    if (Array.isArray(book.cards)) {
+      for (const c of book.cards) {
+        if (c && c.frontImg) refs.push(c.frontImg);
+        if (c && c.backImg) refs.push(c.backImg);
+      }
     }
     return refs;
   }
@@ -270,27 +279,42 @@
   // Export-Format: alle blob:-Refs -> dataURL (portabel für JSON/Cloud)
   async function inlineBook(book) {
     const copy = JSON.parse(JSON.stringify(book));
-    if (!Array.isArray(copy.pages)) return copy;
-    for (const p of copy.pages) {
-      if (Array.isArray(p.images)) {
-        for (const im of p.images) {
-          if (im && isBlobRef(im.src)) im.src = await dataUrl(im.src);
+    if (Array.isArray(copy.pages)) {
+      for (const p of copy.pages) {
+        if (Array.isArray(p.images)) {
+          for (const im of p.images) {
+            if (im && isBlobRef(im.src)) im.src = await dataUrl(im.src);
+          }
         }
+        if (isBlobRef(p.bg)) p.bg = await dataUrl(p.bg);
       }
-      if (isBlobRef(p.bg)) p.bg = await dataUrl(p.bg);
+    }
+    if (Array.isArray(copy.cards)) {
+      for (const c of copy.cards) {
+        if (c && isBlobRef(c.frontImg)) c.frontImg = await dataUrl(c.frontImg);
+        if (c && isBlobRef(c.backImg)) c.backImg = await dataUrl(c.backImg);
+      }
     }
     return copy;
   }
   // Import-Format: alle dataURLs -> blob:-Refs (in place, gibt book zurück)
   async function extractBook(book) {
-    if (!book || !Array.isArray(book.pages)) return book;
-    for (const p of book.pages) {
-      if (Array.isArray(p.images)) {
-        for (const im of p.images) {
-          if (im && isDataUrl(im.src)) im.src = await putDataUrl(im.src);
+    if (!book) return book;
+    if (Array.isArray(book.pages)) {
+      for (const p of book.pages) {
+        if (Array.isArray(p.images)) {
+          for (const im of p.images) {
+            if (im && isDataUrl(im.src)) im.src = await putDataUrl(im.src);
+          }
         }
+        if (isDataUrl(p.bg)) p.bg = await putDataUrl(p.bg);
       }
-      if (isDataUrl(p.bg)) p.bg = await putDataUrl(p.bg);
+    }
+    if (Array.isArray(book.cards)) {
+      for (const c of book.cards) {
+        if (c && isDataUrl(c.frontImg)) c.frontImg = await putDataUrl(c.frontImg);
+        if (c && isDataUrl(c.backImg)) c.backImg = await putDataUrl(c.backImg);
+      }
     }
     return book;
   }

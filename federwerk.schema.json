@@ -103,6 +103,37 @@
         }
       }
     },
+    "card": {
+      "type": "object",
+      "description": "Karteikarte (nur bei book.kind='flashcards', js/flashcards.js, SM-2-Lernsystem).",
+      "required": ["front", "back"],
+      "properties": {
+        "id": { "type": "string" },
+        "front": { "type": "string", "description": "Vorderseite (Frage, Plain-Text oder HTML light)" },
+        "back": { "type": "string", "description": "Rückseite (Antwort)" },
+        "frontImg": { "type": ["string", "null"], "description": "Optionales Bild vorne (dataURL oder blob:-Ref)" },
+        "backImg": { "type": ["string", "null"], "description": "Optionales Bild hinten (dataURL oder blob:-Ref)" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "ease": { "type": "number", "description": "SM-2-Ease-Faktor (1.3..2.8, Start 2.5)" },
+        "interval": { "type": "number", "description": "Intervall in Tagen (0 = in ~10 Min fällig)" },
+        "reps": { "type": "number", "description": "Aufeinanderfolgende korrekte Wiederholungen" },
+        "lapses": { "type": "number", "description": "Anzahl Nochmal-Fehler" },
+        "due": { "type": "number", "description": "Nächste Fälligkeit (ms seit Epoch)" },
+        "lastReview": { "type": ["number", "null"], "description": "Letzte Bewertung (null = neue Karte)" },
+        "suspended": { "type": "boolean" },
+        "totalReviews": { "type": "number" },
+        "correctReviews": { "type": "number" }
+      }
+    },
+    "deckOptions": {
+      "type": "object",
+      "description": "Tages-Limits eines Karteikarten-Decks.",
+      "properties": {
+        "newPerDay": { "type": "number" },
+        "maxReviewsPerDay": { "type": "number" }
+      }
+    },
     "folder": {
       "type": "object",
       "required": ["id", "name"],
@@ -120,6 +151,9 @@
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
+        "kind": { "type": "string", "enum": ["notebook", "flashcards"], "description": "Dokumenttyp: 'notebook' (Default, Feld darf fehlen) oder 'flashcards' (Karteikarten-Deck mit cards[] + SM-2-Lernsystem, js/flashcards.js)." },
+        "cards": { "type": "array", "items": { "$ref": "#/$defs/card" }, "description": "Karteikarten (nur bei kind='flashcards')." },
+        "deckOptions": { "$ref": "#/$defs/deckOptions" },
         "paper": { "type": "string", "description": "Papiervorlagen-ID, Buch-weit (Design + Maße, Katalog: js/paper-templates.js, z. B. blank-a4, lined-a4, grid-a4, dots-a4, cornell-a4). Legacy '' | 'lined' | 'grid' mappen auf blank-a4 | lined-a4 | grid-a4." },
         "updatedAt": { "type": "number" },
         "folderId": { "type": ["string", "null"], "description": "Ordner-ID oder null (= Unsortiert)" },

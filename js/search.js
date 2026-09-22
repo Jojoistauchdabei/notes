@@ -186,6 +186,13 @@ var GrimoireSearch = (function () {
           out.push(t && t.html != null ? String(t.html) : '');
         });
       });
+      // Karteikarten-Decks: front/back zählen als Volltext mit
+      var cards = (book && Array.isArray(book.cards)) ? book.cards : [];
+      cards.forEach(function (c) {
+        if (!c) return;
+        if (c.front != null) out.push(String(c.front));
+        if (c.back != null) out.push(String(c.back));
+      });
     } catch (e) { /* Bestand darf nie crashen */ }
     return out;
   }

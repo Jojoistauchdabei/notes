@@ -26,13 +26,16 @@
       folders: 'Flache Ordnerliste {id,name}; Buch.folderId verweist darauf (null = Unsortiert).',
       openBookId: 'Zuletzt geöffnetes Buch (UI-Hinweis, optional).',
       openPageId: 'Zuletzt geöffnete Seite (UI-Hinweis, optional).',
-      book: 'Ein Buch: {id,title,paper,updatedAt,folderId,lang,pages[]}. paper = Papiervorlagen-ID, Buch-weit (Katalog js/paper-templates.js; Legacy ""|lined|grid = blank-a4|lined-a4|grid-a4).',
+      book: 'Ein Buch: {id,title,kind?,papers?,updatedAt,folderId,lang,pages[],cards?,deckOptions?}. paper = Papiervorlagen-ID, Buch-weit (Katalog js/paper-templates.js; Legacy ""|lined|grid = blank-a4|lined-a4|grid-a4). kind = notebook (Default, Feld darf fehlen) oder flashcards (Karteikarten-Deck, js/flashcards.js).',
       page: 'Eine Seite: {id,strokes[],texts[],images[],bg,size?}. Canvas-Default 1000x1414 px (A4); size={w,h} bei abweichendem Format (Vorlage/Bild/PDF), fehlt = A4.',
       strokes: 'Handschrift-Pfade: {tool:pen|marker,color,size,points[{x,y,p}]}. x/y in Canvas-px (0..1000, 0..1414), p = Stift-Druck 0..1 (optional, Default 0.5). tool=marker ist halbtransparenter Highlighter.',
       texts: 'Getippte Textboxen: {id,x,y,html}. x/y normiert 0..1 relativ zur Seite, html ist Rich-Text (h1/h2/b/i/u/listen, inline style).',
       images: 'Eingebettete Bilder: {id,x,y,w,src}. x/y/w normiert 0..1 (h aus Seitenverhältnis), src ist dataURL (data:image/...) oder blob:-Ref (nur App-intern auflösbar).',
       bg: 'Seiten-Hintergrund: dataURL-Bild oder null.',
-      folderId: 'Ordner-ID des Buchs oder null (= Unsortiert).'
+      folderId: 'Ordner-ID des Buchs oder null (= Unsortiert).',
+      kind: 'Dokumenttyp: notebook (Notizbuch, Default) oder flashcards (Karteikarten-Deck).',
+      cards: 'Karteikarten (nur bei kind=flashcards): [{id,front,back,frontImg?,backImg?,ease,interval,reps,lapses,due,lastReview,suspended,totalReviews,correctReviews}]. front/back = Text (HTML light ok), Bilder als dataURL/blob:-Ref. SM-2: ease 1.3..2.8 (Start 2.5), interval in Tagen (0 = ~10 Min), due/lastReview als ms-Epoch.',
+      deckOptions: 'Tages-Limits des Decks: {newPerDay (Default 20), maxReviewsPerDay (Default 100)}.'
     };
   }
 

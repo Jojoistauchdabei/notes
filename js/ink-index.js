@@ -290,6 +290,22 @@
         }
       }
     }
+    // Karteikarten-Decks (js/flashcards.js): front/back sind suchbar wie getippter Text
+    if (Array.isArray(b.cards)) {
+      for (var ci = 0; ci < b.cards.length; ci++) {
+        var cd = b.cards[ci];
+        if (!cd) continue;
+        var ct = (stripHtml(cd.front) + '\n' + stripHtml(cd.back)).trim();
+        if (!ct) continue;
+        combined.push(ct);
+        if (!tagHit) {
+          var ctags = extractTags(ct);
+          for (var cj = 0; cj < ctags.length; cj++) {
+            if (ctags[cj].indexOf(eff) !== -1) { tagHit = ctags[cj]; break; }
+          }
+        }
+      }
+    }
     if (tagHit) return { kind: 'tag', snippet: '#' + tagHit };
     var full = combined.join('\n');
     var at = full.toLowerCase().indexOf(eff);

@@ -33,7 +33,10 @@ Format-Metadaten setzt `js/format-doc.js` (`GrimoireFormat.attachFormatMeta`).
 | `updatedAt` | number | Änderungszeit (ms seit Epoch) |
 | `folderId` | string \| null | Ordner-ID oder `null` (= Unsortiert) |
 | `lang` | string | Suchsprache des Buchs (z. B. `"de"`) |
-| `pages` | Page[] | Seiten in Reihenfolge |
+| `kind` | string (optional) | Dokumenttyp: `"notebook"` (Default, Feld darf fehlen) oder `"flashcards"` (Karteikarten-Deck, Logik `js/flashcards.js`, UI `js/flash-ui.js`) |
+| `cards` | Card[] (optional) | Karteikarten – nur bei `kind: "flashcards"` (s. unten) |
+| `deckOptions` | `{newPerDay, maxReviewsPerDay}` (optional) | Tages-Limits des Decks (Defaults 20 / 100) |
+| `pages` | Page[] | Seiten in Reihenfolge (Decks behalten min. 1 Notizseite) |
 
 ### Seite
 
@@ -70,6 +73,15 @@ Format-Metadaten setzt `js/format-doc.js` (`GrimoireFormat.attachFormatMeta`).
 ### Ordner
 
 `{ id, name, parentId, createdAt, updatedAt }` – flache Liste, kein Verschachteln in der UI.
+
+### Karteikarte (nur bei `kind: "flashcards"`)
+
+`{ id, front, back, frontImg, backImg, createdAt, updatedAt, ease, interval, reps, lapses, due, lastReview, suspended, totalReviews, correctReviews }`
+
+- `front`/`back`: Frage/Antwort als Text (HTML-light erlaubt, Suche strippt Tags).
+- `frontImg`/`backImg`: optionales Bild als `dataURL` oder App-interne `blob:`-URL (gleicher Blob-Store wie Seitenbilder; Export löst zu dataURLs auf).
+- **Lernsystem (SM-2/Anki-Hybrid, `js/flashcards.js`)**: Buttons Nochmal (`again`, q=0) / Hart (`hard`, q=3) / Gut (`good`, q=4) / Leicht (`easy`, q=5). Ease-Update per SM-2-Formel (Start 2.5, clamp 1.3–2.8). Intervalle: neu → Nochmal 10 Min, Hart/Gut 1 Tag, Leicht 4 Tage; Wiederholung → Nochmal Reset (10 Min), Hart `prev×1.2`, Gut `prev×ease` (2. Wdh. fix 6 Tage), Leicht `prev×ease×1.3`. `due`/`lastReview` in ms seit Epoch, `interval` in Tagen.
+- CSV: `Vorderseite;Rückseite` pro Zeile (RFC-4180-Quotes), Kopfzeile optional.
 
 ## GoodNotes-Export
 

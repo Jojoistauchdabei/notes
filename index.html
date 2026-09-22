@@ -43,6 +43,7 @@
           <input type="text" id="librarySearch" placeholder="Suchen: Text, tag:#x, file:Titel, &quot;Phrase&quot;, -aus, A OR B ..." oninput="renderLibrary()" aria-label="Federwerk durchsuchen" title="Syntax: Text | tag:#name | file:Titel | &quot;exakte Phrase&quot; | -ausschluss | A OR B">
           <button onclick="openGraphOverlay()" style="white-space:nowrap" aria-label="Graph-Ansicht öffnen">◈ Graph</button>
           <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
+          <button onclick="createFlashDeck()" style="white-space:nowrap" aria-label="Neues Karteikarten-Deck erstellen">+ 🂠 Deck</button>
         </div>
         <div class="folder-chips no-print" id="folderChips" role="tablist" aria-label="Ordner-Filter (mobil)"></div>
         <div class="library-layout">
@@ -420,6 +421,29 @@
     </div>
   </div>
 
+  <!-- FLASH-OVERLAY: Karteikarten-Deck (Verwalten + SM-2-Lernmodus) -->
+  <div id="flashOverlay" class="editor-overlay" onclick="if (event.target === this) closeDeckView()">
+    <div class="editor-modal flash-modal">
+      <div class="editor-header">
+        <div class="editor-header-title" id="flashTitle">🂠 DECK</div>
+        <button type="button" class="mini-button" onclick="closeDeckView()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Deck-Ansicht schließen">✕</button>
+      </div>
+      <div class="editor-toolbar" role="group" aria-label="Deck-Steuerung">
+        <button type="button" id="flashTabCards" class="mini-button picked" onclick="flashSwitchMode('cards')" aria-label="Karten verwalten">🂠 Karten</button>
+        <button type="button" id="flashTabLearn" class="mini-button" onclick="startLearn()" aria-label="Lernmodus starten">▶ Lernen</button>
+      </div>
+      <div id="flashBody" class="flash-body"></div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <span id="flashFoot" style="font-size:12px;align-self:center;opacity:.8"></span>
+        <span style="display:flex;gap:8px">
+          <button type="button" class="inactive" onclick="closeDeckView()" aria-label="Schließen">Schließen</button>
+        </span>
+      </div>
+      <input id="flashImgFile" type="file" accept="image/*" onchange="deckImagePicked(event)" style="display:none" aria-hidden="true">
+      <input id="flashCsvFile" type="file" accept=".csv,text/csv,text/plain" onchange="deckImportCsv(event)" style="display:none" aria-hidden="true">
+    </div>
+  </div>
+
   <!-- GRAPH-OVERLAY: SPEC-09 light V1 (Canvas, statisches Radial-/Kreis-Layout, kein Cloud) -->
   <div id="graphOverlay" class="editor-overlay" onclick="if (event.target === this) closeGraphOverlay()">
     <div class="editor-modal" style="max-width:880px">
@@ -470,7 +494,9 @@
   <script src="js/format-doc.js"></script>
   <script src="js/scrollnav.js"></script>
   <script src="js/paper-templates.js"></script>
+  <script src="js/flashcards.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/flash-ui.js"></script>
   <script src="js/appwrite-files.js"></script>
   <script src="js/appwrite-sync.js"></script>
   <script src="js/updater.js"></script>

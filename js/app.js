@@ -323,8 +323,8 @@ function setSaveStatus(t) { const el = $('statusSave'); if (el) el.textContent =
 
 /* ---------- Modell ---------- */
 function newPage() { return { id: uid(), strokes: [], texts: [], images: [], bg: null }; }
-function newBook(title, withStarter) {
-  const b = { id: uid(), title: title || 'Neues Buch', paper: 'grid-a4', updatedAt: Date.now(), folderId: null, pages: [newPage()] };
+function newBook(title, withStarter, kind) {
+  const b = { id: uid(), title: title || 'Neues Buch', kind: (kind === 'flashcards' ? 'flashcards' : 'notebook'), paper: 'grid-a4', updatedAt: Date.now(), folderId: null, pages: [newPage()] };
   // Neues Buch landet im aktiven Ordner (falls einer gewählt ist)
   try {
     if (activeFolderId && activeFolderId !== 'all' && activeFolderId !== 'unsorted') {
@@ -336,10 +336,37 @@ function newBook(title, withStarter) {
   // V1 bewusst ohne UI-Bruch (kein Dialog-Feld); Umstellung später hier im
   // Buch-Flow, aktuell per GrimoireInkIndex.setBookLang(book, 'en').
   try { b.lang = (typeof GrimoireInkIndex !== 'undefined' && GrimoireInkIndex.defaultLang) ? GrimoireInkIndex.defaultLang() : 'de'; } catch { b.lang = 'de'; }
-  if (withStarter) {
+  // Karteikarten-Deck (js/flashcards.js): cards[] + deckOptions, 1 Notizseite bleibt.
+  if (b.kind === 'flashcards') {
+    try {
+      if (typeof FederwerkFlashcards !== 'undefined' && FederwerkFlashcards.ensureDeck) FederwerkFlashcards.ensureDeck(b);
+      else { b.cards = []; b.deckOptions = { newPerDay: 20, maxReviewsPerDay: 100 }; }
+    } catch { b.cards = []; b.deckOptions = { newPerDay: 20, maxReviewsPerDay: 100 }; }
+    if (withStarter) {
+      try {
+        const FC = (typeof FederwerkFlashcards !== 'undefined') ? FederwerkFlashcards : null;
+        const mk = (f, bk) => FC ? FC.newCard(f, bk) : { id: uid(), front: f, back: bk, frontImg: null, backImg: null, createdAt: Date.now(), updatedAt: Date.now(), ease: 2.5, interval: 0, reps: 0, lapses: 0, due: Date.now(), lastReview: null, suspended: false, totalReviews: 0, correctReviews: 0 };
+        b.cards.push(mk('Was ist die Hauptstadt von Frankreich?', 'Paris'));
+        b.cards.push(mk('Vorderseite antippen → umdrehen, dann ehrlich bewerten: Nochmal / Hart / Gut / Leicht.', 'So plant das SM-2-System deine nächste Wiederholung.'));
+      } catch { /* Starter optional */ }
+    }
+  } else if (withStarter) {
     b.pages[0].texts.push({ id: uid(), x: 0.08, y: 0.05, html: '<h2>Willkommen im Federwerk</h2><p>• <b>Stift/Marker:</b> auf der Seite malen (Maus, Touch, Stylus)<br>• <b>Text:</b> Tool „T Text“ → auf Seite klicken → Doppelklick öffnet den großen Texteditor<br>• <b>Bild:</b> über 🖼 einfügen, in Auswahl-Modus ✥ verschieben &amp; skalieren<br>• <b>Radierer:</b> Striche antippen zum Löschen</p>' });
   }
   return b;
+}
+/* Karteikarten-Deck anlegen: landet wie ein Notizbuch in Ordner/Bibliothek, öffnet die Deck-Ansicht. */
+function createFlashDeck() {
+  const b = newBook('Neues Deck ' + (state.books.filter(x => x && x.kind === 'flashcards').length + 1), true, 'flashcards');
+  state.books.unshift(b);
+  persistNow(); renderLibrary();
+  if (typeof openDeckView === 'function') openDeckView(b.id);
+}
+function isFlashDeck(b) {
+  try {
+    if (typeof FederwerkFlashcards !== 'undefined' && FederwerkFlashcards.isDeck) return FederwerkFlashcards.isDeck(b);
+  } catch { /* Fallback unten */ }
+  return !!(b && b.kind === 'flashcards');
 }
 function openBook() { return paneBook(activePaneIdx()) || state.books.find(b => b.id === state.openBookId) || null; }
 function currentPage() {
@@ -358,6 +385,14 @@ function showLibrary() {
   renderLibrary();
 }
 function openBookView(id, pageId, paneIdx) {
+  const b0 = state.books.find(x => x.id === id);
+  // Karteikarten-Decks öffnen die Deck-Ansicht (Lernen + Kartenliste), kein Zeichen-Canvas.
+  if (b0 && isFlashDeck(b0)) {
+    if (typeof openDeckView === 'function') { openDeckView(id); return; }
+    // Fallback ohne Deck-UI: Bibliothek zeigen statt leerem Canvas
+    showLibrary();
+    return;
+  }
   const api = splitApi();
   const target = (paneIdx === 1 || paneIdx === 0) ? paneIdx : activePaneIdx();
   const b = state.books.find(x => x.id === id);
@@ -431,7 +466,9 @@ function duplicateBook(id, ev) {
   const src = state.books.find(b => b.id === id); if (!src) return;
   const copy = JSON.parse(JSON.stringify(src));
   copy.id = uid(); copy.title = src.title + ' (Kopie)';
-  copy.pages.forEach(p => { p.id = uid(); });
+  (copy.pages || []).forEach(p => { p.id = uid(); });
+  // Deck-Kopie: frische Karten-IDs, Lernstand bleibt erhalten (bewusst kopiert)
+  if (Array.isArray(copy.cards)) copy.cards.forEach(c => { if (c) c.id = uid(); });
   copy.updatedAt = Date.now();
   if (typeof copy.folderId !== 'string') copy.folderId = src.folderId || null;
   state.books.unshift(copy);
@@ -1432,13 +1469,42 @@ function renderLibrary() {
     + (folderCards ? '<div class="explorer-section-label">Ordner</div><div class="explorer-folder-grid">' + folderCards + '</div>' : '')
     + (folderCards ? '<div class="explorer-section-label">Dokumente</div>' : '')
     + matches.map(({ book: b, match, snippet }) => {
-    const firstText = (b.pages || []).flatMap(p => p.texts || [])[0];
-    const preview = firstText ? esc(stripHtml(firstText.html).slice(0, 120)) : 'Leere Seiten – tippen zum Öffnen.';
-    const strokes = (b.pages || []).reduce((n, p) => n + (p.strokes || []).length, 0);
-    let badge = '';
+    const deck = isFlashDeck(b);
+    let preview = 'Leere Seiten – tippen zum Öffnen.';
+    let metaLine = '';
+    let typeBadge = '';
+    let deckActions = '';
+    if (deck) {
+      let stats = null;
+      try {
+        if (typeof FederwerkFlashcards !== 'undefined' && FederwerkFlashcards.deckStats) stats = FederwerkFlashcards.deckStats(b, Date.now());
+      } catch { stats = null; }
+      const n = Array.isArray(b.cards) ? b.cards.length : 0;
+      const due = stats ? stats.due : 0;
+      const learned = stats ? stats.learned : 0;
+      let first = '';
+      try {
+        const c0 = (b.cards || [])[0];
+        if (c0) {
+          const FC = (typeof FederwerkFlashcards !== 'undefined') ? FederwerkFlashcards : null;
+          first = FC ? FC.stripTags(c0.front).slice(0, 120) : String(c0.front || '').slice(0, 120);
+        }
+      } catch { first = ''; }
+      preview = first ? esc(first) : (n ? 'Tippen zum Lernen.' : 'Noch keine Karten – tippen zum Anlegen.');
+      metaLine = n + ' Karte(n) · ' + due + ' fällig · ' + learned + ' gelernt · ' + new Date(b.updatedAt).toLocaleDateString('de-DE');
+      typeBadge = '<span style="display:inline-block;font-size:11px;border:1px solid currentColor;border-radius:999px;padding:0 8px;margin-left:8px;opacity:.9" title="Karteikarten-Deck mit SM-2-Lernsystem">🂠 Deck</span>';
+      deckActions = '<button class="mini-button" onclick="openDeckLearn(\'' + b.id + '\',event)" title="Lernmodus starten (fällige Karten)">▶ Lernen' + (due ? ' (' + due + ')' : '') + '</button>'
+        + '<button class="mini-button" onclick="openDeckView(\'' + b.id + '\',event)" title="Karten verwalten">🂠 Karten</button>';
+    } else {
+      const firstText = (b.pages || []).flatMap(p => p.texts || [])[0];
+      preview = firstText ? esc(stripHtml(firstText.html).slice(0, 120)) : 'Leere Seiten – tippen zum Öffnen.';
+      const strokes = (b.pages || []).reduce((n, p) => n + (p.strokes || []).length, 0);
+      metaLine = (b.pages || []).length + ' Seite(n) · ' + strokes + ' Striche · ' + new Date(b.updatedAt).toLocaleDateString('de-DE');
+    }
+    let badge = typeBadge;
     if (q && match && match !== 'none') {
       const label = match === 'tag' ? 'Tag' : (match === 'title' ? 'Titel' : 'Text');
-      badge = '<span style="display:inline-block;font-size:11px;border:1px solid currentColor;border-radius:999px;padding:0 8px;margin-left:8px;opacity:.8"'
+      badge += '<span style="display:inline-block;font-size:11px;border:1px solid currentColor;border-radius:999px;padding:0 8px;margin-left:8px;opacity:.8"'
         + ' title="Treffer in getipptem Text – keine Handschrift-Erkennung">' + label + '</span>';
     }
     const snippetHtml = (q && snippet && match !== 'title')
@@ -1454,13 +1520,13 @@ function renderLibrary() {
       + '<div class="notebook-spine"></div>'
       + '<div class="notebook-body">'
       + '<div class="notebook-title">' + esc(b.title) + badge + '</div>'
-      + '<div class="notebook-meta">' + folderBadge + '<span>' + (b.pages || []).length + ' Seite(n) · ' + strokes + ' Striche · ' + new Date(b.updatedAt).toLocaleDateString('de-DE') + '</span></div>'
+      + '<div class="notebook-meta">' + folderBadge + '<span>' + esc(metaLine) + '</span></div>'
       + '<div class="notebook-preview">' + preview + '</div>'
       + snippetHtml
       + '<div class="notebook-actions">'
-      + '<button class="mini-button" onclick="openBookInSplit(\'' + b.id + '\',event)" title="Als zweites Dokument daneben öffnen (Split-Screen, ein Fenster)">⇉ Split</button>'
+      + (deck ? deckActions : '<button class="mini-button" onclick="openBookInSplit(\'' + b.id + '\',event)" title="Als zweites Dokument daneben öffnen (Split-Screen, ein Fenster)">⇉ Split</button>')
       + '<button class="mini-button" onclick="exportBookJSON(\'' + b.id + '\',event)">Export</button>'
-      + '<button class="mini-button" onclick="exportGoodNotes(\'' + b.id + '\',event)" aria-label="Buch als GoodNotes-Datei exportieren">📤 GoodNotes</button>'
+      + (deck ? '' : '<button class="mini-button" onclick="exportGoodNotes(\'' + b.id + '\',event)" aria-label="Buch als GoodNotes-Datei exportieren">📤 GoodNotes</button>')
       + '<button class="mini-button" onclick="duplicateBook(\'' + b.id + '\',event)">Duplizieren</button>'
       + '<button class="mini-button" onclick="deleteBook(\'' + b.id + '\',event)">Löschen</button>'
       + '</div>'
@@ -3077,6 +3143,28 @@ function normalizeBook(obj) {
     } catch { try { delete p.size; } catch { /* ignore */ } }
   });
   if (!b.pages.length) b.pages.push(newPage());
+  // Dokumenttyp + Karteikarten erhalten (legacy ohne kind = Notizbuch)
+  b.kind = (obj.kind === 'flashcards' || obj.kind === 'deck') ? 'flashcards' : 'notebook';
+  if (b.kind === 'flashcards') {
+    try {
+      if (typeof FederwerkFlashcards !== 'undefined' && FederwerkFlashcards.ensureDeck) {
+        const rawCards = Array.isArray(obj.cards) ? obj.cards : [];
+        b.cards = JSON.parse(JSON.stringify(rawCards));
+        // Importierte Karten-IDs sind gerätefremd -> frische IDs, Lernstand bleibt
+        const seen = new Set();
+        b.cards.forEach(c => { if (c && typeof c === 'object') { c.id = uid(); if (seen.has(c.id)) c.id = uid(); seen.add(c.id); } });
+        if (obj.deckOptions && typeof obj.deckOptions === 'object') {
+          b.deckOptions = JSON.parse(JSON.stringify(obj.deckOptions));
+        }
+        FederwerkFlashcards.ensureDeck(b);
+      } else {
+        b.cards = Array.isArray(obj.cards) ? obj.cards : [];
+        b.deckOptions = { newPerDay: 20, maxReviewsPerDay: 100 };
+      }
+    } catch { b.cards = []; b.deckOptions = { newPerDay: 20, maxReviewsPerDay: 100 }; }
+  } else {
+    if (Array.isArray(b.cards) && !b.cards.length) { try { delete b.cards; } catch { /* ignore */ } }
+  }
   return b;
 }
 function normalizeFoldersImported(raw) {
