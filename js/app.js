@@ -638,6 +638,20 @@ function expandFolder(id, on) {
   else s.add(String(id));
   saveExpanded();
 }
+function expandAllFolders() {
+  const s = loadExpanded();
+  s.clear();
+  s.add('*all*');
+  saveExpanded();
+  renderLibrary();
+}
+function collapseAllFolders() {
+  const s = loadExpanded();
+  s.delete('*all*');
+  for (const f of state.folders || []) if (f && f.id) s.delete(String(f.id));
+  saveExpanded();
+  renderLibrary();
+}
 function toggleFolderExpanded(id, ev) {
   if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
   const s = loadExpanded();

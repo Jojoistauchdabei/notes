@@ -48,11 +48,19 @@
         <div class="library-layout">
           <aside class="folder-sidebar no-print" aria-label="Ordner">
             <div class="folder-sidebar-head">
-              <span class="section-title" style="margin:0">Ordner</span>
-              <button class="mini-button" onclick="createFolderUI()" aria-label="Neuen Ordner erstellen" title="Neuen Ordner erstellen">+ Neu</button>
+              <div>
+                <div class="section-title folder-sidebar-title">Dateien</div>
+                <div class="folder-sidebar-subtitle">Dokumente und Ordner</div>
+              </div>
+              <button class="mini-button folder-new-button" onclick="createFolderUI()" aria-label="Neuen Ordner erstellen" title="Neuen Ordner erstellen">＋</button>
+            </div>
+            <div class="folder-toolbar" aria-label="Ordneransicht">
+              <button type="button" class="folder-toolbar-button" onclick="setActiveFolder('all',event)" title="Alle Dokumente anzeigen">⌂ <span>Alle Dateien</span></button>
+              <button type="button" class="folder-toolbar-icon" onclick="expandAllFolders()" title="Alle Ordner aufklappen" aria-label="Alle Ordner aufklappen">＋</button>
+              <button type="button" class="folder-toolbar-icon" onclick="collapseAllFolders()" title="Alle Ordner zuklappen" aria-label="Alle Ordner zuklappen">−</button>
             </div>
             <nav class="folder-nav" id="folderNav" aria-label="Ordner-Liste"></nav>
-            <div class="folder-hint">Bücher per Drag &amp; Drop oder 📁-Menü auf der Karte verschieben. Doppelklick = umbenennen, Rechtsklick = Menü (Neu/Unterordner/Löschen). Ordner löschen behält die Bücher (→ Unsortiert) und synct via Appwrite.</div>
+            <div class="folder-hint">Ordner wie im Dateimanager verwalten: ziehen, ablegen, doppelklicken zum Umbenennen oder Rechtsklick für weitere Aktionen.</div>
           </aside>
           <section class="library-main" aria-live="polite">
             <div class="divider"><div class="divider-line"></div><div class="divider-title" id="libraryFolderTitle">Alle Bücher</div><div class="divider-line"></div></div>
