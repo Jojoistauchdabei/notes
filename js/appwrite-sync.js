@@ -414,7 +414,9 @@
         const rmap = {};
         for (const ref of Object.keys(hashed)) rmap[ref] = hashed[ref].hash;
         const { pages } = rewriteRefs(b.pages, rmap, 'push');
-        return F2.sha256Hex(new TextEncoder().encode(JSON.stringify({ v: 1, pages })));
+        return F2.sha256Hex(new TextEncoder().encode(JSON.stringify({
+          v: 2, title: b.title || '', folderId: b.folderId || null, pages,
+        })));
       };
       // Content-Hash aller lokalen Bücher (Buchzahl klein, Hash schnell).
       for (const b of books) {
@@ -446,7 +448,9 @@
         const r = remote[id].row;
         try {
           const pages = await payloadToPages(F, cfg, store, r);
-          const rh = pages ? await F.sha256Hex(new TextEncoder().encode(JSON.stringify({ v: 1, pages }))) : 'unlesbar';
+          const rh = pages ? await F.sha256Hex(new TextEncoder().encode(JSON.stringify({
+            v: 2, title: remote[id].title || '', folderId: remote[id].row.folderId || null, pages,
+          }))) : 'unlesbar';
           if (rh === localClean[id].hash) {
             touchMeta(id, { rowId: r.$id, hash: rh, remoteUpdatedAtMs: remote[id].updatedAtMs });
           } else {
@@ -583,6 +587,7 @@
       say = typeof say === 'function' ? say : () => {};
       const mirror = loadFolders();
       const fmeta = loadFolderMeta();
+      const localChanged = new Set();
       // Lokale Ordner aus state.folders (neue Bibliotheks-UI) in den Mirror übernehmen,
       // damit sie hochgesynct werden – state ist führend für Namen.
       try {
@@ -591,10 +596,10 @@
             if (!f || !f.id || !f.name) continue;
             const cur = mirror[f.id];
             const nu = { name: f.name, parentId: f.parentId || null, updatedAtMs: Number(f.updatedAt) || Date.now() };
-            if (!cur || (cur.name !== nu.name || (cur.parentId || null) !== (nu.parentId || null))) {
-              // Nur übernehmen, wenn lokal neuer oder Mirror leer (Remote-Pull unten gewinnt sonst)
-              const m = fmeta[f.id];
-              if (!m || nu.updatedAtMs >= (m.remoteUpdatedAtMs || 0)) mirror[f.id] = nu;
+            const m = fmeta[f.id];
+            if (!m || folderHash(nu) !== m.hash) {
+              mirror[f.id] = nu;
+              localChanged.add(f.id);
             }
           }
         }
@@ -603,7 +608,12 @@
       // attribute in the table schema.
       const rows = await listRows(cfg, 'folders', [Q.equal('userId', userId)]);
       const remote = {};
-      for (const r of rows) remote[r.$id] = r;
+      for (const r of rows) {
+        // Lokale Ordner-IDs sind die fachliche ID; Appwrite verwendet daraus
+        // abgeleitete Row-IDs. So bleiben auch ältere/ungültige IDs zuordenbar.
+        const localId = Object.keys(mirror).find(fid => rowIdForBook(fid) === r.$id) || r.$id;
+        remote[localId] = r;
+      }
       // Pull: remote neuer/ unbekannt
       for (const rid of Object.keys(remote)) {
         const r = remote[rid];
@@ -611,6 +621,7 @@
         const m = fmeta[rid];
         const cur = mirror[rid];
         const curHash = cur ? folderHash(cur) : undefined;
+        if (localChanged.has(rid)) continue;
         if (!m || rms > (m.remoteUpdatedAtMs || 0)) {
           if (r.name == null) continue;
           if (!cur || (m && curHash === m.hash)) {
@@ -633,7 +644,7 @@
         if (cur.deleted) {
           if (!remote[fid]) { delete mirror[fid]; delete fmeta[fid]; continue; }
           const nowIso = msToIso(Date.now());
-          await tablesRest(cfg, 'DELETE', `/tablesdb/${cfg.databaseId}/tables/folders/rows/${fid}`).catch(() => null);
+          await tablesRest(cfg, 'DELETE', `/tablesdb/${cfg.databaseId}/tables/folders/rows/${rowIdForBook(fid)}`).catch(() => null);
           delete mirror[fid]; delete fmeta[fid];
           continue;
         }
