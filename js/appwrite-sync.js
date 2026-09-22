@@ -588,12 +588,14 @@
       const mirror = loadFolders();
       const fmeta = loadFolderMeta();
       const localChanged = new Set();
+      const localFolderIds = new Set();
       // Lokale Ordner aus state.folders (neue Bibliotheks-UI) in den Mirror übernehmen,
       // damit sie hochgesynct werden – state ist führend für Namen.
       try {
         if (typeof window !== 'undefined' && window.state && Array.isArray(window.state.folders)) {
           for (const f of window.state.folders) {
             if (!f || !f.id || !f.name) continue;
+            localFolderIds.add(String(f.id));
             const cur = mirror[f.id];
             const nu = { name: f.name, parentId: f.parentId || null, updatedAtMs: Number(f.updatedAt) || Date.now() };
             const m = fmeta[f.id];
@@ -611,8 +613,21 @@
       for (const r of rows) {
         // Lokale Ordner-IDs sind die fachliche ID; Appwrite verwendet daraus
         // abgeleitete Row-IDs. So bleiben auch ältere/ungültige IDs zuordenbar.
-        const localId = Object.keys(mirror).find(fid => rowIdForBook(fid) === r.$id) || r.$id;
+        const localId = Object.keys(mirror).find(fid =>
+          (fmeta[fid] && fmeta[fid].rowId === r.$id) || rowIdForBook(fid) === r.$id
+        ) || r.$id;
         remote[localId] = r;
+      }
+      // A folder removed locally must not survive in the cloud mirror.
+      for (const fid of Object.keys(mirror)) {
+        if (localFolderIds.has(String(fid))) continue;
+        const rowId = (fmeta[fid] && fmeta[fid].rowId) || rowIdForBook(fid);
+        if (remote[fid] || rows.some(r => r.$id === rowId)) {
+          await tablesRest(cfg, 'DELETE', `/tablesdb/${cfg.databaseId}/tables/folders/rows/${rowId}`);
+          delete remote[fid];
+        }
+        delete mirror[fid];
+        delete fmeta[fid];
       }
       // Pull: remote neuer/ unbekannt
       for (const rid of Object.keys(remote)) {
@@ -626,11 +641,11 @@
           if (r.name == null) continue;
           if (!cur || (m && curHash === m.hash)) {
             mirror[rid] = { name: r.name || '', parentId: r.parentId || null, updatedAtMs: rms };
-            fmeta[rid] = { hash: folderHash(mirror[rid]), remoteUpdatedAtMs: rms };
+            fmeta[rid] = { hash: folderHash(mirror[rid]), remoteUpdatedAtMs: rms, rowId: r.$id };
           } else {
             // beidseitig geändert -> remote gewinnt (Ordner sind billig)
             mirror[rid] = { name: r.name || '', parentId: r.parentId || null, updatedAtMs: rms };
-            fmeta[rid] = { hash: folderHash(mirror[rid]), remoteUpdatedAtMs: rms };
+            fmeta[rid] = { hash: folderHash(mirror[rid]), remoteUpdatedAtMs: rms, rowId: r.$id };
           }
         }
       }
@@ -644,7 +659,8 @@
         if (cur.deleted) {
           if (!remote[fid]) { delete mirror[fid]; delete fmeta[fid]; continue; }
           const nowIso = msToIso(Date.now());
-          await tablesRest(cfg, 'DELETE', `/tablesdb/${cfg.databaseId}/tables/folders/rows/${rowIdForBook(fid)}`).catch(() => null);
+          const rowId = m.rowId || rowIdForBook(fid);
+          await tablesRest(cfg, 'DELETE', `/tablesdb/${cfg.databaseId}/tables/folders/rows/${rowId}`).catch(() => null);
           delete mirror[fid]; delete fmeta[fid];
           continue;
         }
@@ -654,7 +670,7 @@
           await upsertRow(cfg, 'folders', rowIdForBook(fid), {
             userId, name: cur.name || '', parentId: cur.parentId || null,
           }, userId);
-          fmeta[fid] = { hash: h, remoteUpdatedAtMs: isoToMs(nowIso) };
+          fmeta[fid] = { hash: h, remoteUpdatedAtMs: isoToMs(nowIso), rowId: rowIdForBook(fid) };
         }
       }
       void referenced;

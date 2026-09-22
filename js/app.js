@@ -448,6 +448,10 @@ function setActiveFolder(id, ev) {
   setActiveFolderId(id || 'all');
   renderLibrary();
 }
+function openFolderFromLibrary(id, ev) {
+  if (ev) ev.stopPropagation();
+  setActiveFolder(id, null);
+}
 function createFolderUI(parentId) {
   const pid = (typeof parentId === 'string' && parentId) ? parentId : null;
   let pname = '';
@@ -1396,14 +1400,38 @@ function renderLibrary() {
   const counterHtml = searched
     ? '<div style="font-size:12px;opacity:.75;margin-bottom:8px">' + matches.length + ' Treffer für &bdquo;' + esc(rawQ.trim().slice(0, 80)) + '&ldquo;</div>'
     : '';
+  let childFolders = [];
+  if (!searched && activeFolderId !== 'unsorted') {
+    try {
+      childFolders = (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.childrenOf)
+        ? GrimoireFolders.childrenOf(state.folders || [], activeFolderId === 'all' ? null : activeFolderId)
+        : [];
+    } catch { childFolders = []; }
+  }
+  const folderCards = childFolders.map(f => {
+    const n = counts.byId[f.id] || 0;
+    return '<button type="button" class="explorer-folder-card" ondblclick="openFolderFromLibrary(\'' + f.id + '\',event)" onclick="setActiveFolder(\'' + f.id + '\',event)" title="Doppelklick zum Öffnen">'
+      + '<span class="explorer-folder-icon" aria-hidden="true">📁</span>'
+      + '<span class="explorer-folder-name">' + esc(f.name || 'Ordner') + '</span>'
+      + '<span class="explorer-folder-count">' + n + ' Dokument' + (n === 1 ? '' : 'e') + '</span>'
+      + '</button>';
+  }).join('');
   if (!matches.length) {
+    if (folderCards) {
+      grid.innerHTML = hintHtml + counterHtml + '<div class="explorer-section-label">Ordner</div><div class="explorer-folder-grid">' + folderCards + '</div>'
+        + '<div class="explorer-empty">' + (searched ? 'Keine Treffer.' : (activeFolderId === 'all' ? 'Keine Dokumente vorhanden.' : 'Dieser Ordner ist leer.')) + '</div>';
+      return;
+    }
     const folderHint = (activeFolderId !== 'all')
       ? 'In diesem Ordner noch nichts. Lege oben ein neues Buch an (landet hier) oder verschiebe ein Buch hierher.'
       : 'Keine Bücher gefunden. Lege oben ein neues Buch an.';
     grid.innerHTML = hintHtml + counterHtml + '<div style="font-size:14px;opacity:.8">' + (searched ? 'Keine Treffer. Suche ändern oder leeren.' : esc(folderHint)) + '</div>';
     return;
   }
-  grid.innerHTML = hintHtml + counterHtml + matches.map(({ book: b, match, snippet }) => {
+  grid.innerHTML = hintHtml + counterHtml
+    + (folderCards ? '<div class="explorer-section-label">Ordner</div><div class="explorer-folder-grid">' + folderCards + '</div>' : '')
+    + (folderCards ? '<div class="explorer-section-label">Dokumente</div>' : '')
+    + matches.map(({ book: b, match, snippet }) => {
     const firstText = (b.pages || []).flatMap(p => p.texts || [])[0];
     const preview = firstText ? esc(stripHtml(firstText.html).slice(0, 120)) : 'Leere Seiten – tippen zum Öffnen.';
     const strokes = (b.pages || []).reduce((n, p) => n + (p.strokes || []).length, 0);
