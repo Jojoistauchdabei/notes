@@ -14,11 +14,18 @@ var GNZip = (function () {
   }
 
   async function inflateRaw(raw) {
-    // Browser: native DecompressionStream. Node-Test: globaler Shim via zlib.
-    const ds = new DecompressionStream('deflate-raw');
-    const stream = new Blob([raw]).stream().pipeThrough(ds);
-    const buf = await new Response(stream).arrayBuffer();
-    return new Uint8Array(buf);
+    // Browser: native DecompressionStream. Node-Test: zlib fallback.
+    if (typeof DecompressionStream !== 'undefined') {
+      const ds = new DecompressionStream('deflate-raw');
+      const stream = new Blob([raw]).stream().pipeThrough(ds);
+      const buf = await new Response(stream).arrayBuffer();
+      return new Uint8Array(buf);
+    }
+    if (typeof require === 'function') {
+      const zlib = require('node:zlib');
+      return new Uint8Array(zlib.inflateRawSync(Buffer.from(raw)));
+    }
+    throw new Error('ZIP: Deflate wird von diesem Browser nicht unterstützt');
   }
 
   async function readZip(bytes) {
@@ -41,6 +48,7 @@ var GNZip = (function () {
       const start = lho + 30 + lhNameLen + lhExtraLen;
       const raw = data.subarray(start, start + cSize);
       if (name.endsWith('/')) { p += 46 + nameLen + extraLen + comLen; continue; }
+      if (method !== 0 && method !== 8) throw new Error('ZIP: Kompressionsmethode ' + method + ' nicht unterstützt');
       out[name] = method === 0 ? raw.slice() : await inflateRaw(raw);
       p += 46 + nameLen + extraLen + comLen;
     }

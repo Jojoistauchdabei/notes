@@ -1630,7 +1630,10 @@ var GoodNotes = (function () {
     const mime = head.includes('png') ? 'image/png' : head.includes('jpeg') || head.includes('jpg') ? 'image/jpeg' : null;
     if (!mime) return null;
     try {
-      const bin = (typeof atob !== 'undefined') ? atob(src.slice(comma + 1)) : Buffer.from(src.slice(comma + 1), 'base64').toString('binary');
+      const payload = src.slice(comma + 1);
+      const bin = head.includes(';base64')
+        ? ((typeof atob !== 'undefined') ? atob(payload) : Buffer.from(payload, 'base64').toString('binary'))
+        : decodeURIComponent(payload).replace(/[^\x00-\xff]/g, ch => String.fromCharCode(ch.charCodeAt(0) & 0xff));
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       if (!bytes.length) return null;

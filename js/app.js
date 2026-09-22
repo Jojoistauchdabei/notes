@@ -3220,7 +3220,11 @@ async function buildBookFromGN(doc, fileName, members) {
     // Bewusst KEIN page.size: mapPage rechnet alles in den fixen A4-Raum
     // (1000×1414, inkl. offY) – natives GN-Format käme erst mit Re-Mapping.
     const page = { id: uid(), strokes: m.strokes, texts: [], images: [], bg: null };
-    const iw = pg.dim.w * DPI, ih = pg.dim.h * DPI;
+    // Ältere/teilweise exportierte GoodNotes-Dateien enthalten keine
+    // Seitenabmessungen. In diesem Fall auf das Standard-A4-Format zurückfallen.
+    const dimW = Number(pg.dim && pg.dim.w) > 0 ? Number(pg.dim.w) : (595.28 / DPI);
+    const dimH = Number(pg.dim && pg.dim.h) > 0 ? Number(pg.dim.h) : (841.89 / DPI);
+    const iw = dimW * DPI, ih = dimH * DPI;
     const sc = CANVAS_W / iw, offY = (CANVAS_H - ih * sc) / 2;
     for (const t of m.texts) {
       page.texts.push({ id: uid(), x: Math.max(0, Math.min(0.9, t.x)), y: Math.max(0, Math.min(0.95, t.y)), html: t.html });
