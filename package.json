@@ -1,6 +1,6 @@
 {
   "name": "federwerk",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "private": true,
   "description": "Handschrift-Notizbuch im Papier-Stil mit GoodNotes-Import",
   "scripts": {

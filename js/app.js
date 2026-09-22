@@ -4,8 +4,20 @@
 const LS_KEY = 'grimoire-dnd-v1';
 const CANVAS_W = 1000, CANVAS_H = 1414;
 
-/* Effektive Seitenmaße (immer gültig): nutzt PagesImport.pageDims, sonst A4. */
-function pageDimsOf(page) {
+/* Effektive Seitenmaße (immer gültig): `page.size` gewinnt (eigene Formate
+ * wie Bild/PDF/Quer/Quadrat), sonst Buch-Papiervorlage, sonst A4-Default.
+ * Nutzt FederwerkPaper.effectiveDims wenn verfügbar (Buch-Template-System),
+ * sonst eigenes size bzw. A4 (Altbestand, GoodNotes-A4-Mapping). */
+function pageDimsOf(page, paperId) {
+  try {
+    if (typeof FederwerkPaper !== 'undefined' && FederwerkPaper.effectiveDims) {
+      const d = FederwerkPaper.effectiveDims(page, paperId);
+      if (d) {
+        const w = Math.round(Number(d.w)), h = Math.round(Number(d.h));
+        if (isFinite(w) && isFinite(h) && w >= 200 && w <= 2400 && h >= 200 && h <= 2400) return { w, h };
+      }
+    }
+  } catch { /* Fallback unten */ }
   try {
     if (typeof PagesImport !== 'undefined' && PagesImport.pageDims) return PagesImport.pageDims(page);
   } catch { /* Fallback unten */ }
@@ -14,11 +26,18 @@ function pageDimsOf(page) {
   if (isFinite(w) && isFinite(h) && w >= 200 && w <= 2400 && h >= 200 && h <= 2400) return { w, h };
   return { w: CANVAS_W, h: CANVAS_H };
 }
+/* Maße der Seite in Pane idx (inkl. Buch-Vorlagen-Fallback). */
+function paneDims(idx) {
+  try {
+    const b = paneBook(idx);
+    return pageDimsOf(panePage(idx), b && b.paper);
+  } catch { return { w: CANVAS_W, h: CANVAS_H }; }
+}
 /* Overlay einer Pane-Seite vollständig löschen (maße der aktuellen Seite). */
 function clearOverlayFor(idx) {
   try {
     const oc = overlayEl(idx); if (!oc) return;
-    const d = pageDimsOf(panePage(idx));
+    const d = paneDims(idx);
     oc.getContext('2d').clearRect(0, 0, d.w, d.h);
   } catch { /* ignore */ }
 }
@@ -893,23 +912,59 @@ function setPaper(v) {
   }
   touchBook(); persistSoon(); renderAll();
 }
+/* Buch-Vorlagenmaße (für __auto-Fallback und Persistenz-Entscheidung). */
+function bookTemplateDims() {
+  try {
+    const P = paperApi();
+    if (P && P.dimsFor) {
+      const b = openBook();
+      const d = P.dimsFor(b && b.paper);
+      if (d) {
+        const w = Math.round(Number(d.w)), h = Math.round(Number(d.h));
+        if (isFinite(w) && isFinite(h) && w >= 200 && w <= 2400 && h >= 200 && h <= 2400) return { w, h };
+      }
+    }
+  } catch { /* A4 unten */ }
+  return { w: CANVAS_W, h: CANVAS_H };
+}
 /* ---------- Seitenformat (unterschiedlich große Seiten in einem Dokument) ----------
- * v: Preset-Key ('a4p'|'a4l'|'square') oder {w,h}. 'a4p'/Default wird als
- * size=null persistiert (Altbestand-kompatibel). Beschriebene Seiten werden
+ * v: '__auto' (Buchvorlage folgen, size löschen), Preset-Key
+ * ('a4p'|'a4l'|'square'), {w,h} oder '__custom' (No-op, nur Anzeige).
+ * Persistiert wird size nur bei Abweichung von der Buchvorlage (sonst
+ * folgen = löschen) – Altbestand bleibt schlank. Beschriebene Seiten werden
  * proportional umgerechnet (Strokes; Texte/Bilder sind normiert und folgen
  * automatisch). GoodNotes-Seiten bleiben A4 (Import-Mapping ist fix A4). */
 function setPageSize(v) {
   const b = openBook(); const p = currentPage(); if (!b || !p) return;
-  let size = null;
-  try {
-    if (typeof PagesImport !== 'undefined' && PagesImport.sanitizePageSize) size = PagesImport.sanitizePageSize(v);
-  } catch { size = null; }
-  const from = pageDimsOf(p);
-  const to = size || { w: CANVAS_W, h: CANVAS_H };
+  if (v === '__custom') { syncPaneChrome(activePaneIdx()); return; }
+  const tpl = bookTemplateDims();
+  let target = null; // null = folgen (__auto)
+  if (v !== '__auto' && v != null) {
+    try {
+      if (typeof PagesImport !== 'undefined' && PagesImport.PAGE_FORMATS && typeof v === 'string' && PagesImport.PAGE_FORMATS[v]) {
+        const pr = PagesImport.PAGE_FORMATS[v];
+        target = { w: pr.w, h: pr.h };
+      } else if (typeof PagesImport !== 'undefined' && PagesImport.sanitizePageSize) {
+        target = PagesImport.sanitizePageSize(v) || { w: CANVAS_W, h: CANVAS_H };
+      }
+    } catch { target = { w: CANVAS_W, h: CANVAS_H }; }
+    if (!target) target = { w: CANVAS_W, h: CANVAS_H };
+  }
+  const from = pageDimsOf(p, b.paper);
+  const to = target || tpl;
   if (from.w === to.w && from.h === to.h) {
-    // Nur persistieren/normalisieren, kein Umbruch nötig
-    if ((p.size || null) && !size) { snapshot(true); delete p.size; touchBook(); persistSoon(); renderAll(); }
-    else syncPaneChrome(activePaneIdx());
+    // Maße stimmen schon: ggf. auf Folgen normalisieren (Ballast löschen)
+    if (!target) {
+      if (p.size) { snapshot(true); delete p.size; touchBook(); persistSoon(); renderAll(); }
+      else syncPaneChrome(activePaneIdx());
+    } else if (target.w === tpl.w && target.h === tpl.h) {
+      if (p.size) { snapshot(true); delete p.size; touchBook(); persistSoon(); renderAll(); }
+      else syncPaneChrome(activePaneIdx());
+    } else {
+      if (!p.size || p.size.w !== target.w || p.size.h !== target.h) {
+        snapshot(true); p.size = { w: target.w, h: target.h }; touchBook(); persistSoon(); renderAll();
+      } else syncPaneChrome(activePaneIdx());
+    }
     return;
   }
   snapshot(true);
@@ -918,8 +973,8 @@ function setPageSize(v) {
       p.strokes = PagesImport.retargetStrokes(p.strokes, from, to) || [];
     }
   } catch { /* Inhalt bleibt, nur Format wechselt */ }
-  if (size) p.size = size;
-  else delete p.size;
+  if (!target || (target.w === tpl.w && target.h === tpl.h)) delete p.size;
+  else p.size = { w: target.w, h: target.h };
   touchBook(); persistSoon(); renderAll();
 }
 
@@ -1038,28 +1093,38 @@ function syncPaneChrome(i) {
     try { const P = paperApi(); if (P) cur = P.normalizeId(cur); } catch { /* Rohwert */ }
     ps.value = cur;
   }
-  // Seitenformat-Select: Preset oder "Bildformat WxH" bei Custom-Größe
+  // Seitenformat-Select: eigenes Format (Preset/Custom) oder Buchvorlage (auto).
+  // Ohne eigenes size folgt die Seite der Vorlage -> '__auto' zeigen.
   const fs = $(i === 1 ? 'pageFormatB' : 'pageFormat');
   if (fs && document.activeElement !== fs) {
     try {
       const p = panePage(i);
-      const m = (typeof PagesImport !== 'undefined' && PagesImport.matchPageFormat)
-        ? PagesImport.matchPageFormat(p && p.size) : 'a4p';
+      let own = null;
+      try {
+        if (typeof PagesImport !== 'undefined' && PagesImport.sanitizePageSize) own = PagesImport.sanitizePageSize(p && p.size);
+        else if (p && p.size) own = { w: Math.round(Number(p.size.w)), h: Math.round(Number(p.size.h)) };
+      } catch { own = null; }
       let customOpt = fs.querySelector('option[data-custom="1"]');
-      if (!m) {
-        const d = pageDimsOf(p);
-        const label = 'Bildformat ' + d.w + '×' + d.h;
-        if (!customOpt) {
-          customOpt = document.createElement('option');
-          customOpt.setAttribute('data-custom', '1');
-          fs.insertBefore(customOpt, fs.firstChild);
-        }
-        customOpt.value = '__custom';
-        customOpt.textContent = label;
-        fs.value = '__custom';
-      } else {
+      if (!own) {
         if (customOpt) customOpt.remove();
-        fs.value = m;
+        fs.value = '__auto';
+      } else {
+        const m = (typeof PagesImport !== 'undefined' && PagesImport.matchPageFormat)
+          ? PagesImport.matchPageFormat(own) : null;
+        if (!m) {
+          const label = 'Bildformat ' + own.w + '×' + own.h;
+          if (!customOpt) {
+            customOpt = document.createElement('option');
+            customOpt.setAttribute('data-custom', '1');
+            fs.insertBefore(customOpt, fs.firstChild);
+          }
+          customOpt.value = '__custom';
+          customOpt.textContent = label;
+          fs.value = '__custom';
+        } else {
+          if (customOpt) customOpt.remove();
+          fs.value = m;
+        }
       }
     } catch { /* Format-Select optional */ }
   }
@@ -1606,7 +1671,7 @@ async function renderPreview() {
   $('previewTitle').textContent = 'SEITE ' + (idx + 1) + ' / ' + b.pages.length;
   $('previewMeta').textContent = p.strokes.length + ' Striche · ' + p.texts.length + ' Texte · ' + p.images.length + ' Bilder';
   const c = $('previewCanvas');
-  const pd = pageDimsOf(p);
+  const pd = pageDimsOf(p, b && b.paper);
   const W = 600, H = Math.max(1, Math.round(600 * pd.h / pd.w));
   c.width = W; c.height = H;
   const g = c.getContext('2d');
@@ -1718,7 +1783,7 @@ function fitCanvasFor(idx) {
   if (!c || !o) return;
   // Backing folgt dem Seitenformat (gedeckelt, damit große Formate
   // nicht den Speicher sprengen); Koordinaten bleiben Seiten-Einheiten.
-  const d = pageDimsOf(panePage(idx));
+  const d = paneDims(idx);
   let dpr = Math.min(2, window.devicePixelRatio || 1);
   try {
     if (typeof PagesImport !== 'undefined' && PagesImport.backingForPage) {
@@ -1742,7 +1807,7 @@ function stagePosFor(ev, idx) {
     if (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.normalizePressure) p = GrimoirePencil.normalizePressure(ev.pressure);
     else if (typeof ev.pressure === 'number' && ev.pressure > 0) p = Math.min(1, ev.pressure);
   } catch { /* Fallback 0.5 */ }
-  const d = pageDimsOf(panePage(idx));
+  const d = paneDims(idx);
   return { x: (ev.clientX - r.left) / r.width * d.w, y: (ev.clientY - r.top) / r.height * d.h, nx: (ev.clientX - r.left) / r.width, ny: (ev.clientY - r.top) / r.height, p };
 }
 function stagePos(ev) { return stagePosFor(ev, activePaneIdx()); }
@@ -1858,7 +1923,7 @@ function renderCanvasFor(idx) {
   const c = ctx2d(idx);
   if (!c) return;
   const p = panePage(idx); if (!p) return;
-  const d = pageDimsOf(p);
+  const d = paneDims(idx);
   c.clearRect(0, 0, d.w, d.h);
   p.strokes.forEach(s => drawStroke(c, s));
 }
@@ -1866,7 +1931,7 @@ function renderCanvas() { renderCanvasFor(activePaneIdx()); }
 function previewStroke(points, color, size, toolName) {
   const oc = overlayEl(activePaneIdx()); if (!oc) return;
   const o = oc.getContext('2d');
-  const d = pageDimsOf(currentPage());
+  const d = paneDims(activePaneIdx());
   o.clearRect(0, 0, d.w, d.h);
   if (points && points.length) drawStroke(o, { tool: toolName, color, size, points });
 }
@@ -1874,7 +1939,7 @@ function previewStroke(points, color, size, toolName) {
 function drawHoverPreview(pos) {
   const oc = overlayEl(activePaneIdx()); if (!oc) return;
   const g = oc.getContext('2d');
-  const d = pageDimsOf(currentPage());
+  const d = paneDims(activePaneIdx());
   g.clearRect(0, 0, d.w, d.h);
   const base = tool === 'marker' ? penSize * 3 : penSize;
   g.save();
@@ -2615,7 +2680,7 @@ function renderRailFor(idx) {
     const d = document.createElement('div');
     d.className = 'page-thumb' + (p.id === curPid ? ' selected' : '');
     // Thumbnail im nativen Seitenverhältnis (Contain in 140×198-Box)
-    const pd = pageDimsOf(p);
+    const pd = pageDimsOf(p, b && b.paper);
     const tScale = Math.min(140 / pd.w, 198 / pd.h);
     const tw = Math.max(1, Math.round(pd.w * tScale)), th = Math.max(1, Math.round(pd.h * tScale));
     const c = document.createElement('canvas');
@@ -2664,9 +2729,17 @@ function renderRailFor(idx) {
   if (st) {
     let fmt = '';
     try {
-      if (typeof PagesImport !== 'undefined' && PagesImport.formatLabel) {
-        const cur = b.pages[pos];
-        fmt = cur ? ' · ' + PagesImport.formatLabel(cur.size) : '';
+      const cur = b.pages[pos];
+      // Eigenes Format -> benennen; sonst folgt die Seite der Buchvorlage.
+      let own = null;
+      if (typeof PagesImport !== 'undefined' && PagesImport.sanitizePageSize) {
+        own = PagesImport.sanitizePageSize(cur && cur.size);
+      }
+      if (own && typeof PagesImport !== 'undefined' && PagesImport.formatLabel) {
+        fmt = ' · ' + PagesImport.formatLabel(own);
+      } else if (typeof FederwerkPaper !== 'undefined' && FederwerkPaper.resolve) {
+        const t = FederwerkPaper.resolve(b.paper);
+        fmt = ' · ' + ((t && t.name) || 'Buchvorlage');
       }
     } catch { /* Format-Label optional */ }
     st.textContent = 'Seite ' + (pos + 1) + '/' + b.pages.length + fmt;
@@ -2692,21 +2765,11 @@ function applyPaperFor(idx) {
   // Bühnen-Verhältnis folgt der tatsächlichen Seite (page.size gesetzt vom
   // Vorlagenwechsel bzw. Bild-/PDF-Format) – Fallback Buch-Vorlage/A4.
   try {
-    const pd = pageDimsOf(panePage(idx));
+    const pd = pageDimsOf(panePage(idx), b && b.paper);
     if (pd && pd.w > 0 && pd.h > 0) st.style.aspectRatio = pd.w + ' / ' + pd.h;
   } catch { /* CSS-Default (210/297) bleibt */ }
 }
 function applyPaper() { applyPaperFor(activePaneIdx()); }
-/* Stage-Seitenverhältnis folgt dem Format der aktuellen Seite (sonst A4). */
-function applyPageSizeFor(idx) {
-  const st = $(eid('stage', idx));
-  if (!st) return;
-  try {
-    const d = pageDimsOf(panePage(idx));
-    st.style.aspectRatio = d.w + ' / ' + d.h;
-  } catch { /* A4-CSS bleibt */ }
-}
-function applyPageSize() { applyPageSizeFor(activePaneIdx()); }
 function applyBgFor(idx) {
   const p = panePage(idx);
   const bg = $(eid('bgLayer', idx));
@@ -2723,7 +2786,7 @@ function clearPageBg() {
   touchBook(); persistSoon(); renderAll();
 }
 function renderAllFor(idx) {
-  applyPaperFor(idx); applyPageSizeFor(idx); applyBgFor(idx); renderCanvasFor(idx);
+  applyPaperFor(idx); applyBgFor(idx); renderCanvasFor(idx);
   renderTextLayerFor(idx); renderImgLayerFor(idx); renderRailFor(idx);
   syncPaneChrome(idx);
 }
@@ -3123,11 +3186,11 @@ function exportPagePNG() {
   (async () => {
     const resolve = (typeof GrimoireStore !== 'undefined')
       ? (ref => GrimoireStore.dataUrl(ref)) : (async ref => ref);
-    const pd = pageDimsOf(p);
+    const _book = openBook();
+    const pd = pageDimsOf(p, _book && _book.paper);
     const c = document.createElement('canvas');
     c.width = pd.w; c.height = pd.h;
     const g = c.getContext('2d');
-    const _book = openBook();
     let _bg = '#fffdf6';
     try { const P = paperApi(); if (P) _bg = P.bgFor(_book && _book.paper); else if (_book && _book.paper === 'grid') _bg = '#ffffff'; }
     catch { _bg = (_book && _book.paper === 'grid') ? '#ffffff' : '#fffdf6'; }

@@ -3,7 +3,7 @@
   "short_name": "Federwerk",
   "description": "Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Texteditor, Bilder, Seiten.",
   "lang": "de",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

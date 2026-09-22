@@ -32,7 +32,7 @@
         </div>
         <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none" aria-hidden="true">
         <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none" aria-hidden="true">
-        <span class="version-tag" aria-hidden="true">v1.8.0 · BUILD 20.09.2026-1</span>
+        <span class="version-tag" aria-hidden="true">v1.9.0 · BUILD 20.09.2026-1</span>
       </div>
     </div>
 
@@ -167,7 +167,8 @@
                 <option value="music-a4">Notenlinien</option>
               </optgroup>
             </select>
-            <select id="pageFormat" onchange="setPageSizeInPane(this.value, 0)" style="max-width:130px;flex:0 0 auto" aria-label="Seitenformat wählen" title="Seitenformat dieser Seite (jede Seite darf ein eigenes Format haben)">
+            <select id="pageFormat" onchange="setPageSizeInPane(this.value, 0)" style="max-width:140px;flex:0 0 auto" aria-label="Seitenformat wählen" title="Seitenformat dieser Seite: Buchvorlage folgen oder eigenes Format (jede Seite darf anders sein)">
+              <option value="__auto">Buchvorlage (auto)</option>
               <option value="a4p">A4 Hoch</option>
               <option value="a4l">A4 Quer</option>
               <option value="square">Quadrat</option>
@@ -226,7 +227,8 @@
                 <option value="music-a4">Notenlinien</option>
               </optgroup>
             </select>
-            <select id="pageFormatB" onchange="setPageSizeInPane(this.value, 1)" style="max-width:130px;flex:0 0 auto" aria-label="Seitenformat wählen rechter Bereich" title="Seitenformat dieser Seite (jede Seite darf ein eigenes Format haben)">
+            <select id="pageFormatB" onchange="setPageSizeInPane(this.value, 1)" style="max-width:140px;flex:0 0 auto" aria-label="Seitenformat wählen rechter Bereich" title="Seitenformat dieser Seite: Buchvorlage folgen oder eigenes Format (jede Seite darf anders sein)">
+              <option value="__auto">Buchvorlage (auto)</option>
               <option value="a4p">A4 Hoch</option>
               <option value="a4l">A4 Quer</option>
               <option value="square">Quadrat</option>

@@ -44,7 +44,7 @@ Format-Metadaten setzt `js/format-doc.js` (`GrimoireFormat.attachFormatMeta`).
 | `texts` | TextBox[] | Getippte Textboxen |
 | `images` | Image[] | Eingebettete Bilder |
 | `bg` | string \| null | Seiten-Hintergrund als Bild-`dataURL` oder `null` |
-| `size` | `{w,h}` \| fehlt | Seitenformat in Canvas-px (Vorlagenwechsel/Bild-/PDF-Import/Seitenformat-Wahl). Fehlt = A4-Default (1000×1414), wird nicht persistiert. `page.size` gewinnt immer gegen das Buch-Template (PDF-Seiten bleiben unangetastet) |
+| `size` | `{w,h}` \| fehlt | Eigenes Seitenformat in Canvas-px (Seitenformat-Wahl, Bild-/PDF-Import mit nativem Seitenverhältnis). Fehlt = Buchvorlage folgen (UI: „Buchvorlage (auto)"); Vorlage selbst defaultet auf A4 (1000×1414). `page.size` gewinnt immer gegen das Buch-Template; Bild-/PDF-Seiten bleiben vom Vorlagenwechsel unangetastet. A4-Default wird nicht persistiert. |
 
 ### Stroke (Handschrift)
 
