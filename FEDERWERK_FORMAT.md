@@ -17,8 +17,8 @@ Format-Metadaten setzt `js/format-doc.js` (`GrimoireFormat.attachFormatMeta`).
 
 ## Koordinaten
 
-- Zeichenfläche (Canvas) pro Seite: **1000 × 1414 px** (A4-Verhältnis).
-- Strokes: absolute Canvas-Pixel (`x`: 0–1000, `y`: 0–1414).
+- Zeichenfläche (Canvas) pro Seite: **1000 × 1414 px** (A4-Verhältnis, Default).
+- Strokes: absolute Canvas-Pixel der jeweiligen Seite (`x`: 0–Seitenbreite, `y`: 0–Seitenhöhe).
 - Texte/Bilder: **normiert 0–1** relativ zu Seitenbreite/-höhe.
 
 ## Datenmodell
@@ -29,7 +29,7 @@ Format-Metadaten setzt `js/format-doc.js` (`GrimoireFormat.attachFormatMeta`).
 |---|---|---|
 | `id` | string | Eindeutige Buch-ID |
 | `title` | string | Buchtitel |
-| `paper` | string | Papierart (`""`, `"lined"`, `"grid"`) |
+| `paper` | string | Papiervorlage, Buch-weit (Design + Maße, Katalog `js/paper-templates.js`: `blank-a4`, `blank-a5`, `blank-square`, `blank-letter`, `lined-a4`, `lined-margin-a4`, `grid-a4`, `grid-large-a4`, `dots-a4`, `cornell-a4`, `todo-a4`, `music-a4`). Legacy `""` → `blank-a4`, `"lined"` → `lined-a4`, `"grid"` → `grid-a4` |
 | `updatedAt` | number | Änderungszeit (ms seit Epoch) |
 | `folderId` | string \| null | Ordner-ID oder `null` (= Unsortiert) |
 | `lang` | string | Suchsprache des Buchs (z. B. `"de"`) |
@@ -44,6 +44,7 @@ Format-Metadaten setzt `js/format-doc.js` (`GrimoireFormat.attachFormatMeta`).
 | `texts` | TextBox[] | Getippte Textboxen |
 | `images` | Image[] | Eingebettete Bilder |
 | `bg` | string \| null | Seiten-Hintergrund als Bild-`dataURL` oder `null` |
+| `size` | `{w,h}` \| fehlt | Seitenformat in Canvas-px (Vorlagenwechsel/Bild-/PDF-Import/Seitenformat-Wahl). Fehlt = A4-Default (1000×1414), wird nicht persistiert. `page.size` gewinnt immer gegen das Buch-Template (PDF-Seiten bleiben unangetastet) |
 
 ### Stroke (Handschrift)
 

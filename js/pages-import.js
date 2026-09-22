@@ -13,6 +13,115 @@
   const PDF_TARGET_W = 1000;
   const OFFLINE_PHRASE = 'PDF-Hintergrund offline nicht ladbar';
 
+  /* ---------- Seitenformate: unterschiedlich große Seiten in einem Dokument ----------
+   * Jede Seite darf optional `size = { w, h }` tragen (Canvas-Einheiten).
+   * Fehlt size (oder ungültig) -> Default A4-Hoch (1000×1414), d. h. Altbestand
+   * und GoodNotes-Importe (fix auf A4 gemappt) bleiben unverändert.
+   * Breite 1000 = Referenz (Stiftstärken/Fonts wie bisher); Bild-/PDF-Seiten
+   * übernehmen ihr natives Seitenverhältnis bei Breite 1000. */
+  const PAGE_DEFAULT_W = 1000, PAGE_DEFAULT_H = 1414;
+  const PAGE_MIN_EDGE = 200, PAGE_MAX_EDGE = 2400;
+  const PAGE_FORMATS = {
+    a4p: { w: 1000, h: 1414 },
+    a4l: { w: 1414, h: 1000 },
+    square: { w: 1000, h: 1000 },
+  };
+
+  /* size sanitizen -> {w,h} | null (null = Default A4-Hoch, wird nicht
+   * persistiert, damit alte Exporte/Leser unverändert funktionieren). */
+  function sanitizePageSize(v) {
+    if (v == null) return null;
+    if (typeof v === 'string') {
+      const preset = PAGE_FORMATS[v];
+      if (preset) v = preset;
+      else return null;
+    }
+    if (!v || typeof v !== 'object') return null;
+    let w = Math.round(Number(v.w)), h = Math.round(Number(v.h));
+    if (!isFiniteNum(w) || !isFiniteNum(h)) return null;
+    w = Math.min(PAGE_MAX_EDGE, Math.max(PAGE_MIN_EDGE, w));
+    h = Math.min(PAGE_MAX_EDGE, Math.max(PAGE_MIN_EDGE, h));
+    // Exakter Default -> null (kein Ballast im State)
+    if (w === PAGE_DEFAULT_W && h === PAGE_DEFAULT_H) return null;
+    return { w, h };
+  }
+
+  /* Effektive Maße einer Seite (immer gültig, nie null). */
+  function pageDims(page) {
+    const s = sanitizePageSize(page && page.size);
+    if (s) return s;
+    return { w: PAGE_DEFAULT_W, h: PAGE_DEFAULT_H };
+  }
+
+  /* Preset-Key für ein size-Objekt ('a4p'|'a4l'|'square'|null=custom/default). */
+  function matchPageFormat(size) {
+    if (size == null) return 'a4p';
+    const s = sanitizePageSize(size);
+    // null nach sanitize == Default == a4p
+    if (!s) return 'a4p';
+    for (const k of Object.keys(PAGE_FORMATS)) {
+      if (PAGE_FORMATS[k].w === s.w && PAGE_FORMATS[k].h === s.h) return k;
+    }
+    return null;
+  }
+
+  function formatLabel(size) {
+    const m = matchPageFormat(size);
+    if (m === 'a4p') return 'A4 Hoch';
+    if (m === 'a4l') return 'A4 Quer';
+    if (m === 'square') return 'Quadrat';
+    const d = pageDims({ size });
+    return 'Bildformat ' + d.w + '×' + d.h;
+  }
+
+  /* Natives Bild-/PDF-Seitenverhältnis als Seitengröße (Breite normiert 1000). */
+  function sizeForImage(natW, natH) {
+    natW = Number(natW); natH = Number(natH);
+    if (!isFiniteNum(natW) || !isFiniteNum(natH) || natW <= 0 || natH <= 0) return null;
+    return sanitizePageSize({ w: PAGE_DEFAULT_W, h: Math.round(PAGE_DEFAULT_W * natH / natW) });
+  }
+
+  /* Strokes beim Formatwechsel proportional umrechnen (Inhalt bleibt sichtbar).
+   * Rein: gibt neue Array-Struktur zurück (Punkte kopiert, Rest per Referenz).
+   * from/to: {w,h} (pageDims-Ergebnisse); identisch -> Original-Referenz. */
+  function retargetStrokes(strokes, from, to) {
+    if (!Array.isArray(strokes)) return strokes;
+    const fw = Number(from && from.w), fh = Number(from && from.h);
+    const tw = Number(to && to.w), th = Number(to && to.h);
+    if (!isFiniteNum(fw) || !isFiniteNum(fh) || !isFiniteNum(tw) || !isFiniteNum(th) || fw <= 0 || fh <= 0) return strokes;
+    const sx = tw / fw, sy = th / fh;
+    if (sx === 1 && sy === 1) return strokes;
+    return strokes.map(s => {
+      if (!s || !Array.isArray(s.points)) return s;
+      const size = (typeof s.size === 'number' && isFinite(s.size) && s.size > 0)
+        ? Math.max(0.5, Math.round(s.size * (sx + sy) / 2 * 100) / 100) : s.size;
+      const dash = Array.isArray(s.dash) && s.dash.length
+        ? s.dash.map(d => (typeof d === 'number' && isFinite(d)) ? Math.max(0, Math.round(d * (sx + sy) / 2 * 100) / 100) : d)
+        : s.dash;
+      const out = Object.assign({}, s, {
+        points: s.points.map(p => (p && typeof p.x === 'number' && typeof p.y === 'number')
+          ? Object.assign({}, p, { x: Math.round(p.x * sx * 10) / 10, y: Math.round(p.y * sy * 10) / 10 })
+          : p),
+      });
+      if (size !== s.size) out.size = size;
+      if (dash !== s.dash) out.dash = dash;
+      return out;
+    });
+  }
+
+  /* Canvas-Backing (Gerätepixel) für Seitengröße: dpr gedeckelt, damit große
+   * Formate nicht den GPU-Speicher sprengen (Ziel: <= ~9 MP pro Canvas). */
+  function backingForPage(w, h, deviceDpr) {
+    w = Number(w); h = Number(h);
+    if (!isFiniteNum(w) || !isFiniteNum(h) || w <= 0 || h <= 0) { w = PAGE_DEFAULT_W; h = PAGE_DEFAULT_H; }
+    let dpr = Number(deviceDpr);
+    if (!isFiniteNum(dpr) || dpr <= 0) dpr = 1;
+    dpr = Math.min(2, dpr);
+    const cap = Math.sqrt(9000000 / (w * h));
+    if (cap < dpr) dpr = Math.max(0.5, Math.floor(cap * 4) / 4);
+    return { w: Math.max(1, Math.round(w * dpr)), h: Math.max(1, Math.round(h * dpr)), dpr };
+  }
+
   function optimizer() {
     try {
       if (typeof window !== 'undefined' && window.FederwerkOptimize) return window.FederwerkOptimize;
@@ -81,12 +190,14 @@
 
   /* Neues leeres Seitenmodell (Ink leer, Layer-Trennung: bg separat).
    * opts: undefined | string (wird als id genutzt, leer -> generieren)
-   *     | { id?, bg?, title? } (title wird als optionales Label abgelegt,
-   *       NICHT als Textbox – Ink bleibt leer). */
+   *     | { id?, bg?, title?, size? } (title wird als optionales Label abgelegt,
+   *       NICHT als Textbox – Ink bleibt leer; size = {w,h} oder Preset-Key,
+   *       null/Default = A4-Hoch und wird nicht persistiert). */
   function buildNewPageModel(opts) {
     let id = null;
     let bg = null;
     let title = null;
+    let size = null;
     if (typeof opts === 'string') {
       if (opts) id = opts;
     } else if (opts && typeof opts === 'object') {
@@ -94,8 +205,10 @@
       if (typeof opts.bg === 'string' && opts.bg) bg = opts.bg;
       else if (opts.bg == null) bg = null;
       if (typeof opts.title === 'string' && opts.title) title = opts.title;
+      if (opts.size != null) size = sanitizePageSize(opts.size);
     }
     const page = { id: id || genId(), strokes: [], texts: [], images: [], bg };
+    if (size) page.size = size;
     if (title) page.title = title;
     return page;
   }
@@ -186,6 +299,10 @@
       if (!Array.isArray(copy.texts)) copy.texts = [];
       if (!Array.isArray(copy.images)) copy.images = [];
       if (typeof copy.bg !== 'string') copy.bg = copy.bg || null;
+      // Seitenformat übernehmen (fremde/ungültige Werte -> Default/A4)
+      const cSize = sanitizePageSize(copy.size);
+      if (cSize) copy.size = cSize;
+      else delete copy.size;
       (copy.texts || []).forEach(t => { t.id = genId(); });
       (copy.images || []).forEach(im => { im.id = genId(); });
       // Marker-/Ink-Strokes brauchen keine neuen IDs (anonyme Punkte), Punkte bleiben.
@@ -197,6 +314,9 @@
     const src = (sourcePage && typeof sourcePage === 'object') ? sourcePage : null;
     const page = buildNewPageModel({});
     page.bg = (src && typeof src.bg === 'string') ? src.bg : null;
+    // Vorlage übernimmt das Seitenformat (sonst wäre sie kein Abbild der Seite)
+    const size = sanitizePageSize(src && src.size);
+    if (size) page.size = size;
     page.strokes = [];
     page.texts = [];
     page.images = [];
@@ -207,6 +327,16 @@
     MAX_IMAGE_LONG_EDGE,
     PDF_TARGET_W,
     OFFLINE_PHRASE,
+    PAGE_DEFAULT_W,
+    PAGE_DEFAULT_H,
+    PAGE_FORMATS,
+    sanitizePageSize,
+    pageDims,
+    matchPageFormat,
+    formatLabel,
+    sizeForImage,
+    retargetStrokes,
+    backingForPage,
     scaleForLongEdge,
     scaledSizeForLimit,
     calcContainSize,

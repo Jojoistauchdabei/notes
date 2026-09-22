@@ -83,7 +83,24 @@
         "strokes": { "type": "array", "items": { "$ref": "#/$defs/stroke" } },
         "texts": { "type": "array", "items": { "$ref": "#/$defs/textBox" } },
         "images": { "type": "array", "items": { "$ref": "#/$defs/image" } },
-        "bg": { "type": ["string", "null"], "description": "Seiten-Hintergrund als Bild-dataURL oder null" }
+        "bg": { "type": ["string", "null"], "description": "Seiten-Hintergrund als Bild-dataURL oder null" },
+        "size": {
+          "type": ["object", "null"],
+          "description": "Seitenformat in Canvas-px (gesetzt vom Papiervorlagen-Wechsel, Bild-/PDF-Import oder Seitenformat-Wahl). Fehlt = A4-Hoch-Default (1000x1414), wird nicht persistiert.",
+          "properties": {
+            "w": { "type": "number" },
+            "h": { "type": "number" }
+          }
+        },
+        "size": {
+          "type": ["object", "null"],
+          "description": "Optionales Seitenformat in Canvas-Einheiten (fehlt/null = A4-Hoch 1000×1414)",
+          "properties": {
+            "w": { "type": "number", "minimum": 200, "maximum": 2400 },
+            "h": { "type": "number", "minimum": 200, "maximum": 2400 }
+          },
+          "required": ["w", "h"]
+        }
       }
     },
     "folder": {
@@ -103,7 +120,7 @@
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
-        "paper": { "type": "string" },
+        "paper": { "type": "string", "description": "Papiervorlagen-ID, Buch-weit (Design + Maße, Katalog: js/paper-templates.js, z. B. blank-a4, lined-a4, grid-a4, dots-a4, cornell-a4). Legacy '' | 'lined' | 'grid' mappen auf blank-a4 | lined-a4 | grid-a4." },
         "updatedAt": { "type": "number" },
         "folderId": { "type": ["string", "null"], "description": "Ordner-ID oder null (= Unsortiert)" },
         "lang": { "type": "string" },

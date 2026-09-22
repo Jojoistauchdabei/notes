@@ -122,6 +122,10 @@
           <button class="mini-button" id="fingerDrawToggle" onclick="setFingerDraw(!inputPrefs.fingerDraw)" aria-label="Finger-Zeichnen umschalten" title="Finger scrollt (aus) / Finger zeichnet (an) – Stift schreibt immer">☝ Finger: scrollt</button>
         </div>
         <div class="sep" role="separator" aria-hidden="true"></div>
+        <div class="tool-group" title="Mausrad über der Seite blättert vor/zurück" role="group" aria-label="Scroll-Navigation">
+          <button class="mini-button picked" id="scrollNavToggle" onclick="toggleScrollNav(event)" aria-label="Scroll-Wechsel umschalten" aria-pressed="true" title="Mausrad über der Seite blättert vor/zurück – Pinch-Zoom bleibt Browser-Sache">⇅ Scroll: an</button>
+        </div>
+        <div class="sep" role="separator" aria-hidden="true"></div>
         <div class="tool-group tool-group--actions" role="group" aria-label="Aktionen">
           <button class="mini-button" onclick="undo()" aria-label="Rückgängig machen">↩</button>
           <button class="mini-button" onclick="redo()" aria-label="Wiederherstellen">↪</button>
@@ -143,10 +147,30 @@
           <div class="box no-print pane-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <select id="bookSelect" onchange="openBookInPane(this.value, 0)" style="max-width:220px;flex:1" aria-label="Dokument im linken Bereich wählen"></select>
             <input type="text" id="bookTitle" onchange="renameBook(this.value)" style="max-width:200px;flex:1" placeholder="Buchtitel" aria-label="Buchtitel">
-            <select id="paperSelect" onchange="setPaper(this.value)" style="max-width:130px;flex:0 0 auto" aria-label="Papierart wählen">
-              <option value="">Blanko</option>
-              <option value="lined">Liniert</option>
-              <option value="grid">Kariert</option>
+            <select id="paperSelect" onchange="setPaper(this.value)" style="max-width:170px;flex:0 0 auto" aria-label="Papiervorlage wählen">
+              <optgroup label="Blanko & Formate">
+                <option value="blank-a4">Blanko A4</option>
+                <option value="blank-a5">Blanko A5 hoch</option>
+                <option value="blank-square">Blanko Quadrat</option>
+                <option value="blank-letter">Blanko US-Letter</option>
+              </optgroup>
+              <optgroup label="Linien & Raster">
+                <option value="lined-a4">Liniert A4</option>
+                <option value="lined-margin-a4">Liniert mit Rand</option>
+                <option value="grid-a4">Kariert klein A4</option>
+                <option value="grid-large-a4">Kariert groß A4</option>
+                <option value="dots-a4">Punktraster A4</option>
+              </optgroup>
+              <optgroup label="Spezial">
+                <option value="cornell-a4">Cornell-Notizen</option>
+                <option value="todo-a4">Checkliste / Todo</option>
+                <option value="music-a4">Notenlinien</option>
+              </optgroup>
+            </select>
+            <select id="pageFormat" onchange="setPageSizeInPane(this.value, 0)" style="max-width:130px;flex:0 0 auto" aria-label="Seitenformat wählen" title="Seitenformat dieser Seite (jede Seite darf ein eigenes Format haben)">
+              <option value="a4p">A4 Hoch</option>
+              <option value="a4l">A4 Quer</option>
+              <option value="square">Quadrat</option>
             </select>
             <button class="mini-button" onclick="addPageInPane(0,event)" aria-label="Neue Seite hinzufügen">+ Seite</button>
             <button class="mini-button" onclick="duplicatePageInPane(0,event)" aria-label="Seite duplizieren">Duplizieren</button>
@@ -167,7 +191,7 @@
                 </div>
               </div>
               <div class="status-line no-print">
-                <span id="statusPage">Seite 1/1</span>
+                <span id="statusPage" aria-live="polite">Seite 1/1</span>
                 <span id="statusTool">✒ Stift</span>
                 <span id="statusSave">💾 gespeichert</span>
                 <span class="pane-badge" id="paneBadge0">● aktiv</span>
@@ -182,10 +206,30 @@
           <div class="box no-print pane-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <select id="bookSelectB" onchange="openBookInPane(this.value, 1)" style="max-width:220px;flex:1" aria-label="Dokument im rechten Bereich wählen"></select>
             <input type="text" id="bookTitleB" onchange="renameBookInPane(this.value, 1)" style="max-width:200px;flex:1" placeholder="Buchtitel" aria-label="Buchtitel rechter Bereich">
-            <select id="paperSelectB" onchange="setPaperInPane(this.value, 1)" style="max-width:130px;flex:0 0 auto" aria-label="Papierart wählen rechter Bereich">
-              <option value="">Blanko</option>
-              <option value="lined">Liniert</option>
-              <option value="grid">Kariert</option>
+            <select id="paperSelectB" onchange="setPaperInPane(this.value, 1)" style="max-width:170px;flex:0 0 auto" aria-label="Papiervorlage wählen rechter Bereich">
+              <optgroup label="Blanko & Formate">
+                <option value="blank-a4">Blanko A4</option>
+                <option value="blank-a5">Blanko A5 hoch</option>
+                <option value="blank-square">Blanko Quadrat</option>
+                <option value="blank-letter">Blanko US-Letter</option>
+              </optgroup>
+              <optgroup label="Linien & Raster">
+                <option value="lined-a4">Liniert A4</option>
+                <option value="lined-margin-a4">Liniert mit Rand</option>
+                <option value="grid-a4">Kariert klein A4</option>
+                <option value="grid-large-a4">Kariert groß A4</option>
+                <option value="dots-a4">Punktraster A4</option>
+              </optgroup>
+              <optgroup label="Spezial">
+                <option value="cornell-a4">Cornell-Notizen</option>
+                <option value="todo-a4">Checkliste / Todo</option>
+                <option value="music-a4">Notenlinien</option>
+              </optgroup>
+            </select>
+            <select id="pageFormatB" onchange="setPageSizeInPane(this.value, 1)" style="max-width:130px;flex:0 0 auto" aria-label="Seitenformat wählen rechter Bereich" title="Seitenformat dieser Seite (jede Seite darf ein eigenes Format haben)">
+              <option value="a4p">A4 Hoch</option>
+              <option value="a4l">A4 Quer</option>
+              <option value="square">Quadrat</option>
             </select>
             <button class="mini-button" onclick="addPageInPane(1,event)" aria-label="Neue Seite hinzufügen rechter Bereich">+ Seite</button>
             <button class="mini-button" onclick="duplicatePageInPane(1,event)" aria-label="Seite duplizieren rechter Bereich">Duplizieren</button>
@@ -207,7 +251,7 @@
                 </div>
               </div>
               <div class="status-line no-print">
-                <span id="statusPageB">Seite 1/1</span>
+                <span id="statusPageB" aria-live="polite">Seite 1/1</span>
                 <span id="statusToolB">✒ Stift</span>
                 <span class="pane-badge" id="paneBadge1">● aktiv</span>
               </div>
@@ -395,6 +439,8 @@
   <script src="js/graph.js"></script>
   <script src="js/search.js"></script>
   <script src="js/format-doc.js"></script>
+  <script src="js/scrollnav.js"></script>
+  <script src="js/paper-templates.js"></script>
   <script src="js/app.js"></script>
   <script src="js/appwrite-files.js"></script>
   <script src="js/appwrite-sync.js"></script>

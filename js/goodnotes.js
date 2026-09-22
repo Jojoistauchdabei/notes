@@ -1575,6 +1575,17 @@ var GoodNotes = (function () {
   function canvasToPt(x, y) { return [x / EX_SC, (y - EX_OFFY) / EX_SC]; }
   function normToPt(nx, ny) { return canvasToPt((nx || 0) * EX_CW, (ny || 0) * EX_CH); }
   function canvasSizeToPt(s) { return (s || 0) / EX_WSC; }
+  // Eigene Seitenformate (page.size, z. B. Quer/Quadrat/Bildformat) auf den
+  // A4-Exportraum normieren: Strokes werden pro Seite in 1000×1414 skaliert,
+  // normierte Layer (Texte/Bilder/bg) brauchen keine Umrechnung (0..1).
+  // Ohne size -> { sx: 1, sy: 1 } (Altbestand, kein Verhalten ändert sich).
+  function pageExportScale(page) {
+    const s = page && page.size;
+    const w = Math.round(Number(s && s.w)), h = Math.round(Number(s && s.h));
+    if (!isFinite(w) || !isFinite(h) || w < 200 || w > 2400 || h < 200 || h > 2400) return { sx: 1, sy: 1 };
+    if (w === EX_CW && h === EX_CH) return { sx: 1, sy: 1 };
+    return { sx: EX_CW / w, sy: EX_CH / h };
+  }
 
   // Bildmaße aus Bytes (PNG-IHDR / JPEG-SOF), für seitenrichtige Bild-Rechtecke
   function imageFileDims(bytes) {
@@ -1855,22 +1866,24 @@ var GoodNotes = (function () {
       const page = pages[pi];
       const recs = [];
       recs.push(metaRecord(uuids[pi], false));
+      // Custom-Seitenformat -> Strokes in A4-Exportraum normieren
+      const psc = pageExportScale(page);
 
       for (let si = 0; si < (page.strokes || []).length; si++) {
         const s = page.strokes[si];
         if (!s.points || !s.points.length) continue;
         // Marker → Alpha 0.35 (Import: highlighter bei alpha < 0.95)
         const alpha = (s.highlighter || s.tool === 'marker') ? 0.35 : (typeof s.alpha === 'number' ? s.alpha : 1);
-        // Federwerk-Canvas (1000×1414) → GoodNotes-pt (Umkehrung von mapPage),
-        // Breite über EX_WSC, damit der Reimport maßstabsgetreu ist.
+        // Federwerk-Canvas (1000×1414, ggf. aus page.size normiert) → GoodNotes-pt
+        // (Umkehrung von mapPage), Breite über EX_WSC, damit der Reimport maßstabsgetreu ist.
         const ptsPt = s.points.map(p => {
-          const q = canvasToPt(p.x != null ? p.x : 0, p.y != null ? p.y : 0);
+          const q = canvasToPt((p.x != null ? p.x : 0) * psc.sx, (p.y != null ? p.y : 0) * psc.sy);
           return { x: q[0], y: q[1] };
         });
-        const wPt = Math.max(0.1, canvasSizeToPt(s.size || 2.5));
+        const wPt = Math.max(0.1, canvasSizeToPt((s.size || 2.5) * (psc.sx + psc.sy) / 2));
         const isShape = !!(s.closed || s.fill || (Array.isArray(s.dash) && s.dash.length));
         if (isShape && ptsPt.length >= 2) {
-          const dashPt = Array.isArray(s.dash) ? s.dash.map(d => Math.max(0, canvasSizeToPt(d))).filter(d => d > 0) : null;
+          const dashPt = Array.isArray(s.dash) ? s.dash.map(d => Math.max(0, canvasSizeToPt(d * (psc.sx + psc.sy) / 2))).filter(d => d > 0) : null;
           const rec = shapeRecord(uuid4(), ptsPt, s.color || '#000000', wPt, {
             dash: dashPt && dashPt.length ? dashPt : null,
             fill: s.fill || null, fillAlpha: s.fillAlpha || 0, alpha,
@@ -2037,7 +2050,7 @@ var GoodNotes = (function () {
   return {
     parseDocument, mapPage, runsToHtml, exportGoodNotes, federwerkMeta,
     _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9, writeZip, strokeRecord, textRecord, imageRecord, metaRecord, indexNotesPb, indexEventsPb, documentPb, documentInfoPb, parseHtmlToRuns, tplEncode, bv4n, lz4Literals, wvarint, wfield, wmsg, wdelimited, concatU8, stripHtml, crc32, makeThumbnail, uuid4, imageFileDims, dataUrlBytes, looksLikeUuid,
-      exportGeom: { PAGE_W, PAGE_H, EX_DPI, EX_IW, EX_IH, EX_SC, EX_OFFY, EX_WSC }, canvasToPt, normToPt, canvasSizeToPt }
+      exportGeom: { PAGE_W, PAGE_H, EX_DPI, EX_IW, EX_IH, EX_SC, EX_OFFY, EX_WSC }, canvasToPt, normToPt, canvasSizeToPt, pageExportScale }
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = GoodNotes;
