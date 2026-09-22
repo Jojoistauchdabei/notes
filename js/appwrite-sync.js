@@ -393,6 +393,22 @@
       for (const b of books) {
         local[b.id] = { hash: '', updatedAtMs: b.updatedAt || 0 };
       }
+      // This is a delta query, not a complete remote snapshot. Rows omitted
+      // because they were unchanged must not be interpreted as deletions.
+      // Only create a baseline for books that still exist locally; for a
+      // locally removed book, dropping metadata is safer than deleting the
+      // remote row when the delta did not include it.
+      if (lastPull.notes) {
+        for (const id of Object.keys(local)) {
+          if (remote[id] || !map[id]) continue;
+          remote[id] = {
+            updatedAtMs: map[id].remoteUpdatedAtMs || 0,
+            deletedAtMs: null,
+            title: '',
+            row: null,
+          };
+        }
+      }
       // A fresh browser has no local row map. Reconnect same-title documents
       // so the same Appwrite row is used instead of creating a duplicate.
       for (const rid of Object.keys(remote)) {
