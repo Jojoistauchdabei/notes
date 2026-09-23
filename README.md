@@ -32,6 +32,26 @@ Einmalig nötige Secrets (Repo → Settings → Secrets and variables → Action
 Android-Updatekette: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
 `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` (ohne sie: Debug-APK).
 
+## CDN-Größe (Cloudflare Workers Static Assets)
+
+`npm run build` erzeugt eine fürs CDN optimierte `dist/` (~0,9 MB statt ~3,5 MB):
+
+- `altes_Papier.png` (2,5 MB) bleibt Quell-Asset, im Build kommt nur die
+  Papier-Textur als WebP (95K) + JPEG-Fallback (176K) mit – `css/styles.css`
+  wählt per `image-set` automatisch das Format des Browsers.
+- Die 26 Seiten-Skripte aus `index.html` werden zu **einem** gehashten Bundle
+  (`js/app.bundle.<hash>.js`, minifiziert), die 27 HTTP-Requests entfallen.
+  `js/gnpdf-worker.js` bleibt separat (wird per `new Worker(...)` geladen).
+- Gehashte Dateien (Bundle, CSS, Papierbilder) bekommen in `dist/_headers`
+  `Cache-Control: public, max-age=31536000, immutable`; `index.html`, `sw.js`
+  und das Manifest bleiben `must-revalidate`, damit Releases sofort ankommen.
+- `dist/sw.js` precacht nur noch die App-Shell (11 Dateien), nicht mehr
+  Screenshots/Doku.
+
+Minifiziert wird mit esbuild über `npx` (wie `wrangler@4` im Release-Workflow);
+ohne Netz baut `npm run build` ohne Minifizierung weiter, Bundle/Hash/Caching
+greifen trotzdem.
+
 ## Speicher (IndexedDB + Bild-Blobs)
 
 Der State (klein) liegt in IndexedDB (`grimoire-db`) plus localStorage-Backup; Bild-Bytes und PDF-Hintergründe liegen als Blobs separat in IndexedDB, im State steht nur eine kurze `blob:<id>`-Referenz. Das 5MB-localStorage-Limit greift damit nicht mehr. Beim ersten Start migriert die App bestehende Daten automatisch (Zähler in der Statuszeile). JSON-Export enthält weiter portable dataURLs (`inlineBook`/`extractBook` in `js/store.js`). Cloud-Sync läuft über Appwrite (Tabellen `notes`/`folders`, Storage-Bucket `attachments` mit SHA-256-Dedupe, `js/appwrite-files.js`, `js/appwrite-sync.js`). **Liveshare** (Share-Link mit Lesen/Edit + Ablauf, Live-Cursor, LWW pro Stroke) läuft ebenfalls über Appwrite – Tabellen `shares`/`share_events`, `js/liveshare.js`, Setup in `specs/36-liveshare.md`.

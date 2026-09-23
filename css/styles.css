@@ -3,7 +3,10 @@
 
 :root {
   --bg: #faf6ee;
-  --bg-image: url('../altes_Papier.png');
+  /* Papier-Textur: WebP (~94K) primär, JPG (~176K) als Fallback.
+     Das 2,5-MB-PNG bleibt nur als Quelle im Repo und kommt nicht ins CDN (siehe build-dist.js). */
+  --bg-image: url('../altes_Papier.jpg');
+  --bg-image: image-set(url('../altes_Papier.webp') type('image/webp') 1x, url('../altes_Papier.jpg') type('image/jpeg') 1x);
   --text: #2a1a0e;
   --accent: #8b5a2b;
   --accent-dark: #654321;
@@ -55,7 +58,8 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #1b1410;
-    --bg-image: linear-gradient(rgba(27, 20, 16, 0.82), rgba(27, 20, 16, 0.82)), url('../altes_Papier.png');
+    --bg-image: linear-gradient(rgba(27, 20, 16, 0.82), rgba(27, 20, 16, 0.82)), url('../altes_Papier.jpg');
+    --bg-image: linear-gradient(rgba(27, 20, 16, 0.82), rgba(27, 20, 16, 0.82)), image-set(url('../altes_Papier.webp') type('image/webp') 1x, url('../altes_Papier.jpg') type('image/jpeg') 1x);
     --text: #f3e9db;
     --accent: #d6a670;
     --accent-dark: #b07b46;
