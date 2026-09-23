@@ -10,6 +10,7 @@
     "build:mcp": "node scripts/build-mcp.js",
     "release-web": "npm run build && node scripts/inject-version.js",
     "tauri": "tauri",
-    "sync-version": "node scripts/sync-version.js"
+    "sync-version": "node scripts/sync-version.js",
+    "setup:liveshare": "node scripts/setup-liveshare.js"
   }
 }

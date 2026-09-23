@@ -380,6 +380,13 @@ function currentPage() {
   return b.pages.find(x => x.id === state.openPageId) || b.pages[0] || null;
 }
 function touchBook() { const b = openBook(); if (b) b.updatedAt = Date.now(); }
+/* Liveshare: Gäste im Lesemodus schauen nur zu (Schreiben/Radieren/Text blockiert). */
+function liveReadonly() {
+  try {
+    if (typeof window !== 'undefined' && window.FederwerkLive) return !!window.FederwerkLive.isReadonlyGuest();
+  } catch { /* ohne Liveshare nie readonly */ }
+  return false;
+}
 function touchPaneBook(i) { const b = paneBook(i); if (b) b.updatedAt = Date.now(); }
 
 /* ---------- Bibliothek ---------- */
@@ -2260,7 +2267,8 @@ function bindStageFor(idx) {
       const el = ev.target.closest('.text-box');
       if (el) return; // Klick auf Box wird dort behandelt
       snapshot();
-      const box = { id: uid(), x: pos.nx, y: pos.ny, html: 'Neuer Text – doppelklicken für Editor' };
+      if (liveReadonly()) return; // Liveshare-Gast im Lesemodus legt keine Texte an
+      const box = { id: uid(), x: pos.nx, y: pos.ny, html: 'Neuer Text – doppelklicken für Editor', updatedAt: Date.now() };
       // Textfeld-Upgrade: neue Boxen übernehmen den Default-Stil (grimoireTextDefault).
       try {
         if (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.applyDefaultToBox) {
@@ -2270,6 +2278,7 @@ function bindStageFor(idx) {
       p.texts.push(box);
       selectedBox = box.id;
       touchBook(); persistSoon(); renderTextLayer();
+      try { if (typeof window !== 'undefined' && window.FederwerkLive) window.FederwerkLive.emitLocalText(box); } catch { /* Liveshare optional */ }
     }
   });
   stage.addEventListener('pointermove', ev => {
@@ -2328,8 +2337,10 @@ function bindStageFor(idx) {
           const victims = GrimoireErase.collectScribbleVictims(p.strokes, eraseTrail, undefined, { mode: 'stroke', highlighterOnly: eraserHighlighterOnly });
           if (victims.length) {
             const gone = new Set(victims);
+            const goneIds = victims.map(s => s && s.id).filter(Boolean);
             p.strokes = p.strokes.filter(s => !gone.has(s));
             touchBook(); persistSoon(); renderCanvas(); renderRail();
+            try { if (goneIds.length && typeof window !== 'undefined' && window.FederwerkLive) window.FederwerkLive.emitLocalStrokeDeletes(goneIds); } catch { /* Liveshare optional */ }
           }
         }
       } catch { /* ignore */ }
@@ -2337,9 +2348,13 @@ function bindStageFor(idx) {
     }
     if (!drawing.erasing && drawing.points.length && p) {
       // Stabilizer ist Laufzeit-Only (Funktionen) -> nicht persistieren.
-      const clean = { tool: drawing.tool, color: drawing.color, size: drawing.size, points: drawing.points };
-      p.strokes.push(clean);
-      touchBook(); persistSoon(); renderCanvas(); renderRail();
+      // id/updatedAt: stabile IDs für Liveshare-LWW (harmlos ohne Session).
+      const clean = { id: uid(), tool: drawing.tool, color: drawing.color, size: drawing.size, points: drawing.points, updatedAt: Date.now() };
+      if (!liveReadonly()) {
+        p.strokes.push(clean);
+        touchBook(); persistSoon(); renderCanvas(); renderRail();
+        try { if (typeof window !== 'undefined' && window.FederwerkLive) window.FederwerkLive.emitLocalStroke(clean); } catch { /* Liveshare optional */ }
+      }
     }
     drawing = null;
     try { clearOverlayFor(activePaneIdx()); } catch { /* ignore */ }
@@ -2350,17 +2365,26 @@ function bindStageFor(idx) {
 function bindStage() { bindStageFor(0); bindStageFor(1); }
 function eraseAt(pos) {
   const p = currentPage(); if (!p) return;
+  if (liveReadonly()) return; // Liveshare-Gast im Lesemodus radiert nicht
   // SPEC-25: Eraser-Modi + "Nur Highlighter" (Fallback ohne Helper = altes Verhalten)
   if (typeof GrimoireErase === 'undefined') {
+    const gone = p.strokes.filter(s => distToStroke(pos, s, 12));
+    const goneIds = gone.map(s => s && s.id).filter(Boolean);
     const before = p.strokes.length;
-    p.strokes = p.strokes.filter(s => !distToStroke(pos, s, 12));
-    if (p.strokes.length !== before) { touchBook(); persistSoon(); renderCanvas(); renderRail(); }
+    p.strokes = p.strokes.filter(s => gone.indexOf(s) < 0);
+    if (p.strokes.length !== before) {
+      touchBook(); persistSoon(); renderCanvas(); renderRail();
+      try { if (goneIds.length && typeof window !== 'undefined' && window.FederwerkLive) window.FederwerkLive.emitLocalStrokeDeletes(goneIds); } catch { /* Liveshare optional */ }
+    }
     return;
   }
   const orig = p.strokes;
   const res = GrimoireErase.filterStrokesForErase(orig, pos, undefined, { mode: eraserMode, highlighterOnly: eraserHighlighterOnly });
   const changed = res.removed.length > 0 || res.kept.length !== orig.length || res.kept.some(s => orig.indexOf(s) === -1);
-  if (changed) { p.strokes = res.kept; touchBook(); persistSoon(); renderCanvas(); renderRail(); }
+  if (changed) {
+    p.strokes = res.kept; touchBook(); persistSoon(); renderCanvas(); renderRail();
+    try { const ids = (res.removed || []).map(s => s && s.id).filter(Boolean); if (ids.length && typeof window !== 'undefined' && window.FederwerkLive) window.FederwerkLive.emitLocalStrokeDeletes(ids); } catch { /* Liveshare optional */ }
+  }
 }
 /* SPEC-25: Zwei-Finger-Tap = undo(), Drei-Finger-Tap = redo() (Touch-Handler
  * auf stage, Dauer <300ms, kaum Bewegung -> kein Konflikt mit Pinch-Zoom).

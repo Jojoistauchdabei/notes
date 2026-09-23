@@ -710,3 +710,36 @@ select { cursor: pointer; }
   .flash-row { flex-direction: column; align-items: stretch; }
   .flash-row-actions { justify-content: flex-end; }
 }
+
+/* ===== Liveshare (js/liveshare.js): Share-Dialog, Live-Bar, Remote-Cursor ===== */
+.live-status-wrap { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.live-tabs { display: flex; gap: 8px; }
+.live-pane { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.live-pane label { font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.live-pane select, .live-pane input[type="text"] { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+.live-linkrow { display: flex; gap: 8px; }
+.live-linkrow input { flex: 1; min-width: 0; }
+.live-hint { font-size: 12px; opacity: 0.75; }
+#liveMsg { font-size: 13px; min-height: 18px; }
+#liveBar {
+  position: fixed; right: 12px; bottom: 12px; z-index: 9000;
+  display: none; align-items: center; gap: 8px;
+  background: var(--surface-strong); border: 1px solid var(--border);
+  border-radius: 999px; padding: 6px 10px; font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.3);
+}
+.live-dot { width: 10px; height: 10px; border-radius: 50%; background: #e33; animation: live-pulse 1.6s infinite; }
+@keyframes live-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.live-avatars { display: flex; }
+.live-avatar {
+  width: 22px; height: 22px; border-radius: 50%; margin-left: -6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: bold; color: #fff;
+  border: 2px solid var(--surface-strong);
+}
+.live-avatar.live-me { background: var(--accent); }
+.live-cursors { position: absolute; inset: 0; pointer-events: none; z-index: 30; overflow: hidden; }
+.live-cursor { position: absolute; transform: translate(-4px, -4px); }
+.live-cursor-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.live-cursor-name { font-size: 10px; color: #fff; padding: 1px 6px; border-radius: 8px; margin-top: 2px; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+@media print { #liveBar, .live-cursors { display: none !important; } }

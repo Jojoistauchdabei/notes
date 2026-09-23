@@ -74,6 +74,17 @@
         <div style="font-size:14px">Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Rich-Text-Editor, Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ Appwrite-Cloud</b> für Notizen- und Datei-Sync zwischen Geräten – siehe „Appwrite-Cloud“ unten.</div>
       </div>
       <div class="box">
+        <div class="section-title">🔴 Liveshare</div>
+        <div class="cloud-status-wrap">
+          <div id="liveStatus" aria-live="polite">Liveshare: aus – über „🔴 Live“ starten.</div>
+          <div style="font-size:13px;opacity:.85">Seite live mit anderen teilen: Share-Link (Lesen/Edit, mit Ablauf) + Live-Cursor. Läuft über deine Appwrite-Tabellen <code>shares</code>/<code>share_events</code> – Login in ⚙ nötig, kein Drittanbieter.</div>
+          <div class="live-status-wrap no-print">
+            <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('host')" aria-label="Seite live teilen">🔴 Hosten</button>
+            <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('join')" aria-label="Live-Session beitreten">➕ Beitreten</button>
+          </div>
+        </div>
+      </div>
+      <div class="box">
         <div class="section-title">☁ Appwrite-Cloud</div>
         <div class="cloud-status-wrap">
           <div id="awStatus" aria-live="polite">Appwrite-Dateien: Sync über ⚙ einrichten.</div>
@@ -145,6 +156,7 @@
           <button class="mini-button" onclick="document.getElementById('pdfPageFile').click()" aria-label="PDF als neue Seiten importieren">📄+ PDF</button>
           <input id="pdfPageFile" type="file" accept="application/pdf" multiple onchange="importPdfAsPages(event)" style="display:none" aria-hidden="true">
           <button class="mini-button" onclick="openTextEditorForSelected()" aria-label="Texteditor öffnen">✎ Texteditor</button>
+          <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('host')" aria-label="Seite live mit anderen teilen" title="Seite live teilen (Share-Link + Live-Cursor)">🔴 Live</button>
           <button class="mini-button" onclick="clearPage()" aria-label="Seite leeren">Seite leeren</button>
         </div>
       </div>
@@ -476,6 +488,66 @@
     </div>
   </div>
 
+  <!-- LIVESHARE-OVERLAY: Hosten + Beitreten (js/liveshare.js, Appwrite-only) -->
+  <div id="liveOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkLive) FederwerkLive.closeDialog()">
+    <div class="editor-modal" style="max-width:560px">
+      <div class="editor-header">
+        <div class="editor-header-title">🔴 LIVESHARE</div>
+        <button type="button" class="mini-button" onclick="window.FederwerkLive && FederwerkLive.closeDialog()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Liveshare-Dialog schließen">✕</button>
+      </div>
+      <div class="editor-toolbar" role="group" aria-label="Liveshare-Modus">
+        <button type="button" id="liveTabHost" class="mini-button picked" onclick="window.FederwerkLive && FederwerkLive.openDialog('host')" aria-label="Seite hosten">🔴 Hosten</button>
+        <button type="button" id="liveTabJoin" class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('join')" aria-label="Session beitreten">➕ Beitreten</button>
+      </div>
+      <div id="liveHostPane" class="live-pane">
+        <div style="font-size:13px">Teilt die <b>aktuelle Seite</b> live: Striche + Texte syncen per LWW (kein Overwrite), Cursor farbig. Gäste brauchen denselben Appwrite-Login.</div>
+        <label>Buch
+          <select id="liveBookSel" aria-label="Zu teilendes Buch"></select>
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <label style="flex:1;min-width:140px">Rechte
+            <select id="liveMode" aria-label="Gastrechte" onchange="window.FederwerkLive && FederwerkLive.setMode(this.value)">
+              <option value="read">👁 Lesen (zuschauen)</option>
+              <option value="edit">✎ Edit (mitschreiben)</option>
+            </select>
+          </label>
+          <label style="flex:1;min-width:140px">Ablauf
+            <select id="liveExpiry" aria-label="Ablauf der Freigabe">
+              <option value="1">1 Stunde</option>
+              <option value="24" selected>24 Stunden</option>
+              <option value="168">7 Tage</option>
+              <option value="720">30 Tage</option>
+              <option value="">Nie</option>
+            </select>
+          </label>
+        </div>
+        <div class="live-linkrow">
+          <input type="text" id="liveLink" readonly placeholder="Link erscheint nach dem Hosten …" aria-label="Share-Link" onclick="this.select()">
+          <button type="button" class="mini-button" onclick="window.FederwerkLive && FederwerkLive.copyLink()" aria-label="Share-Link kopieren">📋</button>
+        </div>
+        <div id="liveHostMeta" class="live-hint" aria-live="polite"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" onclick="window.FederwerkLive && FederwerkLive.host()" aria-label="Freigabe starten">🔴 Freigabe starten</button>
+          <button type="button" class="inactive" onclick="window.FederwerkLive && FederwerkLive.revoke()" aria-label="Freigabe zurückziehen">Zurückziehen</button>
+          <button type="button" class="inactive" onclick="window.FederwerkLive && FederwerkLive.leave()" aria-label="Live verlassen">Verlassen</button>
+        </div>
+      </div>
+      <div id="liveJoinPane" class="live-pane" style="display:none">
+        <div style="font-size:13px">Link einfügen (…<code>#share=s…</code>) oder Code direkt – du brauchst einen Appwrite-Login auf derselben Instanz.</div>
+        <label>Share-Link oder Code
+          <input type="text" id="liveCode" autocomplete="off" placeholder="https://…#share=s… oder Code" aria-label="Share-Code">
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" onclick="window.FederwerkLive && FederwerkLive.join()" aria-label="Live-Session beitreten">➕ Beitreten</button>
+        </div>
+      </div>
+      <div class="editor-footer" style="justify-content:flex-start">
+        <span id="liveMsg" aria-live="polite"></span>
+      </div>
+    </div>
+  </div>
+  <div id="liveBar" class="no-print" aria-live="polite"></div>
+
   <script src="js/pencil.js"></script>
   <script src="js/folders.js"></script>
   <script src="js/split.js"></script>
@@ -499,6 +571,7 @@
   <script src="js/flash-ui.js"></script>
   <script src="js/appwrite-files.js"></script>
   <script src="js/appwrite-sync.js"></script>
+  <script src="js/liveshare.js"></script>
   <script src="js/updater.js"></script>
 </body>
 </html>

@@ -86,9 +86,11 @@ function saveTextEditor() {
     const box = page ? page.texts.find(t => t.id === currentEditorBoxId) : null;
     if (box) {
       box.html = editorContent.innerHTML;
+      box.updatedAt = Date.now();
       // Box-Stil aus dem Editor-Container übernehmen (Roundtrip zum Default-Stil).
       const st = collectEditorStyle();
       if (st) { box.fontSize = st.fontSize; box.color = st.color; box.align = st.align; }
+      try { if (typeof window !== 'undefined' && window.FederwerkLive) window.FederwerkLive.emitLocalText(box); } catch { /* Liveshare optional */ }
       persistSoon();
       if (typeof renderTextLayerFor === 'function') renderTextLayerFor(paneIdx);
       else renderTextLayer();
