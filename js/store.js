@@ -35,7 +35,7 @@
     putBlob, putDataUrl,
     url, dataUrl,
     inlineBook, extractBook,
-    subscribe, blobStats,
+    subscribe,
     get available() { return hasIdb(); },
     _internals: {},
   };
@@ -194,6 +194,53 @@
     try {
       await idbReq(db.transaction(BLOBS, 'readwrite').objectStore(BLOBS).put(rec, id));
     } catch { memBlobs.set(id, rec); }
+  }
+  // Anzahl + Bytes aller Bild-Blobs (für Speicherverbrauchstracker).
+  async function blobStats() {
+    if (forceMemBlobs || !hasIdb()) {
+      let bytes = 0;
+      try {
+        for (const rec of memBlobs.values()) bytes += (rec && rec.bytes && rec.bytes.length) || 0;
+      } catch { /* ignore */ }
+      return { count: memBlobs.size, bytes };
+    }
+    const db = await openDb();
+    if (!db) {
+      let bytes = 0;
+      try {
+        for (const rec of memBlobs.values()) bytes += (rec && rec.bytes && rec.bytes.length) || 0;
+      } catch { /* ignore */ }
+      return { count: memBlobs.size, bytes };
+    }
+    try {
+      const os = db.transaction(BLOBS, 'readonly').objectStore(BLOBS);
+      if (typeof os.getAll === 'function') {
+        const recs = await idbReq(os.getAll());
+        let bytes = 0;
+        for (const rec of recs || []) bytes += (rec && rec.bytes && rec.bytes.length) || 0;
+        return { count: (recs || []).length, bytes };
+      }
+      return await new Promise((resolve) => {
+        let count = 0, bytes = 0;
+        try {
+          const req = os.openCursor();
+          req.onsuccess = () => {
+            const cur = req.result;
+            if (!cur) { resolve({ count, bytes }); return; }
+            count++;
+            try { bytes += (cur.value && cur.value.bytes && cur.value.bytes.length) || 0; } catch { /* ignore */ }
+            cur.continue();
+          };
+          req.onerror = () => resolve({ count, bytes });
+        } catch { resolve({ count, bytes }); }
+      });
+    } catch {
+      let bytes = 0;
+      try {
+        for (const rec of memBlobs.values()) bytes += (rec && rec.bytes && rec.bytes.length) || 0;
+      } catch { /* ignore */ }
+      return { count: memBlobs.size, bytes };
+    }
   }
 
   /* ---------- Blob-API ---------- */
