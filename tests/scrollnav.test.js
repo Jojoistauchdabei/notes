@@ -67,12 +67,12 @@ describe('scrollnav/schwelle', () => {
 
 describe('scrollnav/cooldown', () => {
   it('zweiter Schub im Lock flippt nicht, Energie bleibt (kein Doppelsprung)', () => {
-    const r = SN.shouldFlip(120, 0, 1000, 900); // 100ms < 350ms Lock
+    const r = SN.shouldFlip(120, 0, 1000, 900); // 100ms < 500ms Lock
     assert.equal(r.flip, 0);
     assert.equal(r.acc, 120); // Energie erhalten (Idle-Reset räumt ggf. ab)
   });
   it('nach dem Cooldown flippt es wieder', () => {
-    const r = SN.shouldFlip(120, 0, 1600, 900); // 700ms > 600ms
+    const r = SN.shouldFlip(120, 0, 1600, 900); // 700ms > 500ms
     assert.equal(r.flip, 1);
   });
   it('Cooldown ist konfigurierbar', () => {
@@ -100,13 +100,20 @@ describe('scrollnav/stepWheel (Pane-State)', () => {
     assert.equal(SN.stepWheel(st, { deltaX: 90, deltaY: 5 }, 1000).handled, false);
     assert.equal(st.acc, 0); // nichts akkumuliert
   });
-  it('Flip setzt lastFlip (Folge-Event im Cooldown wird geschluckt)', () => {
+  it('Flip setzt lastFlip + flipped (Folge-Event blättert NICHT)', () => {
     const st = SN.createPaneState();
     const r1 = SN.stepWheel(st, { deltaY: 100 }, 1000);
     assert.equal(r1.flip, 1);
     const r2 = SN.stepWheel(st, { deltaY: 100 }, 1100);
     assert.equal(r2.flip, 0);
     assert.equal(r2.handled, true); // trotzdem gehandelt (Browser-Scroll bleibt aus)
+    // Ohne Idle-Lücke blättert dieselbe Geste nicht weiter (auch wenn
+    // der reine Cooldown längst vorbei wäre – hier 1400: Lücke 300ms nicht > 300ms)
+    const r3 = SN.stepWheel(st, { deltaY: 100 }, 1400);
+    assert.equal(r3.flip, 0);
+    // Nach echter Idle-Pause ist die nächste Seite wieder dran
+    const r4 = SN.stepWheel(st, { deltaY: 100 }, 1800); // 400ms > 300ms Idle
+    assert.equal(r4.flip, 1);
   });
 });
 
@@ -135,7 +142,7 @@ describe('scrollnav/swipe (Touch, Zwei-Finger)', () => {
     assert.equal(SN.swipeEngage(60, 25), false);  // horizontal -> Browser/Pinch
     assert.equal(SN.swipeEngage(20, 30), true);   // leicht diagonal ok
   });
-  it('90px Swipe flippt genau einmal (runter = vor)', () => {
+  it('90px Swipe flippt genau einmal (positives dy = nächste Seite)', () => {
     const st = SN.createSwipeState();
     let r = SN.stepSwipe(st, 40, 1000);
     assert.equal(r.flip, 0);
@@ -143,11 +150,12 @@ describe('scrollnav/swipe (Touch, Zwei-Finger)', () => {
     assert.equal(r.flip, 1);
     assert.equal(r.acc, 0);
   });
-  it('Swipe hoch flippt zurück, Cooldown gilt auch für Touch', () => {
+  it('Swipe hoch flippt zurück, danach erst nach Idle wieder', () => {
     const st = SN.createSwipeState();
     assert.equal(SN.stepSwipe(st, -120, 1000).flip, -1);
-    assert.equal(SN.stepSwipe(st, -120, 1100).flip, 0); // 100ms < 500ms
-    assert.equal(SN.stepSwipe(st, -120, 1600).flip, -1); // 600ms > 500ms
+    assert.equal(SN.stepSwipe(st, -120, 1100).flip, 0); // gleiche Geste
+    assert.equal(SN.stepSwipe(st, -120, 1600).flip, -1); // Idle 500ms > 250ms + Cooldown 600>500
+    assert.equal(SN.stepSwipe(st, -120, 1700).flip, 0);  // wieder gleiche Geste
   });
   it('Wheel- und Swipe-State sind getrennt (eigener acc)', () => {
     const w = SN.createPaneState();
@@ -167,7 +175,7 @@ describe('scrollnav/swipe (Touch, Zwei-Finger)', () => {
   });
 });
 
-describe('scrollnav/gesten (Idle-Reset + Lock mit Energie)', () => {
+describe('scrollnav/gesten (Idle-Reset + eine Geste = eine Seite)', () => {
   it('ein Maus-Notch (Burst) = genau ein Flip', () => {
     const st = SN.createPaneState();
     const r1 = SN.stepWheel(st, { deltaY: 40 }, 1000);
@@ -180,14 +188,30 @@ describe('scrollnav/gesten (Idle-Reset + Lock mit Energie)', () => {
     assert.equal(SN.stepWheel(st, { deltaY: 120 }, 1000).flip, 1);
     SN.stepWheel(st, { deltaY: 8 }, 1100); // Momentum trudelt aus (Lock)
     SN.stepWheel(st, { deltaY: 8 }, 1200);
-    assert.equal(SN.stepWheel(st, { deltaY: 8 }, 2000).flip, 0); // Idle -> Reset
+    assert.equal(SN.stepWheel(st, { deltaY: 8 }, 2000).flip, 0); // Idle -> Reset, zu wenig Energie
     assert.equal(SN.stepWheel(st, { deltaY: 50 }, 2050).flip, 1); // echter Schub flippt
   });
-  it('zügiger Zweitschub geht nicht verloren', () => {
+  it('Dauer-Scroll blättert nur EINE Seite (kein Springen durchs Buch)', () => {
     const st = SN.createPaneState();
     assert.equal(SN.stepWheel(st, { deltaY: 120 }, 1000).flip, 1);
-    assert.equal(SN.stepWheel(st, { deltaY: 120 }, 1150).flip, 0); // Lock, Energie bleibt
-    assert.equal(SN.stepWheel(st, { deltaY: 10 }, 1400).flip, 1); // Rest löst nach Lock aus
+    // Momentum/Trackpad liefert weiter Events ohne Pause:
+    let flips = 0;
+    for (let t = 1030; t <= 2500; t += 30) {
+      const r = SN.stepWheel(st, { deltaY: 120 }, t);
+      if (r.flip) flips++;
+    }
+    assert.equal(flips, 0); // gleiche Geste: erst Idle-Pause nötig
+    // Nach Pause (>300ms Stille) blättert es wieder genau eine Seite
+    assert.equal(SN.stepWheel(st, { deltaY: 120 }, 3000).flip, 1);
+    assert.equal(SN.stepWheel(st, { deltaY: 120 }, 3100).flip, 0);
+  });
+  it('zügiger Zweitschub braucht Idle dazwischen (nicht nur Cooldown)', () => {
+    const st = SN.createPaneState();
+    assert.equal(SN.stepWheel(st, { deltaY: 120 }, 1000).flip, 1);
+    assert.equal(SN.stepWheel(st, { deltaY: 120 }, 1150).flip, 0); // gleiche Geste
+    // 1600 = 450ms nach 1150 (>Idle), aber flipped war seit 1000 ohne echte Idle-Lücke…
+    // letzte Events bei 1150; Lücke 1600-1150=450>300 -> Idle, flipped=false, Cooldown 600>500
+    assert.equal(SN.stepWheel(st, { deltaY: 120 }, 1600).flip, 1);
   });
 });
 

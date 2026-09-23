@@ -127,10 +127,12 @@ function applyStageTouchAction() {
   // Finger scrollt nativ (pan-y), Stift zeichnet trotzdem (Pointer Events).
   // Nur wenn "Finger zeichnen" an ist, wird Scrollen auf der Seite gesperrt.
   // Laserpointer sperrt immer (Zeigen statt Scrollen, speichert nichts).
+  // Scroll-Navigation an: vertikaler Finger-Swipe blättert (touch-action none),
+  // damit der Browser die Geste nicht für natives Pannen klaut.
   try {
     const laserOn = (typeof GrimoireLaser !== 'undefined' && GrimoireLaser.isLaserTool)
       ? GrimoireLaser.isLaserTool(tool) : tool === 'laser';
-    const mode = (laserOn || inputPrefs.fingerDraw) ? 'none' : 'pan-x pan-y';
+    const mode = (laserOn || inputPrefs.fingerDraw || scrollNavEnabled) ? 'none' : 'pan-x pan-y';
     ['stage', 'stageB'].forEach(id => {
       const el = $(id);
       if (!el) return;
@@ -147,6 +149,7 @@ function applyStageTouchAction() {
  * persistiert unter federwerkScrollNavV1 (s. js/scrollnav.js). */
 let scrollNavEnabled = true;
 let scrollNavPane = { 0: null, 1: null };
+let scrollNavSwipe = { 0: null, 1: null }; // Touch-Swipe-States (eigener acc)
 try {
   if (typeof GrimoireScrollNav !== 'undefined') {
     scrollNavEnabled = GrimoireScrollNav.loadEnabled(typeof localStorage !== 'undefined' ? localStorage : null);
@@ -162,6 +165,7 @@ function setScrollNavEnabled(v) {
     if (typeof GrimoireScrollNav !== 'undefined') GrimoireScrollNav.saveEnabled(typeof localStorage !== 'undefined' ? localStorage : null, scrollNavEnabled);
     else if (typeof localStorage !== 'undefined') localStorage.setItem('federwerkScrollNavV1', scrollNavEnabled ? '1' : '0');
   } catch { /* ignore */ }
+  applyStageTouchAction();
   syncToolbar();
 }
 function toggleScrollNav(ev) {
@@ -2464,17 +2468,6 @@ function scrollNavBoundaryFeedback(idx) {
     }
   } catch { /* Feedback optional */ }
 }
-function scrollNavCanFlip(key, dir) {
-  // Gibt es in Richtung dir überhaupt eine Nachbarseite? (kein Wrap)
-  try {
-    const b = paneBook(key); if (!b || !b.pages.length) return false;
-    const pos = b.pages.findIndex(p => p.id === panePageId(key));
-    const api = (typeof GrimoireScrollNav !== 'undefined') ? GrimoireScrollNav : null;
-    const next = api ? api.neighborIndex(pos < 0 ? 0 : pos, dir, b.pages.length)
-      : ((pos + dir >= 0 && pos + dir < b.pages.length) ? pos + dir : null);
-    return next != null;
-  } catch { return false; }
-}
 function scrollNavGuardsPass() {
   // Gemeinsame Vorbedingungen für Wheel- und Swipe-Blättern.
   if (!isScrollNavEnabled()) return false;
@@ -2505,15 +2498,73 @@ function bindScrollNavFor(idx) {
         scrollNavFlipInPane(key, r.flip);
         return;
       }
-      // Unter der Schwelle / im Cooldown: nur schlucken, wenn Blättern in diese
-      // Richtung überhaupt möglich ist – am Buchanfang/-ende läuft der native
-      // Scroll weiter, statt sich „festgefahren" anzufühlen.
-      const dir = (r.dy || 0) > 0 ? 1 : -1;
-      if (scrollNavCanFlip(key, dir)) ev.preventDefault();
+      // Immer schlucken, wenn als vertikaler Scroll erkannt – auch am
+      // Buchanfang/-ende. Sonst springt natives Fenster-Scroll durch
+      // (Buchrand fühlt sich „kaputt“ an); Feedback ist der Boundary-Blink.
+      ev.preventDefault();
     } catch { /* Wheel-Navigation optional, Zeichnung unberührt */ }
   }, { passive: false });
-  // Touch bleibt vollständig beim Browser: Finger kann die Seite scrollen,
-  // Apple Pencil wird ausschließlich über Pointer-Events als Tinte behandelt.
+  // Finger-Vertikal-Swipe blättert auf Touch-Geräten (iPad: kein Wheel):
+  // 2 Finger immer; 1 Finger wenn „Schreiben: aus“ (fingerDraw aus) –
+  // das ist das erwartete Verhalten des Schreib-Toggles.
+  // Wichtig: touchstart ist NICHT passiv und ruft bei Beanspruchung sofort
+  // preventDefault – sonst krallt sich der Browser die Geste für natives
+  // Scrollen/Zoomen und es kommen keine touchmove-Events mehr an (dann würde
+  // der Swipe nie die Schwelle erreichen). Tap-Gesten (Undo/Redo, touchend-
+  // gesteuert) und Stift-Zeichnung bleiben unberührt; Pinch-Zoom auf der
+  // Bühne ist bei aktivierter Scroll-Navigation dem Blättern gewichen.
+  stage.addEventListener('touchstart', (ev) => {
+    try {
+      stage._swipe = null;
+      if (!scrollNavGuardsPass()) return;
+      const n = (ev.touches && ev.touches.length) || 0;
+      const claim = (n === 2) || (n === 1 && !inputPrefs.fingerDraw);
+      if (!claim) return;
+      try { ev.preventDefault(); } catch { /* ignore */ }
+      let c;
+      if (n === 1) {
+        c = { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
+      } else {
+        c = { x: (ev.touches[0].clientX + ev.touches[1].clientX) / 2, y: (ev.touches[0].clientY + ev.touches[1].clientY) / 2 };
+      }
+      stage._swipe = { x0: c.x, y0: c.y, lx: c.x, ly: c.y, engaged: false, n: n };
+    } catch { stage._swipe = null; }
+  }, { passive: false });
+  stage.addEventListener('touchmove', (ev) => {
+    try {
+      const sw = stage._swipe;
+      if (!sw) return;
+      if (!scrollNavGuardsPass()) { stage._swipe = null; return; }
+      const n = (ev.touches && ev.touches.length) || 0;
+      if (n !== sw.n) { stage._swipe = null; return; }
+      let cx, cy;
+      if (n === 1) {
+        cx = ev.touches[0].clientX; cy = ev.touches[0].clientY;
+      } else {
+        cx = (ev.touches[0].clientX + ev.touches[1].clientX) / 2;
+        cy = (ev.touches[0].clientY + ev.touches[1].clientY) / 2;
+      }
+      if (!sw.engaged) {
+        // Erst einrasten, sonst loslassen (Tap/Pinch bleiben nativ).
+        if (!GrimoireScrollNav.swipeEngage(cx - sw.x0, cy - sw.y0)) {
+          if (Math.abs(cx - sw.x0) > Math.abs(cy - sw.y0) && Math.abs(cx - sw.x0) >= 24) stage._swipe = null;
+          return;
+        }
+        sw.engaged = true;
+        sw.lx = cx; sw.ly = cy;
+      }
+      ev.preventDefault(); // vertikaler Swipe gehört dem Seitenwechsel
+      const key = (idx === 1) ? 1 : 0;
+      if (!scrollNavSwipe[key]) scrollNavSwipe[key] = GrimoireScrollNav.createSwipeState();
+      // Natürliche Scrollrichtung wie am Rad: Finger hoch = scrollt runter = nächste Seite.
+      const r = GrimoireScrollNav.stepSwipe(scrollNavSwipe[key], sw.ly - cy, Date.now());
+      sw.lx = cx; sw.ly = cy;
+      if (r.flip) scrollNavFlipInPane(key, r.flip);
+    } catch { /* Swipe-Navigation optional, Zeichnung unberührt */ }
+  }, { passive: false });
+  const swipeEnd = () => { try { stage._swipe = null; } catch { /* ignore */ } };
+  stage.addEventListener('touchend', swipeEnd);
+  stage.addEventListener('touchcancel', swipeEnd);
 }
 function bindScrollNav() { bindScrollNavFor(0); bindScrollNavFor(1); }
 

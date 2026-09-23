@@ -9,10 +9,9 @@
  * - Nur vertikaler Scroll (deltaY dominiert) löst aus, kein Touch/Pointer.
  * - Pinch-Zoom (ctrlKey/metaKey + Wheel) wird NIE gehandelt (Browser-Zoom).
  * - Akkumulations-Schwelle (Wheel 40px, Touch-Swipe 90px): ein Schub = eine Seite.
- * - Post-Flip-Lock (Wheel 350ms, Swipe 500ms): kein Doppelsprung aus derselben
- *   Geste – Energie bleibt erhalten (kein Verschlucken schneller Folgeschübe).
- * - Idle-Reset (Wheel 200ms, Swipe 250ms ohne Events = neue Geste): Momentum-
- *   Reste lösen keinen Phantom-Flip aus, nachdem der Finger/das Rad stillsteht.
+ * - EINE GESTE = EINE SEITE: nach einem Flip bleibt flipped bis Idle – auch wenn
+ *   Rad/Finger weiterlaufen (Momentum springt nicht durchs Buch). Neue Seite
+ *   erst nach Idle-Pause (Wheel 300ms, Swipe 250ms) + Cooldown (500ms).
  * - Am Anfang/Ende: kein Wrap (neighborIndex -> null, UI gibt Feedback).
  * - An/Aus-Persistenz unter federwerkScrollNavV1 (Default AN).
  *
@@ -22,9 +21,9 @@
   'use strict';
 
   var LS_KEY = 'federwerkScrollNavV1';
-  var DEFAULT_COOLDOWN_MS = 350; // Post-Flip-Lock: kein Zweit-Flip aus derselben Geste
+  var DEFAULT_COOLDOWN_MS = 500; // Mindestabstand zwischen zwei Flips (auch über Idle)
   var DEFAULT_THRESHOLD_PX = 40;
-  var DEFAULT_IDLE_RESET_MS = 300; // Stille = neue Geste (Momentum-Reste verfallen)
+  var DEFAULT_IDLE_RESET_MS = 300; // Stille = neue Geste (flipped + acc zurück)
   var DEFAULT_SWIPE_THRESHOLD_PX = 90;  // Zwei-Finger-Swipe (CSS-px, Touch)
   var DEFAULT_SWIPE_COOLDOWN_MS = 500;
   var DEFAULT_SWIPE_IDLE_MS = 250;
@@ -96,8 +95,9 @@
     return { flip: acc > 0 ? 1 : -1, acc: 0 };
   }
 
-  /* Pro-Pane-Laufzeitstand (acc-Sammler + letzter Flip + letztes Event). */
-  function createPaneState() { return { acc: 0, lastFlip: -Infinity, lastEvent: -Infinity }; }
+  /* Pro-Pane-Laufzeitstand (acc-Sammler + letzter Flip + letztes Event).
+   * flipped: diese Geste hat bereits geblättert – erst Idle hebt das auf. */
+  function createPaneState() { return { acc: 0, lastFlip: -Infinity, lastEvent: -Infinity, flipped: false }; }
 
   /* Zwei-Finger-Swipe einrasten? Erst ab SWIPE_ENGAGE_PX und nur vertikal
    * dominant – Pinch/horizontales Pannen bleibt beim Browser. */
@@ -111,8 +111,8 @@
   }
 
   /* Touch-Laufzeitstand (eigener acc, damit Wheel und Swipe sich nicht
-   * gegenseitig den Reststand klauen). */
-  function createSwipeState() { return { acc: 0, lastFlip: -Infinity, lastEvent: -Infinity }; }
+   * gegenseitig den Reststand klauen). flipped = eine Seite pro Geste. */
+  function createSwipeState() { return { acc: 0, lastFlip: -Infinity, lastEvent: -Infinity, flipped: false }; }
 
   function swipeOptsOf(o) {
     o = o || {};
@@ -132,13 +132,16 @@
     if (typeof st.acc !== 'number' || !isFinite(st.acc)) st.acc = 0;
     if (typeof st.lastFlip !== 'number') st.lastFlip = -Infinity;
     if (typeof st.lastEvent !== 'number') st.lastEvent = -Infinity;
+    if (typeof st.flipped !== 'boolean') st.flipped = false;
     var o = swipeOptsOf(opts);
     var t = (now == null) ? Date.now() : num(now, Date.now());
-    if (t - st.lastEvent > o.idleMs) st.acc = 0;
+    // Stille = neue Geste: alten Reststand + „bereits geblättert“ verwerfen.
+    if (t - st.lastEvent > o.idleMs) { st.acc = 0; st.flipped = false; }
     st.lastEvent = t;
+    if (st.flipped) return { flip: 0, acc: st.acc };
     var r = shouldFlip(num(dyPx, 0), st.acc, t, st.lastFlip, o);
     st.acc = r.acc;
-    if (r.flip) st.lastFlip = t;
+    if (r.flip) { st.lastFlip = t; st.flipped = true; }
     return { flip: r.flip, acc: st.acc };
   }
 
@@ -150,17 +153,19 @@
     if (typeof st.acc !== 'number' || !isFinite(st.acc)) st.acc = 0;
     if (typeof st.lastFlip !== 'number') st.lastFlip = -Infinity;
     if (typeof st.lastEvent !== 'number') st.lastEvent = -Infinity;
+    if (typeof st.flipped !== 'boolean') st.flipped = false;
     var gate = shouldHandleWheel(ev);
     if (!gate.handle) return { handled: false, flip: 0, acc: st.acc, dy: gate.dy };
     var o = optsOf(opts);
     var t = (now == null) ? Date.now() : num(now, Date.now());
-    // Neue Geste (lange genug still): alten Reststand verwerfen, sonst würde
-    // Momentum-Drift nach der Pause einen Phantom-Flip auslösen.
-    if (t - st.lastEvent > o.idleMs) st.acc = 0;
+    // Neue Geste (lange genug still): Reststand verwerfen, flipped lösen –
+    // Momentum danach blättert erst nach bewusster Pause wieder.
+    if (t - st.lastEvent > o.idleMs) { st.acc = 0; st.flipped = false; }
     st.lastEvent = t;
+    if (st.flipped) return { handled: true, flip: 0, acc: st.acc, dy: gate.dy };
     var r = shouldFlip(gate.dy, st.acc, t, st.lastFlip, o);
     st.acc = r.acc;
-    if (r.flip) st.lastFlip = t;
+    if (r.flip) { st.lastFlip = t; st.flipped = true; }
     return { handled: true, flip: r.flip, acc: st.acc, dy: gate.dy };
   }
 
