@@ -743,3 +743,12 @@ select { cursor: pointer; }
 .live-cursor-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 .live-cursor-name { font-size: 10px; color: #fff; padding: 1px 6px; border-radius: 8px; margin-top: 2px; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 @media print { #liveBar, .live-cursors { display: none !important; } }
+
+/* ===== Eigene Dialoge (confirm/prompt statt nativ, js/dialog.js) ===== */
+.fw-dlg-overlay { z-index: 10001; }
+.fw-dlg-modal { max-width: 440px; }
+.fw-dlg-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; background: var(--field-bg); }
+.fw-dlg-msg { font-size: 15px; line-height: 1.5; white-space: pre-line; }
+.fw-dlg-input { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+.fw-dlg-foot { justify-content: flex-end; }
+.fw-dlg-danger { background: #a33; border-color: #a33; color: #fff; }

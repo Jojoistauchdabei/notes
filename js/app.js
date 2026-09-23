@@ -455,9 +455,13 @@ function createNotebook() {
   persistNow(); renderLibrary();
   openBookView(b.id);
 }
-function deleteBook(id, ev) {
+async function deleteBook(id, ev) {
   if (ev) ev.stopPropagation();
-  if (!confirm('Buch wirklich löschen?')) return;
+  const b = state.books.find(x => x.id === id); if (!b) return;
+  const ok = (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.confirm)
+    ? await FederwerkDialog.confirm('„' + (b.title || 'Unbenannt') + '“ wirklich löschen?', { title: 'Buch löschen', danger: true }).catch(() => false)
+    : (typeof confirm !== 'undefined' ? confirm('Buch wirklich löschen?') : true);
+  if (!ok) return;
   state.books = state.books.filter(b => b.id !== id);
   // Split-Panes auf Fallback umhängen (sonst leere Bereiche)
   try {
@@ -500,7 +504,7 @@ function openFolderFromLibrary(id, ev) {
   if (ev) ev.stopPropagation();
   setActiveFolder(id, null);
 }
-function createFolderUI(parentId) {
+async function createFolderUI(parentId) {
   const pid = (typeof parentId === 'string' && parentId) ? parentId : null;
   let pname = '';
   if (pid) {
@@ -508,8 +512,12 @@ function createFolderUI(parentId) {
     if (!pf) return;
     pname = ' in „' + (pf.name || '') + '“';
   }
-  let name = '';
-  try { name = prompt('Neuer Ordner' + pname + ' – Name:', ''); } catch { name = ''; }
+  let name = null;
+  try {
+    name = (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.prompt)
+      ? await FederwerkDialog.prompt('Neuer Ordner' + pname + ' – Name:', '', { title: 'Neuer Ordner', maxLength: 60 }).catch(() => null)
+      : prompt('Neuer Ordner' + pname + ' – Name:', '');
+  } catch { name = null; }
   if (name === null) return;
   name = String(name || '').trim();
   if (!name) return;
@@ -533,11 +541,15 @@ function renameFolderUI(id, ev) {
   if (ev) ev.stopPropagation();
   startFolderRename(id);
 }
-function promptRenameFolder(id) {
+async function promptRenameFolder(id) {
   const f = (state.folders || []).find(x => x && x.id === id);
   if (!f) return;
-  let name = '';
-  try { name = prompt('Ordner umbenennen:', f.name || ''); } catch { return; }
+  let name = null;
+  try {
+    name = (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.prompt)
+      ? await FederwerkDialog.prompt('Ordner umbenennen:', f.name || '', { title: 'Ordner umbenennen', maxLength: 60 }).catch(() => null)
+      : prompt('Ordner umbenennen:', f.name || '');
+  } catch { return; }
   if (name === null) return;
   name = String(name || '').trim();
   if (!name) return;
@@ -589,7 +601,7 @@ function startFolderRename(id) {
   input.addEventListener('click', (e) => { e.stopPropagation(); });
   input.addEventListener('dblclick', (e) => { e.stopPropagation(); });
 }
-function deleteFolderUI(id, ev) {
+async function deleteFolderUI(id, ev) {
   if (ev) ev.stopPropagation();
   const f = (state.folders || []).find(x => x && x.id === id);
   if (!f) return;
@@ -600,7 +612,10 @@ function deleteFolderUI(id, ev) {
       if (n) extra = ' (inkl. ' + n + ' Unterordner)';
     }
   } catch { /* ignore */ }
-  if (!confirm('Ordner „' + (f.name || '') + '“' + extra + ' löschen? Bücher bleiben erhalten (werden zu „Unsortiert“).')) return;
+  const ok = (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.confirm)
+    ? await FederwerkDialog.confirm('Ordner „' + (f.name || '') + '“' + extra + ' löschen? Bücher bleiben erhalten (werden zu „Unsortiert“).', { title: 'Ordner löschen', danger: true }).catch(() => false)
+    : (typeof confirm !== 'undefined' ? confirm('Ordner „' + (f.name || '') + '“' + extra + ' löschen? Bücher bleiben erhalten (werden zu „Unsortiert“).') : true);
+  if (!ok) return;
   try {
     if (typeof GrimoireFolders !== 'undefined') GrimoireFolders.deleteFolder(state, id);
     else {
@@ -1456,8 +1471,18 @@ function renderLibrary() {
         : [];
     } catch { childFolders = []; }
   }
+  // Ordner-Zähler für Explorer-Karten (eigene Berechnung: `counts` aus
+  // renderFolderList lebt in anderem Scope – vgl. Live-Bug „counts is not defined").
+  let counts = { all: (state.books || []).length, unsorted: 0, byId: {} };
+  try {
+    if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.countSubtree) {
+      counts = GrimoireFolders.countSubtree(state.books || [], state.folders || []);
+    } else if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.countByFolder) {
+      counts = GrimoireFolders.countByFolder(state.books || []);
+    }
+  } catch { /* Fallback-Zähler oben bleibt */ }
   const folderCards = childFolders.map(f => {
-    const n = counts.byId[f.id] || 0;
+    const n = (counts.byId && counts.byId[f.id]) || 0;
     return '<button type="button" class="explorer-folder-card" ondblclick="openFolderFromLibrary(\'' + f.id + '\',event)" onclick="setActiveFolder(\'' + f.id + '\',event)" title="Doppelklick zum Öffnen">'
       + '<span class="explorer-folder-icon" aria-hidden="true">📁</span>'
       + '<span class="explorer-folder-name">' + esc(f.name || 'Ordner') + '</span>'
@@ -1695,7 +1720,7 @@ function importPagesFromBook(sourceBookId, pageRangeStr, targetPaneIdx) {
   touchBook(); persistSoon(); renderAll();
   return clones.map(c => c.id);
 }
-function openDocImportDialog(paneIdx, ev) {
+async function openDocImportDialog(paneIdx, ev) {
   if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
   const ti = (paneIdx === 1 || paneIdx === 0) ? paneIdx : activePaneIdx();
   setActivePane(ti, true);
@@ -1704,34 +1729,51 @@ function openDocImportDialog(paneIdx, ev) {
   const others = (state.books || []).filter(b => b.id !== target.id);
   if (!others.length) { alert('Kein weiteres Dokument zum Importieren vorhanden. Lege zuerst ein zweites Buch an.'); return; }
   const names = others.map((b, i) => (i + 1) + '. ' + (b.title || 'Unbenannt') + ' (' + (b.pages || []).length + ' S.)').join('\n');
+  const useDlg = (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.prompt);
   let choice = null;
-  try { choice = prompt('Aus welchem Dokument importieren? (Nummer eingeben)\nZiel: ' + (target.title || '') + '\n\n' + names, '1'); } catch { return; }
+  try {
+    choice = useDlg
+      ? await FederwerkDialog.prompt('Aus welchem Dokument importieren? (Nummer eingeben)\nZiel: ' + (target.title || '') + '\n\n' + names, '1', { title: 'Dokument-Import', maxLength: 8 }).catch(() => null)
+      : prompt('Aus welchem Dokument importieren? (Nummer eingeben)\nZiel: ' + (target.title || '') + '\n\n' + names, '1');
+  } catch { return; }
   if (choice == null) return;
   const n = Math.floor(Number(String(choice).trim()));
   if (!isFinite(n) || n < 1 || n > others.length) return;
   const src = others[n - 1];
   let range = '';
   try {
-    const ans = prompt('Seitenbereich aus „' + (src.title || '') + '“ (z. B. 1-3,5 – leer = alle ' + (src.pages || []).length + ' Seiten):', '');
-    if (ans === null) return;
-    range = ans || '';
+    if (useDlg) {
+      const ans = await FederwerkDialog.prompt('Seitenbereich aus „' + (src.title || '') + '“ (z. B. 1-3,5 – leer = alle ' + (src.pages || []).length + ' Seiten):', '', { title: 'Seitenbereich' }).catch(() => null);
+      if (ans === null) return;
+      range = ans || '';
+    } else {
+      const ans = prompt('Seitenbereich aus „' + (src.title || '') + '“ (z. B. 1-3,5 – leer = alle ' + (src.pages || []).length + ' Seiten):', '');
+      if (ans === null) return;
+      range = ans || '';
+    }
   } catch { range = ''; }
   const ids = importPagesFromBook(src.id, range, ti);
   if (!ids.length) alert('Nichts importiert (Bereich prüfen).');
   else setSaveStatus('💾 gespeichert (' + ids.length + ' Seite(n) aus „' + (src.title || '') + '“ importiert)');
 }
-function deletePage() {
+async function deletePage() {
   const b = openBook(); if (!b || b.pages.length <= 1) { alert('Die letzte Seite kann nicht gelöscht werden.'); return; }
-  if (!confirm('Seite löschen?')) return;
+  const ok = (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.confirm)
+    ? await FederwerkDialog.confirm('Seite löschen?', { title: 'Seite löschen', danger: true }).catch(() => false)
+    : (typeof confirm !== 'undefined' ? confirm('Seite löschen?') : true);
+  if (!ok) return;
   snapshot(true);
   const idx = b.pages.findIndex(x => x.id === activePageId());
   b.pages.splice(idx, 1);
   setActivePageId(b.pages[Math.max(0, idx - 1)].id);
   touchBook(); persistSoon(); renderAll();
 }
-function clearPage() {
+async function clearPage() {
   const p = currentPage(); if (!p) return;
-  if (!confirm('Seite wirklich leeren?')) return;
+  const ok = (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.confirm)
+    ? await FederwerkDialog.confirm('Seite wirklich leeren?', { title: 'Seite leeren', danger: true }).catch(() => false)
+    : (typeof confirm !== 'undefined' ? confirm('Seite wirklich leeren?') : true);
+  if (!ok) return;
   snapshot();
   p.strokes = []; p.texts = []; p.images = [];
   touchBook(); persistSoon(); renderAll();
@@ -2690,7 +2732,13 @@ function renderImgLayerFor(idx) {
     h.onpointerdown = e => { e.stopPropagation(); e.preventDefault(); setActivePane(idx, true); startResize(e, im); };
     d.appendChild(h);
     d.onclick = e => { e.stopPropagation(); setActivePane(idx, true); selectedImg = im.id; selectedBox = null; parkActiveUI(); renderAll(); };
-    d.ondblclick = e => { e.stopPropagation(); setActivePane(idx, true); if (confirm('Bild entfernen?')) { snapshot(); const pg = currentPage(); pg.images = pg.images.filter(x => x.id !== im.id); selectedImg = null; touchBook(); persistSoon(); renderAll(); } };
+    d.ondblclick = async e => {
+      e.stopPropagation(); setActivePane(idx, true);
+      const ok = (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.confirm)
+        ? await FederwerkDialog.confirm('Bild entfernen?', { title: 'Bild entfernen', danger: true }).catch(() => false)
+        : (typeof confirm !== 'undefined' ? confirm('Bild entfernen?') : true);
+      if (ok) { snapshot(); const pg = currentPage(); pg.images = pg.images.filter(x => x.id !== im.id); selectedImg = null; touchBook(); persistSoon(); renderAll(); }
+    };
     if (tool === 'move') makeDraggable(d, im, 'img');
     layer.appendChild(d);
   });
@@ -2970,17 +3018,23 @@ async function importPdfAsNewPages(file, pageRangeStr) {
   setSaveStatus('💾 gespeichert (' + createdIds.length + ' PDF-Seite(n))');
   return createdIds;
 }
-// <input>-Handler für PDF-Import als neue Seiten (Bereich per Prompt wählbar).
-function importPdfAsPages(ev, presetRange) {
+// <input>-Handler für PDF-Import als neue Seiten (Bereich per Dialog wählbar).
+async function importPdfAsPages(ev, presetRange) {
   const files = (ev.target.files && Array.from(ev.target.files)) || [];
   if (!files.length) return;
   ev.target.value = '';
   let range = presetRange;
   if (range === undefined) {
     try {
-      const ans = prompt('Seitenbereich (z. B. 1-3,5 – leer = alle Seiten):', '');
-      if (ans === null) return; // Abbrechen -> kein Import
-      range = ans;
+      if (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.prompt) {
+        const ans = await FederwerkDialog.prompt('Seitenbereich (z. B. 1-3,5 – leer = alle Seiten):', '', { title: 'PDF-Import' }).catch(() => null);
+        if (ans === null) return; // Abbrechen -> kein Import
+        range = ans;
+      } else {
+        const ans = prompt('Seitenbereich (z. B. 1-3,5 – leer = alle Seiten):', '');
+        if (ans === null) return; // Abbrechen -> kein Import
+        range = ans;
+      }
     } catch { range = ''; }
   }
   (async () => {

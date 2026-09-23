@@ -147,11 +147,17 @@
     touch();
     renderDeck();
   }
-  function deleteCard(id, ev) {
+  async function deleteCard(id, ev) {
     if (ev) { try { ev.stopPropagation(); } catch (e) { /* ignore */ } }
     var b = deck();
     if (!b) return;
-    if (!confirm('Karte wirklich löschen?')) return;
+    var ok = true;
+    try {
+      ok = (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.confirm)
+        ? await FederwerkDialog.confirm('Karte wirklich löschen?', { title: 'Karte löschen', danger: true }).catch(function () { return false; })
+        : (typeof confirm !== 'undefined' ? confirm('Karte wirklich löschen?') : true);
+    } catch (e) { ok = false; }
+    if (!ok) return;
     b.cards = (b.cards || []).filter(function (c) { return !c || c.id !== id; });
     if (editingId === id) resetForm();
     touch();

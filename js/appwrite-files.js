@@ -740,7 +740,13 @@
         } catch (e) { UI._msg('Fehler: ' + e.message, true); }
       },
       async cleanup() {
-        if (typeof confirm !== 'undefined' && !confirm('Verwaiste Remote-Dateien wirklich löschen?')) return;
+        let ok = true;
+        try {
+          ok = (typeof FederwerkDialog !== 'undefined' && FederwerkDialog.confirm)
+            ? await FederwerkDialog.confirm('Verwaiste Remote-Dateien wirklich löschen?', { title: 'Orphans löschen', danger: true }).catch(() => false)
+            : (typeof confirm !== 'undefined' ? confirm('Verwaiste Remote-Dateien wirklich löschen?') : true);
+        } catch { ok = false; }
+        if (!ok) return;
         UI._msg('Lösche verwaiste Dateien …');
         try {
           const r = await Files.cleanupOrphans(false);
