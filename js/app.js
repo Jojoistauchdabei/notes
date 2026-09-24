@@ -244,6 +244,25 @@ const stripHtml = h => {
   }
   return src.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?(p|div|h[1-6]|li|ul|ol|tr)[^>]*>/gi, '\n').replace(/<[^>]*>/g, '');
 };
+// Import-Guards: untrusted Dateien (Groesse/Pixel) begrenzen, bevor sie
+// dekodiert werden – sonst killt eine 2-GB-JSON oder ein Pixel-Bomb-CANVAS
+// den Tab (DoS), bevor irgendein Fehler sichtbar wird.
+const IMPORT_LIMITS = {
+  json: 128 * 1024 * 1024,
+  goodnotes: 512 * 1024 * 1024,
+  pdf: 256 * 1024 * 1024,
+  image: 64 * 1024 * 1024,
+  imagePixels: 80e6
+};
+const importTooBig = (f, kind) => !!(f && typeof f.size === 'number' && f.size > (IMPORT_LIMITS[kind] || Infinity));
+const importReject = (name, kind) => {
+  const mb = Math.round((IMPORT_LIMITS[kind] || 0) / (1024 * 1024));
+  const msg = 'Import abgelehnt: ' + (name || 'Datei') + ' überschreitet ' + mb + ' MB.';
+  try { setSaveStatus(msg); } catch { /* ignore */ }
+  try { alert(msg); } catch { /* ignore */ }
+  return msg;
+};
+const importTooManyPixels = (w, h) => (Number(w) || 0) * (Number(h) || 0) > IMPORT_LIMITS.imagePixels;
 // 1px-Platzhalter, bis Blob-URLs aus IndexedDB aufgelöst sind
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
@@ -2808,8 +2827,14 @@ function importImage(ev) {
 }
 function importImageFileAsOverlay(f) {
   const p = currentPage(); if (!p || !f) return;
+  if (importTooBig(f, 'image')) { importReject(f.name, 'image'); return; }
   const img = new Image();
   img.onload = () => {
+    if (importTooManyPixels(img.width, img.height)) {
+      try { URL.revokeObjectURL(img.src); } catch { /* ignore */ }
+      importReject(f.name, 'image');
+      return;
+    }
     const max = 800;
     const sc = Math.min(1, max / Math.max(img.width, img.height));
     const c = document.createElement('canvas');
@@ -2854,6 +2879,7 @@ function importImageAsNewPage(file, opts) {
   const jump = opts.jump !== false;
   return new Promise(resolve => {
     const b = openBook(); if (!b || !file) { resolve(null); return; }
+    if (importTooBig(file, 'image')) { importReject(file.name, 'image'); resolve(null); return; }
     const needPage = () => currentPage();
     if (!needPage()) { resolve(null); return; }
     const finishWithDataUrl = async (dataUrl, natW, natH) => {
@@ -2892,6 +2918,7 @@ function importImageAsNewPage(file, opts) {
     const img = new Image();
     img.onload = () => {
       try {
+        if (importTooManyPixels(img.width, img.height)) { importReject(file.name, 'image'); resolve(null); return; }
         const lim = (typeof PagesImport !== 'undefined' && PagesImport.MAX_IMAGE_LONG_EDGE) || 1600;
         const sc = Math.min(1, lim / Math.max(img.width || 1, img.height || 1));
         const c = document.createElement('canvas');
@@ -2945,6 +2972,7 @@ async function gnGetPdfPageCount(pdfBytes) {
 // pageRangeStr z. B. „1-3,5", leer = alle. Offline -> Hinweis-Textbox statt bg.
 async function importPdfAsNewPages(file, pageRangeStr) {
   const book = openBook(); if (!book || !file) return [];
+  if (importTooBig(file, 'pdf')) { importReject(file.name, 'pdf'); return []; }
   let pdfBytes;
   try { pdfBytes = new Uint8Array(await file.arrayBuffer()); }
   catch { return []; }
@@ -3332,9 +3360,13 @@ function importAllJSON(ev) {
   const files = ev.target.files; if (!files || !files.length) return;
   let pending = files.length;
   const added = [];
+  const skipped = [];
   Array.from(files).forEach(f => {
     const r = new FileReader();
     r.onload = async () => {
+      if (importTooBig(f, 'json')) {
+        skipped.push('• ' + (f.name || 'JSON') + ' (zu groß)');
+      } else {
       try {
         const p = JSON.parse(r.result);
         // Ordner aus Gesamt-Export übernehmen (nach Name gemergt)
@@ -3353,9 +3385,11 @@ function importAllJSON(ev) {
         }
         books.forEach(b => { state.books.unshift(b); added.push(b.title); });
       } catch { /* einzelne defekte Datei ignorieren, Rest zählt */ }
+      }
       if (--pending === 0) {
         ev.target.value = '';
-        if (!added.length) { alert('Keine gültige Federwerk-JSON-Datei dabei.'); return; }
+        if (skipped.length) importReject(skipped.join('\n'), 'json');
+        if (!added.length) { if (!skipped.length) alert('Keine gültige Federwerk-JSON-Datei dabei.'); return; }
         persistNow(); renderLibrary(); showLibrary();
         alert(added.length + ' Dokument(e) importiert:\n• ' + added.join('\n• '));
       }
@@ -3569,6 +3603,7 @@ async function importGoodNotes(ev) {
   for (let i = 0; i < list.length; i++) {
     const f = list[i];
     setSaveStatus('Importiere ' + (i + 1) + '/' + list.length + ' …');
+    if (importTooBig(f, 'goodnotes')) { fail.push('• ' + f.name + ' (zu groß)'); continue; }
     try {
       const buf = await f.arrayBuffer();
       const members = await GNZip.readZip(new Uint8Array(buf));

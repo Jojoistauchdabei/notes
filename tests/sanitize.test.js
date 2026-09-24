@@ -143,3 +143,18 @@ describe('sanitize/Verdrahtung', () => {
     assert.ok(s.includes("arg('host'"), 'MCP-Server: Host konfigurierbar (Default 127.0.0.1)');
   });
 });
+
+describe('sanitize/Import-Guards', () => {
+  it('app.js begrenzt Import-Größen und Bild-Pixel', () => {
+    const app = read('js/app.js');
+    assert.ok(app.includes('const IMPORT_LIMITS = {'), 'IMPORT_LIMITS definiert');
+    for (const kind of ['json', 'goodnotes', 'pdf', 'image']) {
+      assert.ok(new RegExp('\\b' + kind + ': \\d+ \\* 1024 \\* 1024').test(app), kind + ' hat ein Limit');
+    }
+    assert.ok(app.includes('imagePixels: 80e6'), 'Pixel-Limit für Bilder');
+    assert.ok(app.includes("importTooBig(f, 'goodnotes')"), 'GoodNotes-Import geprüft');
+    assert.ok(app.includes("importTooBig(f, 'json')"), 'JSON-Import geprüft');
+    assert.ok(app.includes("importTooBig(file, 'pdf')"), 'PDF-Import geprüft');
+    assert.ok(app.includes('importTooManyPixels(img.width, img.height)'), 'Pixel-Check beim Bild-Import');
+  });
+});
