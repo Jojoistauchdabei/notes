@@ -179,7 +179,7 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js']) {
     '/index.html\n  Cache-Control: public, max-age=0, must-revalidate',
     '/sw.js\n  Cache-Control: public, max-age=0, must-revalidate',
     '/manifest.webmanifest\n  Cache-Control: public, max-age=0, must-revalidate',
-    '/*\n  X-Content-Type-Options: nosniff',
+    '/*\n  X-Content-Type-Options: nosniff\n  X-Frame-Options: DENY\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()\n  Content-Security-Policy: frame-ancestors \'none\'',
   ].join('\n\n') + '\n';
   fs.writeFileSync(path.join(dist, '_headers'), headers);
 }

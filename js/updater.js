@@ -62,6 +62,29 @@
     return '0.0.0';
   }
 
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function safeTag(release, latest) {
+    var tag = String((release && release.tag_name) || '');
+    if (/^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(tag)) return tag;
+    return 'v' + String(latest || '?');
+  }
+
+  function safeDownloadUrl(url) {
+    var raw = String(url || '').replace(new RegExp('[\\u0000-\\u0020]', 'g'), '');
+    if (!/^https:\/\//i.test(raw)) return '';
+    try {
+      var host = new URL(raw).hostname.toLowerCase();
+      var ok = host === 'github.com' || host === 'www.github.com' ||
+        host === 'githubusercontent.com' || /\.githubusercontent\.com$/.test(host);
+      return ok ? raw : '';
+    } catch (e) { return ''; }
+  }
+
   function showBanner(html) {
     if (document.getElementById('fw-update-banner')) return;
     var bar = document.createElement('div');
@@ -84,7 +107,7 @@
   }
 
   function bannerFor(release, latest, current) {
-    var tag = release.tag_name || ('v' + latest);
+    var tag = escHtml(safeTag(release, latest));
     if (isTauri() && !isAndroid()) {
       showBanner('<span>⬆ Federwerk <b>' + tag + '</b> verfügbar – Update wird im Hintergrund geladen, danach startet die App neu.</span>');
       return;
@@ -93,6 +116,7 @@
     try {
       (release.assets || []).forEach(function (a) {
         if (!/\.apk$/i.test(a.name || '')) return;
+        if (!safeDownloadUrl(a.browser_download_url)) return;
         if (!apk) apk = a;
         // Per-ABI-APKs seit --split-per-abi: Telefone laufen fast immer arm64.
         // "universal" bleibt zweite Wahl (alte Releases vor dem Split).
@@ -104,7 +128,7 @@
     if (apk) {
       showBanner(
         '<span>⬆ Federwerk <b>' + tag + '</b> verfügbar (installiert: v' + current + ').</span>' +
-        '<a href="' + apk.browser_download_url + '" style="color:#ffd98a;font-weight:bold">APK laden &amp; installieren</a>'
+        '<a href="' + escHtml(apk.browser_download_url) + '" rel="noopener noreferrer" style="color:#ffd98a;font-weight:bold">APK laden &amp; installieren</a>'
       );
       return;
     }

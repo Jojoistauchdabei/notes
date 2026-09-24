@@ -230,7 +230,20 @@ function syncSplitToState() {
 const $ = id => document.getElementById(id);
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const stripHtml = h => { const d = document.createElement('div'); d.innerHTML = h || ''; return d.textContent || ''; };
+// Wert fuer ein Inline-Attribut onclick="fn('…')": bricht aus single quotes aus
+const jsArg = s => esc(String(s ?? '')).replace(/[\r\n\\]/g, c => (c === '\n' || c === '\r' ? ' ' : '\\\\'));
+const sanitizeNoteHtml = h => (typeof GrimoireSanitize !== 'undefined' ? GrimoireSanitize.sanitizeHtml(h) : String(h == null ? '' : h));
+const safeAssetUrl = (u, allowData) => (typeof GrimoireSanitize !== 'undefined' ? GrimoireSanitize.safeUrl(u, allowData) : String(u == null ? '' : u));
+// Text-Extraktion ohne HTML-Senke: DOMParser lädt keine Ressourcen und feuert
+// keine Event-Handler (ein detached div.innerHTML = … tut beides in Chrome!).
+const stripHtml = h => {
+  const src = String(h == null ? '' : h);
+  if (typeof DOMParser !== 'undefined') {
+    try { return new DOMParser().parseFromString('<body>' + src + '</body>', 'text/html').body.textContent || ''; }
+    catch { /* Regex-Fallback */ }
+  }
+  return src.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?(p|div|h[1-6]|li|ul|ol|tr)[^>]*>/gi, '\n').replace(/<[^>]*>/g, '');
+};
 // 1px-Platzhalter, bis Blob-URLs aus IndexedDB aufgelöst sind
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
@@ -927,7 +940,7 @@ function folderOptionsHtml(selectedId) {
       let depth = 0;
       try { depth = folderDepth(f.id); } catch { depth = 0; }
       const indent = depth ? new Array(depth + 1).join('— ') : '';
-      return '<option value="' + f.id + '"' + (f.id === selectedId ? ' selected' : '') + '>' + esc('📁 ' + indent + (f.name || '')) + '</option>';
+      return '<option value="' + esc(f.id) + '"' + (f.id === selectedId ? ' selected' : '') + '>' + esc('📁 ' + indent + (f.name || '')) + '</option>';
     })
   );
   return opts.join('');
@@ -1153,7 +1166,7 @@ function syncBookSelects() {
     const sel = $(id); if (!sel) return;
     if (document.activeElement === sel) return; // offenes Dropdown nicht zerlegen
     const cur = paneBookId(i);
-    sel.innerHTML = state.books.map(b => '<option value="' + b.id + '"' + (b.id === cur ? ' selected' : '') + '>' + esc(b.title || 'Unbenannt') + '</option>').join('')
+    sel.innerHTML = state.books.map(b => '<option value="' + esc(b.id) + '"' + (b.id === cur ? ' selected' : '') + '>' + esc(b.title || 'Unbenannt') + '</option>').join('')
       || '<option value="">– keine Bücher –</option>';
     sel.value = cur || '';
   });
@@ -1266,8 +1279,8 @@ function renderFolderList() {
   const folders = folderList();
   const item = (id, label, count, emoji, drop) => {
     const active = (activeFolderId === id) ? ' active' : '';
-    const dz = drop ? ' ondragover="folderDragOver(event)" ondragleave="folderDragLeave(event)" ondrop="folderDropOnto(event,\'' + drop + '\')"' : '';
-    return '<button type="button" class="folder-item' + active + '" data-folder="' + id + '" onclick="setActiveFolder(\'' + id + '\',event)" aria-pressed="' + (active ? 'true' : 'false') + '"' + dz + '>'
+    const dz = drop ? ' ondragover="folderDragOver(event)" ondragleave="folderDragLeave(event)" ondrop="folderDropOnto(event,\'' + jsArg(drop) + '\')"' : '';
+    return '<button type="button" class="folder-item' + active + '" data-folder="' + esc(id) + '" onclick="setActiveFolder(\'' + jsArg(id) + '\',event)" aria-pressed="' + (active ? 'true' : 'false') + '"' + dz + '>'
       + '<span class="folder-emoji" aria-hidden="true">' + emoji + '</span>'
       + '<span class="folder-label">' + esc(label) + '</span>'
       + '<span class="folder-count" aria-label="' + count + ' Bücher">' + count + '</span>'
@@ -1288,22 +1301,22 @@ function renderFolderList() {
     const hasKids = kids.length > 0;
     const open = hasKids ? isFolderExpanded(f.id) : true;
     const arrow = hasKids
-      ? '<button type="button" class="folder-toggle" onclick="toggleFolderExpanded(\'' + f.id + '\',event)" aria-label="' + (open ? 'Einklappen' : 'Ausklappen') + '" aria-expanded="' + (open ? 'true' : 'false') + '" tabindex="-1">' + (open ? '▾' : '▸') + '</button>'
+      ? '<button type="button" class="folder-toggle" onclick="toggleFolderExpanded(\'' + jsArg(f.id) + '\',event)" aria-label="' + (open ? 'Einklappen' : 'Ausklappen') + '" aria-expanded="' + (open ? 'true' : 'false') + '" tabindex="-1">' + (open ? '▾' : '▸') + '</button>'
       : '<span class="folder-toggle folder-toggle--leaf" aria-hidden="true">•</span>';
     const emoji = hasKids && open ? '📂' : '📁';
     let html = '<div class="folder-node" style="--depth:' + depth + '">'
-      + '<div class="folder-row' + active + '" data-folderrow="' + f.id + '" role="treeitem" aria-selected="' + (active ? 'true' : 'false') + '" aria-expanded="' + (hasKids ? (open ? 'true' : 'false') : 'false') + '" aria-level="' + (depth + 1) + '" aria-label="' + esc(f.name || 'Ordner') + '"'
-      + ' draggable="true" ondragstart="folderDragStart(event,\'' + f.id + '\')" ondragover="folderDragOver(event)" ondragleave="folderDragLeave(event)" ondrop="folderDropOnto(event,\'' + f.id + '\')" onkeydown="folderRowKeydown(event,\'' + f.id + '\')">'
+      + '<div class="folder-row' + active + '" data-folderrow="' + esc(f.id) + '" role="treeitem" aria-selected="' + (active ? 'true' : 'false') + '" aria-expanded="' + (hasKids ? (open ? 'true' : 'false') : 'false') + '" aria-level="' + (depth + 1) + '" aria-label="' + esc(f.name || 'Ordner') + '"'
+      + ' draggable="true" ondragstart="folderDragStart(event,\'' + jsArg(f.id) + '\')" ondragover="folderDragOver(event)" ondragleave="folderDragLeave(event)" ondrop="folderDropOnto(event,\'' + jsArg(f.id) + '\')" onkeydown="folderRowKeydown(event,\'' + jsArg(f.id) + '\')">'
       + arrow
-      + '<button type="button" class="folder-item folder-item--main' + active + '" data-folder="' + f.id + '" onclick="setActiveFolder(\'' + f.id + '\',event)" ondblclick="startFolderRename(\'' + f.id + '\')" aria-pressed="' + (active ? 'true' : 'false') + '" title="' + esc(folderPathTitle(f.id)) + '">'
+      + '<button type="button" class="folder-item folder-item--main' + active + '" data-folder="' + esc(f.id) + '" onclick="setActiveFolder(\'' + jsArg(f.id) + '\',event)" ondblclick="startFolderRename(\'' + jsArg(f.id) + '\')" aria-pressed="' + (active ? 'true' : 'false') + '" title="' + esc(folderPathTitle(f.id)) + '">'
       + '<span class="folder-emoji" aria-hidden="true">' + emoji + '</span>'
       + '<span class="folder-label">' + esc(f.name || 'Ordner') + '</span>'
       + '<span class="folder-count">' + c + '</span>'
       + '</button>'
       + '<span class="folder-row-actions">'
-      + '<button type="button" class="folder-mini" onclick="createSubfolderUI(\'' + f.id + '\',event)" title="Unterordner anlegen" aria-label="Unterordner in ' + esc(f.name || '') + ' anlegen">＋</button>'
-      + '<button type="button" class="folder-mini" onclick="renameFolderUI(\'' + f.id + '\',event)" title="Ordner umbenennen" aria-label="Ordner ' + esc(f.name || '') + ' umbenennen">✎</button>'
-      + '<button type="button" class="folder-mini" onclick="deleteFolderUI(\'' + f.id + '\',event)" title="Ordner löschen (Bücher bleiben)" aria-label="Ordner ' + esc(f.name || '') + ' löschen">🗑</button>'
+      + '<button type="button" class="folder-mini" onclick="createSubfolderUI(\'' + jsArg(f.id) + '\',event)" title="Unterordner anlegen" aria-label="Unterordner in ' + esc(f.name || '') + ' anlegen">＋</button>'
+      + '<button type="button" class="folder-mini" onclick="renameFolderUI(\'' + jsArg(f.id) + '\',event)" title="Ordner umbenennen" aria-label="Ordner ' + esc(f.name || '') + ' umbenennen">✎</button>'
+      + '<button type="button" class="folder-mini" onclick="deleteFolderUI(\'' + jsArg(f.id) + '\',event)" title="Ordner löschen (Bücher bleiben)" aria-label="Ordner ' + esc(f.name || '') + ' löschen">🗑</button>'
       + '</span></div>';
     if (hasKids && open) {
       html += '<div class="folder-children" role="group">' + kids.map(k => renderNode(k, depth + 1)).join('') + '</div>';
@@ -1323,7 +1336,7 @@ function renderFolderList() {
       + (treeBtns || '<div class="folder-empty">Noch keine Ordner – lege oben einen an.</div>');
   }
   if (chips) {
-    const chip = (id, label, count) => '<button type="button" class="chip' + (activeFolderId === id ? ' active' : '') + '" onclick="setActiveFolder(\'' + id + '\',event)">' + esc(label) + ' · ' + count + '</button>';
+    const chip = (id, label, count) => '<button type="button" class="chip' + (activeFolderId === id ? ' active' : '') + '" onclick="setActiveFolder(\'' + jsArg(id) + '\',event)">' + esc(label) + ' · ' + count + '</button>';
     let flat = folders.slice();
     try {
       if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.sortTree) flat = GrimoireFolders.sortTree(flat);
@@ -1483,7 +1496,7 @@ function renderLibrary() {
   } catch { /* Fallback-Zähler oben bleibt */ }
   const folderCards = childFolders.map(f => {
     const n = (counts.byId && counts.byId[f.id]) || 0;
-    return '<button type="button" class="explorer-folder-card" ondblclick="openFolderFromLibrary(\'' + f.id + '\',event)" onclick="setActiveFolder(\'' + f.id + '\',event)" title="Doppelklick zum Öffnen">'
+    return '<button type="button" class="explorer-folder-card" ondblclick="openFolderFromLibrary(\'' + jsArg(f.id) + '\',event)" onclick="setActiveFolder(\'' + jsArg(f.id) + '\',event)" title="Doppelklick zum Öffnen">'
       + '<span class="explorer-folder-icon" aria-hidden="true">📁</span>'
       + '<span class="explorer-folder-name">' + esc(f.name || 'Ordner') + '</span>'
       + '<span class="explorer-folder-count">' + n + ' Dokument' + (n === 1 ? '' : 'e') + '</span>'
@@ -2654,7 +2667,7 @@ function renderTextLayerFor(idx) {
     if (t.fontSize) d.style.fontSize = t.fontSize + 'px';
     if (t.color) d.style.color = t.color;
     if (t.align) d.style.textAlign = t.align;
-    d.innerHTML = t.html;
+    d.innerHTML = sanitizeNoteHtml(t.html);
     // SPEC-07 light: ```query-Block als Live-Trefferliste (nur Anzeige).
     try {
       if (typeof GrimoireSearch !== 'undefined' && (t.html || '').indexOf('data-lang="query"') !== -1) {
@@ -2723,7 +2736,7 @@ function renderImgLayerFor(idx) {
     d.style.aspectRatio = 'auto';
     const img = document.createElement('img');
     // blob:-Refs lösen asynchron auf (Cache in GrimoireStore), Rest direkt
-    img.src = (typeof GrimoireStore !== 'undefined' ? (GrimoireStore.url(im.src) || TRANSPARENT_PIXEL) : im.src);
+    img.src = safeAssetUrl(typeof GrimoireStore !== 'undefined' ? (GrimoireStore.url(im.src) || TRANSPARENT_PIXEL) : im.src, true) || TRANSPARENT_PIXEL;
     img.draggable = false;
     img.style.height = 'auto';
     d.appendChild(img);

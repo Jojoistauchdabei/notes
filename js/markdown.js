@@ -39,13 +39,29 @@ var GrimoireMarkdown = (function () {
     return String(s).replace(/<[^>]*>/g, '');
   }
 
+  function safeUrl(value, allowDataImage) {
+    var raw = String(value == null ? '' : value);
+    if (!raw) return '';
+    var probe = raw.replace(new RegExp('[\\u0000-\\u0020\\u007f\\u00a0]', 'g'), '');
+    if (probe.charAt(0) === '#') return raw;
+    var m = /^([a-z][a-z0-9+.-]*):/i.exec(probe);
+    if (!m) return raw;
+    var scheme = m[1].toLowerCase();
+    if (/^(?:https?|mailto|tel|blob|ftp)$/.test(scheme)) return raw;
+    if (allowDataImage && /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp|x-icon)[;,]/i.test(probe)) return raw;
+    return '';
+  }
+
   /* ---------- inline: Markdown -> HTML (Eingabe bereits escaped) ---------- */
   function inlineMd(s) {
     var t = String(s);
     // Bilder vor Links (Bild-Syntax enthaelt Link-ahnlichen Teil)
-    t = t.replace(/!\[([^\]\n]*?)\]\(([^)\s]+?)(?:\s+&quot;.*?&quot;)?\)/g, '<img src="$2" alt="$1">');
-    t = t.replace(/\[([^\]\n]+?)\]\(([^)\s]+?)(?:\s+&quot;.*?&quot;)?\)/g, '<a href="$2">$1</a>');
-    t = t.replace(/==([^=\n]+?)==/g, '<mark>$1</mark>');
+    t = t.replace(/!\[([^\]\n]*?)\]\(([^)\s]+?)(?:\s+&quot;.*?&quot;)?\)/g, function (m, alt, url) {
+      return safeUrl(url, true) ? '<img src="' + url + '" alt="' + alt + '">' : alt;
+    });
+    t = t.replace(/\[([^\]\n]+?)\]\(([^)\s]+?)(?:\s+&quot;.*?&quot;)?\)/g, function (m, label, url) {
+      return safeUrl(url, false) ? '<a href="' + url + '">' + label + '</a>' : label;
+    });    t = t.replace(/==([^=\n]+?)==/g, '<mark>$1</mark>');
     t = t.replace(/~~([^~\n]+?)~~/g, '<del>$1</del>');
     t = t.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
     t = t.replace(/__([^_\n]+?)__/g, '<strong>$1</strong>');

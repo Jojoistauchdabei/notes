@@ -68,15 +68,17 @@ var GoodNotes = (function () {
     return (c ^ 0xffffffff) >>> 0;
   }
   /* Lokaler stripHtml-Fallback (app.js definiert global eins mit DOM;
-     für Node-Tests ohne document Tags per Regex entfernen). */
+     für Node-Tests ohne document Tags per Regex entfernen). DOMParser ist
+     inert: keine Ressourcen, keine Event-Handler aus Import-Inhalten. */
   function stripHtml(h) {
     const s = String(h == null ? '' : h);
-    if (typeof document !== 'undefined' && document && typeof document.createElement === 'function') {
+    if (typeof DOMParser !== 'undefined') {
       try {
-        const d = document.createElement('div');
-        d.innerHTML = s;
-        const t = d.textContent;
-        if (typeof t === 'string') return t;
+        const doc = new DOMParser().parseFromString('<body>' + s + '</body>', 'text/html');
+        if (doc && doc.body) {
+          const t = doc.body.textContent;
+          if (typeof t === 'string') return t;
+        }
       } catch { /* fall through to regex */ }
     }
     return s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?(p|div|h[1-6]|li|ul|ol|tr)[^>]*>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");

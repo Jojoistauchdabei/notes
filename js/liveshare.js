@@ -261,7 +261,9 @@
   }
   function stripText(t) {
     const c = Object.assign({}, t);
-    if (typeof c.html === 'string' && c.html.length > 20000) c.html = c.html.slice(0, 20000);
+    if (typeof c.html === 'string') {
+      c.html = (typeof GrimoireSanitize !== 'undefined' ? GrimoireSanitize.sanitizeHtml(c.html) : c.html).slice(0, 20000);
+    }
     if (!(c.updatedAt > 0)) c.updatedAt = nowMs();
     return c;
   }

@@ -33,12 +33,19 @@
     return String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'de');
   }
 
+  const ID_OK = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+  function safeId(raw) {
+    const id = String(raw == null ? '' : raw);
+    return ID_OK.test(id) ? id : uid();
+  }
+
   function normalizeFolder(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const name = normName(raw.name);
     if (!name) return null;
     return {
-      id: String(raw.id || uid()),
+      id: safeId(raw.id),
       name,
       parentId: normParentId(raw.parentId),
       createdAt: Number(raw.createdAt) || Date.now(),
@@ -374,7 +381,7 @@
 
   // Sync-Brücke: state.folders <-> federwerkFoldersV1-Mirror {id:{name,parentId,updatedAtMs,deleted?}}
   function toMirror(folders) {
-    const out = {};
+    const out = Object.create(null);
     for (const f of folders || []) {
       if (!f || !f.id) continue;
       out[f.id] = { name: f.name || '', parentId: f.parentId || null, updatedAtMs: Number(f.updatedAt) || Date.now() };
@@ -400,7 +407,7 @@
   // Namen ohne Remote bleiben erhalten). Für den Sync-Glue in app.js.
   // parentId wird mitgesynct; danach Refs geheilt (Geister-Eltern, Zyklen).
   function mergeFolders(localFolders, mirror) {
-    const byId = {};
+    const byId = Object.create(null);
     for (const f of localFolders || []) {
       if (f && f.id) byId[f.id] = { name: f.name, parentId: f.parentId || null, updatedAtMs: Number(f.updatedAt) || 0, createdAt: Number(f.createdAt) || 0 };
     }

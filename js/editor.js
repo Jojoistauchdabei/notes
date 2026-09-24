@@ -4,6 +4,10 @@ let currentEditorTargetId = null;
 let currentEditorBoxId = null;
 let editorMode = 'rich'; // 'rich' (contenteditable) | 'source' (Markdown-Textarea)
 
+const editorSafeHtml = h => (typeof GrimoireSanitize !== 'undefined'
+  ? GrimoireSanitize.sanitizeHtml(h)
+  : String(h == null ? '' : h));
+
 function openTextEditor(targetId, title) {
   currentEditorTargetId = targetId;
   const targetEl = document.getElementById(targetId);
@@ -12,7 +16,7 @@ function openTextEditor(targetId, title) {
   const titleSpan = document.getElementById('editorTargetTitle');
   const editorContent = document.getElementById('editorContent');
   if (titleSpan) titleSpan.textContent = (title || targetId).toUpperCase();
-  if (editorContent) editorContent.innerHTML = targetEl.innerHTML;
+  if (editorContent) editorContent.innerHTML = editorSafeHtml(targetEl.innerHTML);
   resetEditorToRich(); // alte Inhalte laden immer unveraendert als Rich
   if (overlay) {
     overlay.classList.add('active');
@@ -39,7 +43,7 @@ function openTextEditorForBox(boxId, title) {
   if (titleSpan) titleSpan.textContent = (title || 'Textbox').toUpperCase();
   resetEditorToRich(); // alte HTML-Textboxen laden unveraendert als Rich
   if (editorContent) {
-    editorContent.innerHTML = box.html || '';
+    editorContent.innerHTML = editorSafeHtml(box.html || '');
     // Textfeld-Upgrade: Box-Stil (bzw. Default-Stil) in den Editor übernehmen,
     // damit computed-Auslese und "Als Standard" darauf aufbauen können.
     try {
@@ -85,7 +89,7 @@ function saveTextEditor() {
     const page = (typeof panePage === 'function') ? panePage(paneIdx) : currentPage();
     const box = page ? page.texts.find(t => t.id === currentEditorBoxId) : null;
     if (box) {
-      box.html = editorContent.innerHTML;
+      box.html = editorSafeHtml(editorContent.innerHTML);
       box.updatedAt = Date.now();
       // Box-Stil aus dem Editor-Container übernehmen (Roundtrip zum Default-Stil).
       const st = collectEditorStyle();
@@ -99,7 +103,7 @@ function saveTextEditor() {
   } else if (currentEditorTargetId && editorContent) {
     const targetEl = document.getElementById(currentEditorTargetId);
     if (targetEl) {
-      targetEl.innerHTML = editorContent.innerHTML;
+      targetEl.innerHTML = editorSafeHtml(editorContent.innerHTML);
       if (typeof persistSoon === 'function') persistSoon();
     }
   }
@@ -192,7 +196,7 @@ function setEditorMode(mode) {
   } else {
     let html = src.value || '';
     if (lib) { try { html = lib.mdToHtml(html); } catch { html = ''; } }
-    rich.innerHTML = html;
+    rich.innerHTML = editorSafeHtml(html);
     src.style.display = 'none';
     rich.style.display = 'block';
     editorMode = 'rich';
@@ -209,7 +213,7 @@ function syncSourceToRich() {
   const src = document.getElementById('editorSource');
   if (!rich || !src) return;
   const lib = grimoireMarkdownLib();
-  if (lib) { try { rich.innerHTML = lib.mdToHtml(src.value || ''); } catch { /* ignore */ } }
+  if (lib) { try { rich.innerHTML = editorSafeHtml(lib.mdToHtml(src.value || '')); } catch { /* ignore */ } }
 }
 
 function applyEditorFormat(val) {
