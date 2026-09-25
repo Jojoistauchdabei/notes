@@ -66,6 +66,7 @@
             <div class="folder-hint">Ordner wie im Dateimanager verwalten: ziehen, ablegen, doppelklicken zum Umbenennen oder Rechtsklick für weitere Aktionen.</div>
           </aside>
           <section class="library-main" aria-live="polite">
+            <div id="conflictBanner" class="conflict-banner no-print" style="display:none" role="alert"></div>
             <div class="divider"><div class="divider-line"></div><div class="divider-title" id="libraryFolderTitle">Alle Bücher</div><div class="divider-line"></div></div>
             <div class="library-grid" id="libraryGrid"></div>
           </section>
@@ -371,6 +372,8 @@
           <div style="flex:1;min-width:140px"><label for="awDatabase">Database</label><input type="text" id="awDatabase" autocomplete="off"></div>
           <div style="flex:1;min-width:140px"><label for="awBucket">Bucket</label><input type="text" id="awBucket" autocomplete="off"></div>
         </div>
+        <div><label for="awGuard">Liveshare-Guard-URL (optional, empfohlen)</label><input type="text" id="awGuard" autocomplete="off" placeholder="https://…/v1/functions/…/executions"></div>
+        <div style="font-size:12px;opacity:.8">Ohne Guard kann jeder eingeloggte User mit dem Share-Code Events in fremde Live-Sessions schreiben (nur Client-Filter). Mit Guard prüft eine Appwrite Function Session + Share serverseitig – Setup: <code>functions/share-events-guard/README.md</code>.</div>
         <div class="aw-auth-tabs" role="tablist" aria-label="Anmeldung oder Registrierung">
           <button type="button" id="awTabLogin" class="aw-auth-tab active" role="tab" aria-selected="true" aria-controls="awLoginPane" onclick="window.FederwerkFilesUI && FederwerkFilesUI.switchAuthTab('login')">Login</button>
           <button type="button" id="awTabRegister" class="aw-auth-tab" role="tab" aria-selected="false" aria-controls="awRegisterPane" onclick="window.FederwerkFilesUI && FederwerkFilesUI.switchAuthTab('register')">Registrieren</button>

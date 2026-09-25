@@ -748,6 +748,16 @@ select { cursor: pointer; }
 .live-cursor-name { font-size: 10px; color: #fff; padding: 1px 6px; border-radius: 8px; margin-top: 2px; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 @media print { #liveBar, .live-cursors { display: none !important; } }
 
+/* ===== Konflikt-Badge (Sync-Konflikte, js/app.js#renderConflictBanner) ===== */
+.conflict-banner {
+  align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--surface-strong); border: 1px solid #b7791f;
+  border-left: 4px solid #e6a23c; border-radius: 8px;
+  padding: 8px 10px; margin-bottom: 10px; font-size: 13px;
+}
+.conflict-banner-dot { width: 10px; height: 10px; border-radius: 50%; background: #e6a23c; animation: live-pulse 1.6s infinite; }
+@media print { #conflictBanner { display: none !important; } }
+
 /* ===== Eigene Dialoge (confirm/prompt statt nativ, js/dialog.js) ===== */
 .fw-dlg-overlay { z-index: 10001; }
 .fw-dlg-modal { max-width: 440px; }

@@ -35,10 +35,18 @@ Set the following environment variables in the Appwrite Console under **Function
 | `APPWRITE_FOLDERS_TABLE_ID`| Table for folders | `folders` |
 | `APPWRITE_BUCKET_ID` | Storage bucket for attachments | `attachments` |
 | `APPWRITE_API_KEY` | Server API key (Database read permissions) | `<appwrite-secret-api-key>` |
-| `APPWRITE_USER_ID` | Appwrite User ID whose notes are served | `<user-id>` |
+| `APPWRITE_USER_ID` | Appwrite User ID whose notes are served (mandatory scoping) | `<user-id>` |
 | `MCP_TOKEN` | Bearer token for client authentication | `<random-secret-token>` |
 
 > **Security Note**: Never expose `APPWRITE_API_KEY` or `MCP_TOKEN`. When `MCP_TOKEN` is configured, all requests require `Authorization: Bearer <MCP_TOKEN>` or `X-MCP-Token: <MCP_TOKEN>`.
+
+> **Single-user scoping**: `APPWRITE_USER_ID` is mandatory – the Function only
+> ever serves this user's notes. The Cloudflare Worker (`worker.js`, routes
+> `POST /mcp/search|read|prompt`) has the same single static `MCP_TOKEN`
+> design, but reads with an admin API key: set **`MCP_USER_ID`** (or
+> `APPWRITE_USER_ID`) as Worker secret to scope search/read to one Appwrite
+> user. **Without that scope, anyone holding `MCP_TOKEN` can read every
+> user's notes** – only safe for single-user deployments.
 
 ### 3. Deploy via Appwrite CLI
 

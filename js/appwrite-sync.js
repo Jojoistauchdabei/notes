@@ -26,6 +26,8 @@
   const LASTPULL_KEY = 'federwerkLastPullV1'; // {notes: iso|null, folders: iso|null}
   const FOLDERS_KEY = 'federwerkFoldersV1';   // id -> {name, parentId, updatedAtMs, deleted?}
   const FOLDERMETA_KEY = 'federwerkFolderMetaV1'; // id -> {hash, remoteUpdatedAtMs}
+  const CONFLICTS_KEY = 'federwerkConflictsV1'; // [{id, title, at, sourceId}] – unbestätigte Konflikt-Kopien
+  const CONFLICTS_MAX = 50;
   const OFFLOAD_BYTES = 40000;
   const AWFILE = 'awfile:';
 
@@ -147,6 +149,46 @@
     let d = '';
     try { d = new Date(at).toLocaleString('de-DE'); } catch { /* ignore */ }
     return `${title || 'Notizen'} (Konflikt ${d})`;
+  }
+  function isConflictTitle(title) {
+    return /\(Konflikt /.test(String(title || ''));
+  }
+  // Registry unbestätigter Konflikt-Kopien (localStorage, rein + testbar).
+  // Die Kopie selbst bleibt ein normales Buch; die Registry merkt nur vor,
+  // dass der Nutzer den Konflikt noch nicht zur Kenntnis genommen hat
+  // (Badge in der Bibliothek statt stillem Duplikat).
+  function loadConflicts() {
+    const v = lsGet(CONFLICTS_KEY, []);
+    return Array.isArray(v) ? v.filter(e => e && e.id) : [];
+  }
+  function saveConflicts(list) {
+    lsSet(CONFLICTS_KEY, Array.isArray(list) ? list.slice(0, CONFLICTS_MAX) : []);
+  }
+  function recordConflictCopies(entries) {
+    const cur = loadConflicts();
+    const seen = new Set(cur.map(e => e.id));
+    for (const e of entries || []) {
+      if (!e || !e.id || seen.has(e.id)) continue;
+      seen.add(e.id);
+      cur.unshift({ id: e.id, title: e.title || '', at: e.at || Date.now(), sourceId: e.sourceId || null });
+    }
+    saveConflicts(cur);
+    return cur;
+  }
+  function resolveConflictCopy(id) {
+    saveConflicts(loadConflicts().filter(e => e.id !== id));
+  }
+  function clearConflictCopies() { saveConflicts([]); }
+  // Lebende Konflikt-Kopien: Registry-Einträge, deren Buch noch existiert,
+  // plus Fallback über den Titel (z. B. andere Geräte ohne Registry).
+  function listLiveConflictCopies(books) {
+    const ids = new Set(loadConflicts().map(e => e.id));
+    const out = [];
+    for (const b of books || []) {
+      if (!b || !b.id) continue;
+      if (ids.has(b.id) || isConflictTitle(b.title)) out.push(b);
+    }
+    return out;
   }
 
   /* ---------- Meta-Speicher ---------- */
@@ -361,6 +403,9 @@
     planRows, makeConflictTitle, rowToNoteMeta,
     loadRowMap, saveRowMap, loadLastPull, saveLastPull,
     loadFolders, saveFolders, loadFolderMeta, saveFolderMeta,
+    CONFLICTS_KEY, isConflictTitle,
+    loadConflicts, saveConflicts, recordConflictCopies,
+    resolveConflictCopy, clearConflictCopies, listLiveConflictCopies,
 
     async syncNow(progress) {
       const F = filesApi();
@@ -375,7 +420,7 @@
       for (const b of books) byId[b.id] = b;
       let map = loadRowMap();
       const lastPull = loadLastPull();
-      const summary = { pushed: 0, pulled: 0, downloaded: 0, conflicts: [], deleted: 0, errors: [] };
+      const summary = { pushed: 0, pulled: 0, downloaded: 0, conflicts: [], conflictCopies: [], deleted: 0, errors: [] };
 
       // --- Vollständigen Remote-Bestand holen ---
       // Eine reine Delta-Abfrage kann nicht zwischen „unverändert“ und
@@ -485,6 +530,8 @@
           copy.id = 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
           copy.title = makeConflictTitle(b.title, Date.now());
           books.unshift(copy);
+          // Registry fürs Konflikt-Badge (aktive Nutzerwarnung statt stiller Kopie).
+          try { recordConflictCopies([{ id: copy.id, title: copy.title, at: Date.now(), sourceId: id }]); } catch { /* Anzeige-Only */ }
           map[copy.id] = { rowId: rowIdForBook(copy.id), hash: undefined, remoteUpdatedAtMs: 0 };
           b.title = r.title || b.title;
           b.folderId = r.folderId || null;
@@ -494,6 +541,7 @@
           touchMeta(id, { rowId: r.$id, remoteUpdatedAtMs: remote[id].updatedAtMs });
           try { touchMeta(id, { hash: await contentHashOf(b) }); } catch { /* ignore */ }
           summary.conflicts.push(b.title);
+          summary.conflictCopies.push({ id: copy.id, title: copy.title });
         } catch (e) { summary.errors.push('konflikt ' + id + ': ' + e.message); }
       }
       // --- Download (nur remote vorhanden) ---
@@ -791,11 +839,13 @@
         try {
           const r = await Sync.syncNow(s => UI._say('☁ ' + s));
           let s = `☁ Notizen fertig: ⬆${r.pushed} ⬇${r.pulled + r.downloaded}`;
-          if (r.conflicts.length) s += ` | ⚠ Konflikt: ${r.conflicts.join(', ')} (als Kopie behalten)`;
+          if (r.conflicts.length) s += ` | ⚠ Konflikt: ${r.conflicts.join(', ')} (als Kopie behalten – siehe Badge in der Bibliothek)`;
           if (r.deleted) s += ` | 🗑 ${r.deleted} gelöscht`;
           if (r.errors.length) s += ` | ⚠ ${r.errors.length} Fehler`;
           for (const e of r.errors) UI._log(e);
           UI._say(s);
+          try { if (typeof window !== 'undefined' && typeof window.renderConflictBanner === 'function') window.renderConflictBanner(); } catch { /* Anzeige-Only */ }
+          try { if (typeof window !== 'undefined' && typeof window.renderLibrary === 'function') window.renderLibrary(); } catch { /* Anzeige-Only */ }
           const fw = window.FederwerkFilesUI;
           if (fw && fw.refresh) fw.refresh(false);
         } catch (e) {

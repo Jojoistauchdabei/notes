@@ -7,6 +7,12 @@
  *   - `share_events`: Append-only Events (Strokes, Texte, Cursor,
  *     Presence, Sync). Lesbar für alle Eingeloggten, anlegbar von allen
  *     Eingeloggten – der Code (12 Zeichen) + Ablaufdatum begrenzen Zugriff.
+ *     HINWEIS: Row-Permissions können nicht prüfen, ob ein Event zu einem
+ *     Share gehört, dem der Schreiber beigetreten ist – dafür liegt eine
+ *     Appwrite Function als Guard bei (`functions/share-events-guard/`,
+ *     siehe specs/36-liveshare.md). Ohne Guard kann jeder Eingeloggte, der
+ *     den Code kennt, Events injizieren; der Client ignoriert unbefugte
+ *     Mutationen (isEventAllowed), zeigt sie aber ggf. als Presence.
  *
  * Live-Transport: Appwrite Realtime-WebSocket auf beide Tabellen
  * (Client filtert nach shareId), mit Polling-Fallback alle 4s.
@@ -43,22 +49,21 @@
   ];
 
   function nowMs() { return Date.now(); }
+  // Kryptografisch sicherer Zufall ist Pflicht für Share-Codes: ohne
+  // crypto.getRandomValues lieber hart abbrechen als vorhersagbare
+  // Math.random()-Codes zu erzeugen (stilles Fallback = erratbar).
+  function secureRandom(n) {
+    const c = (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto : null;
+    if (!c) throw new Error('Kein sicherer Zufallsgenerator verfügbar (crypto.getRandomValues fehlt)');
+    const buf = new Uint8Array(n);
+    c.getRandomValues(buf);
+    return buf;
+  }
   function uid(n) {
     const abc = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    const buf = secureRandom(n || 11);
     let out = '';
-    try {
-      const buf = new Uint8Array(n || 11);
-      const c = (typeof crypto !== 'undefined' && crypto.getRandomValues)
-        ? crypto : null;
-      if (c) {
-        c.getRandomValues(buf);
-        for (let i = 0; i < buf.length; i++) out += abc[buf[i] % 36];
-        return out;
-      }
-    } catch { /* Fallback unten */ }
-    for (let i = 0; i < (n || 11); i++) {
-      out += abc[Math.floor(Math.random() * 36)];
-    }
+    for (let i = 0; i < buf.length; i++) out += abc[buf[i] % 36];
     return out;
   }
 
@@ -131,6 +136,33 @@
     return mode === 'edit';
   }
   function normalizeMode(m) { return m === 'edit' ? 'edit' : 'read'; }
+
+  /* ---------- Absender-Rechte (rein, Client-Enforcement) ---------- */
+
+  // Mutationen, die den Seiteninhalt ändern (Gast darf sie nur im edit-Modus senden).
+  const MUTATING_KINDS = [
+    'stroke-add', 'stroke-del',
+    'text-upsert', 'text-del',
+    'sync-state', 'sync-chunk',
+  ];
+  // Nur der Owner verschickt Snapshots (Gäste fragen per sync-request an).
+  const OWNER_ONLY_KINDS = ['sync-state', 'sync-chunk'];
+  function isMutatingKind(kind) { return MUTATING_KINDS.indexOf(kind) >= 0; }
+  // Darf DIESER Absender (senderIsOwner) diese Kind bei diesem Modus senden?
+  // Rein clientseitig – ersetzt keine serverseitige Prüfung (Guard-Function).
+  function canSendKind(kind, senderIsOwner, mode) {
+    if (KINDS.indexOf(kind) < 0) return false;
+    if (!isMutatingKind(kind)) return true; // Presence/Cursor/Sync-Request: jeder Teilnehmer
+    if (OWNER_ONLY_KINDS.indexOf(kind) >= 0) return !!senderIsOwner;
+    return canWrite(normalizeMode(mode), !!senderIsOwner);
+  }
+  // Vollprüfung eines eingehenden/ausgehenden Events gegen die Share-Row:
+  // Share nutzbar (nicht revoked/abgelaufen) + Absender darf diese Kind senden.
+  function isEventAllowed(shareRow, senderIsOwner, kind, atMs) {
+    const use = shareUsable(shareRow, atMs);
+    if (!use.ok) return false;
+    return canSendKind(kind, senderIsOwner, (shareRow || {}).mode);
+  }
 
   function pickColor(userId) {
     const s = String(userId || '?');
@@ -385,11 +417,15 @@
       'delete("user:' + o + '")',
     ];
   }
+  // Append-only: Events werden nie aktualisiert (kein update-Perm) –
+  // eigene Rows darf der Autor löschen (Aufräumen), fremde nie.
+  // HINWEIS: Das begrenzt nicht, FÜR WELCHE shareId jemand Events anlegt
+  // (Appwrite-Row-Perms kennen keine Share-Mitgliedschaft) – dafür ist die
+  // Guard-Function zuständig (functions/share-events-guard/).
   function eventPerms(userId) {
     const u = String(userId || '');
     return [
       'read("users")',
-      'update("user:' + u + '")',
       'delete("user:' + u + '")',
     ];
   }
@@ -448,6 +484,7 @@
     encodeShareLink, parseShareCode, parseShareCodeFromHash,
     msToIso, isoToMs, expiryIso, isExpired, isRevoked, shareUsable,
     canWrite, normalizeMode, pickColor, shortName,
+    uid, MUTATING_KINDS, OWNER_ONLY_KINDS, isMutatingKind, canSendKind, isEventAllowed,
     buildEvent, validateEvent, parsePayload,
     genStrokeId, ensureStrokeIds, strokeById, mergeStroke, applyStrokeDeletes,
     mergeText, applyTextDeletes,
@@ -544,7 +581,42 @@
 
     /* ----- Events ----- */
 
+    // Guard-Proxy (empfohlen, siehe functions/share-events-guard/):
+    // Ist `liveGuardUrl` in den Appwrite-Einstellungen gesetzt, laufen alle
+    // Events exklusiv über die Function – sie prüft die Session serverseitig,
+    // validiert Share (existiert, nicht revoked/abgelaufen, Modus/Owner) und
+    // schreibt erst dann. KEIN direkter Fallback (der würde die Prüfung
+    // umgehen). Ohne Guard: direkter Row-Write (V1-Verhalten).
+    function guardUrl() {
+      try {
+        const c = cfg();
+        const g = c && c.liveGuardUrl ? String(c.liveGuardUrl).trim() : '';
+        return g;
+      } catch { return ''; }
+    }
+    async function postEventViaGuard(ev) {
+      const g = guardUrl();
+      let secret = null;
+      try { secret = (filesApi().loadSession() || {}).secret || null; } catch { /* ignore */ }
+      const r = await fetch(g, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Appwrite-Async': 'false',
+          ...(secret ? { 'X-Appwrite-Session': secret } : {}),
+        },
+        body: JSON.stringify({ event: ev }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const e = new Error((j && (j.error || j.message)) || ('Guard HTTP ' + r.status));
+        e.status = r.status;
+        throw e;
+      }
+      return j;
+    }
     async function postEvent(ev) {
+      if (guardUrl()) return postEventViaGuard(ev);
       const b = eventRowBody(ev);
       return rest('POST', tablesPath(EVENT_TABLE), {
         rowId: 'unique()', data: b.row, permissions: b.permissions,
@@ -651,7 +723,15 @@
       renderCursors();
       if (!S.joined) return;
       const page = targetPage();
-      const writable = canWrite((S.share && S.share.mode) || 'read', S.isOwner);
+      // Absender prüfen statt eigener Schreibrechte: Die userId/userName im
+      // Event ist clientseitig gesetzt (spoofbar) – felt aber grobe
+      // Fremdschreibversuche raus (z. B. stroke-add im read-Modus von
+      // Nicht-Ownern). Echte Sicherheit liefert nur die Guard-Function
+      // (functions/share-events-guard/), die die Identität serverseitig prüft.
+      const senderOwner = (S.share && ev.userId === S.share.ownerId) || !!payload.isOwner;
+      const senderAllowed = S.share
+        ? isEventAllowed(S.share, senderOwner, ev.kind, nowMs())
+        : false;
       switch (ev.kind) {
         case 'hello':
         case 'heartbeat':
@@ -664,28 +744,28 @@
         case 'cursor':
           break; // nur Presence (oben)
         case 'stroke-add':
-          if (!writable && !S.isOwner) break;
+          if (!senderAllowed) break;
           if (payload.stroke && page) {
             const r = mergeStroke(page.strokes, payload.stroke);
             if (r.changed) touchAndRender();
           }
           break;
         case 'stroke-del':
-          if (!writable && !S.isOwner) break;
+          if (!senderAllowed) break;
           if (page && payload.ids) {
             const r = applyStrokeDeletes(page.strokes, payload.ids);
             if (r.removed) touchAndRender();
           }
           break;
         case 'text-upsert':
-          if (!writable && !S.isOwner) break;
+          if (!senderAllowed) break;
           if (payload.text && page) {
             const r = mergeText(page.texts, payload.text);
             if (r.changed) touchAndRender();
           }
           break;
         case 'text-del':
-          if (!writable && !S.isOwner) break;
+          if (!senderAllowed) break;
           if (page && payload.ids) {
             const r = applyTextDeletes(page.texts, payload.ids);
             if (r.removed) touchAndRender();
@@ -696,6 +776,7 @@
           break;
         case 'sync-state': {
           if (S.isOwner) break;
+          if (!senderAllowed) break; // Snapshot nur vom Owner übernehmen
           const snap = payload.snapshot;
           if (snap && page) {
             applyPageSnapshot(page, snap);
@@ -705,6 +786,7 @@
         }
         case 'sync-chunk': {
           if (S.isOwner) break;
+          if (!senderAllowed) break; // Chunks nur vom Owner übernehmen
           const r = collectSyncChunks(S.chunkStore, ev);
           if (r.complete && r.json && page) {
             try {
@@ -724,6 +806,9 @@
 
     async function send(kind, payload) {
       if (!S.share || !S.me) return;
+      // Eigene Sendeberechtigung (Gast im read-Modus sendet keine Mutationen).
+      // Schützt die UI-Pfade; direkte postEvent-Aufrufe begrenzt nur der Guard.
+      if (!canSendKind(kind, S.isOwner, (S.share && S.share.mode) || 'read')) return;
       const ev = buildEvent({
         shareId: S.share.shareId || S.share.$id,
         userId: S.me.userId, userName: S.me.userName, userColor: S.me.userColor,

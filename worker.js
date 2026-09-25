@@ -10,6 +10,14 @@
  * (Tabellen `notes`: $id/title/content/updatedAt). Ohne Appwrite antwortet
  * die API mit 503 + Hinweis auf den lokalen Server (mcp-server.js).
  *
+ * SICHERHEIT (Mehrnutzer): MCP_TOKEN allein scopet NICHT pro Nutzer – wer ihn
+ * besitzt, liest per APPWRITE_API_KEY alle Notizen. Für Einzelnutzer-
+ * Deployments ist das ok. Sobald mehrere Personen dieselbe Worker-Instanz /
+ * denselben Appwrite-Datenbestand nutzen, UNBEDINGT zusätzlich MCP_USER_ID
+ * (oder APPWRITE_USER_ID) setzen: Suche/Lesen werden dann auf diese
+ * Appwrite-userId gefiltert (Query + Nachfilter + Einzel-Check, fremde Rows
+ * -> 404). Ohne dieses Scoping ist der Worker nur für Einzelnutzer sicher.
+ *
  * Lokal testen: npx wrangler dev --test-scheduled? Nein: `wrangler dev`
  * und curl gegen http://localhost:8787/mcp/health.
  */
@@ -158,12 +166,15 @@ function appwriteCfg(env) {
   }
   return null;
 }
-async function fetchNotes(cfg, limit) {
+async function fetchNotes(cfg, limit, userId) {
   const n = Math.max(1, Math.min(100, Number(limit) || 50));
   const q = [
     JSON.stringify({ method: 'limit', values: [n] }),
     JSON.stringify({ method: 'orderDesc', attribute: 'updatedAt' }),
   ];
+  // Nutzer-Scope (Mehrnutzer-Deployments): nur eigene Rows vom Server holen.
+  // Ohne Scope (Einzelnutzer-Deployment) bleibt das Verhalten wie bisher.
+  if (userId) q.push(JSON.stringify({ method: 'equal', attribute: 'userId', values: [userId] }));
   const qs = q.map((p, i) => 'queries[' + i + ']=' + encodeURIComponent(p)).join('&');
   const url = cfg.endpoint + '/tablesdb/' + cfg.databaseId + '/tables/notes/rows?' + qs;
   const r = await fetch(url, {
@@ -175,9 +186,14 @@ async function fetchNotes(cfg, limit) {
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error((j && j.message) || ('Appwrite HTTP ' + r.status));
-  return (j && (j.rows || j.documents)) || [];
+  const rows = (j && (j.rows || j.documents)) || [];
+  // Nachfilter (Defense in Depth, falls die Query je ignoriert wird).
+  return userId ? rows.filter((row) => row && row.userId === userId) : rows;
 }
-async function fetchNote(cfg, id) {
+function notFound(msg) {
+  return Object.assign(new Error(msg || 'Notiz nicht gefunden'), { status: 404 });
+}
+async function fetchNote(cfg, id, userId) {
   const url = cfg.endpoint + '/tablesdb/' + cfg.databaseId + '/tables/notes/rows/' + encodeURIComponent(id);
   const r = await fetch(url, {
     headers: {
@@ -187,8 +203,18 @@ async function fetchNote(cfg, id) {
     },
   });
   const j = await r.json().catch(() => ({}));
+  if (r.status === 404) throw notFound();
   if (!r.ok) throw new Error((j && j.message) || ('Appwrite HTTP ' + r.status));
+  // Einzel-Check: fremde Row -> 404 (kein Unterschied zu „nicht vorhanden").
+  if (userId && j && j.userId && j.userId !== userId) throw notFound();
+  if (userId && j && !j.userId) throw notFound();
   return j;
+}
+// Optionales Nutzer-Scope: MCP_USER_ID (oder APPWRITE_USER_ID, wie die
+// Appwrite Function in mcp/). Leer = Einzelnutzer-Deployment (alle Rows).
+function mcpUserScope(env) {
+  const v = (env && (env.MCP_USER_ID || env.APPWRITE_USER_ID)) || '';
+  return String(v).trim();
 }
 
 async function handleMcp(request, env) {
@@ -202,7 +228,7 @@ async function handleMcp(request, env) {
 
   if (path === '/mcp/health' && method === 'GET') {
     const aw = appwriteCfg(env);
-    return json({ ok: true, service: 'federwerk-mcp', time: new Date().toISOString(), notesSource: aw ? 'appwrite' : 'none' }, 200, env);
+    return json({ ok: true, service: 'federwerk-mcp', time: new Date().toISOString(), notesSource: aw ? 'appwrite' : 'none', scoped: !!mcpUserScope(env) }, 200, env);
   }
   if (path === '/mcp/tools' && method === 'GET') {
     return json({ tools: TOOLS }, 200, env);
@@ -240,7 +266,7 @@ async function handleMcp(request, env) {
   if (path === '/mcp/search' && method === 'POST') {
     const body = await readJson(request).catch(() => null);
     if (!body) return json({ error: 'Ungültiges JSON' }, 400, env);
-    const rows = await fetchNotes(aw, 100).catch((e) => null);
+    const rows = await fetchNotes(aw, 100, mcpUserScope(env)).catch(() => null);
     if (!rows) return json({ error: 'Appwrite-Abfrage fehlgeschlagen' }, 502, env);
     return json({ hits: searchRows(rows, body.query || '', body.limit) }, 200, env);
   }
@@ -248,16 +274,17 @@ async function handleMcp(request, env) {
     const body = await readJson(request).catch(() => null);
     if (!body || !body.bookId) return json({ error: 'bookId fehlt' }, 400, env);
     try {
-      const row = await fetchNote(aw, String(body.bookId));
+      const row = await fetchNote(aw, String(body.bookId), mcpUserScope(env));
       return json({ id: row.$id, title: row.title || '', updatedAt: row.updatedAt || null, text: rowText(row).slice(0, 8000) }, 200, env);
     } catch (e) {
+      if (e && e.status === 404) return json({ error: 'Notiz nicht gefunden' }, 404, env);
       return json({ error: 'Lesen fehlgeschlagen' }, 502, env);
     }
   }
   if (path === '/mcp/prompt' && method === 'POST') {
     const body = await readJson(request).catch(() => null);
     if (!body || !String(body.prompt || '').trim()) return json({ error: 'prompt fehlt' }, 400, env);
-    const rows = await fetchNotes(aw, 100).catch(() => null);
+    const rows = await fetchNotes(aw, 100, mcpUserScope(env)).catch(() => null);
     if (!rows) return json({ error: 'Appwrite-Abfrage fehlgeschlagen' }, 502, env);
     const hits = searchRows(rows, body.prompt, body.limit);
     const answer = hits.length

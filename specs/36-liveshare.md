@@ -75,6 +75,20 @@ Console ersatzweise „Anyone authenticated: read" + Owner-Update/Delete.
 
 Permissions: `read("users")`, `create("users")` (jeder Eingeloggte darf
 Events anhängen – der unratbare Code + Ablauf begrenzen den Zugriff).
+Tabellen-Defaults bewusst **ohne** `update`/`delete` (Append-only);
+Event-Rows bekommen `read("users")` + `delete("user:{autor}")`
+(eigene Rows aufräumbar, fremde unantastbar, Updates unmöglich).
+
+> **Sicherheits-Hinweis (Review):** Row-Permissions können NICHT prüfen, ob
+> ein Event zu einem Share gehört, dem der Schreiber beigetreten ist –
+> jeder eingeloggte User mit dem Code kann Events injizieren.
+> Empfehlung: **Guard-Function** deployen (`functions/share-events-guard/`,
+> README dort) und in der App unter ⚙ als Liveshare-Guard-URL eintragen.
+> Ab dann laufen Events exklusiv über die Function (Session-Verifikation +
+> Share-Check serverseitig, kein direkter Fallback). Zusätzlich filtert der
+> Client unbefugte Mutationen raus (`isEventAllowed` in `js/liveshare.js`:
+> Absender-Owner vs. Modus statt eigener Schreibrechte – ersetzt aber keinen
+> Server-Check).
 
 Fehlen die Tabellen, meldet die App:
 „Tabellen `shares`/`share_events` fehlen in Appwrite – Setup siehe specs/36-liveshare.md."
@@ -85,9 +99,13 @@ Fehlen die Tabellen, meldet die App:
   mit (Snapshot enthält sie nicht). Seite vorher ggf. ohne Bilder teilen.
 - Snapshot > 48 KB wird gechunkt (max. 8 × 30 KB); darüber: Texte kürzen /
   Striche reduzieren, sonst Fehlermeldung statt stillem Datenverlust.
-- Rechte-Enforcement ist **Client-seitig** (Appwrite-Permissions kennen
-  keinen „Gast-nur-lesen"-Status): unratbarer Code + Ablauf + Revoke sind
-  der Schutz. Für öffentliche Links ohne Login ist V1 nicht gedacht –
+- Rechte-Enforcement ist **Client-seitig**, solange keine Guard-Function
+  deployed ist (Appwrite-Permissions kennen keinen
+  „Gast-nur-lesen"-Status): unratbarer Code + Ablauf + Revoke sind der
+  Schutz. **Mit Guard** (`functions/share-events-guard/`) ist das
+  Enforcement serverseitig (Session-Verifikation, Share-Existenz,
+  Revoke/Ablauf, Owner-vs.-Modus pro Event-Kind). Für öffentliche Links
+  ohne Login ist V1 nicht gedacht –
   alle Teilnehmenden loggen sich auf derselben Appwrite-Instanz ein.
 - Kein Tracking ohne Opt-in: Realtime/Polling läuft nur während einer
   aktiven Session, kein Drittanbieter (nur die eigene Appwrite-Instanz).

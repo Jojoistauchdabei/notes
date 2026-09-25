@@ -49,6 +49,10 @@ function plan(c) {
   };
 
   const usersReadCreate = ['read("users")', 'create("users")', 'update("users")', 'delete("users")'];
+  // share_events: Append-only – Tabellen-Defaults enthalten bewusst KEIN
+  // update/delete (Rows setzt die App bzw. die Guard-Function mit
+  // read-only-Perms; eigene Rows löscht der Autor via Row-Perm).
+  const eventsTablePerms = ['read("users")', 'create("users")'];
 
   // ---- Tabelle shares (Row-Security: Zeilen-Perms setzt die App, s. js/liveshare.js)
   t('shares', 'shares', usersReadCreate);
@@ -67,7 +71,7 @@ function plan(c) {
   idx('shares', { key: 'idx_shareId', type: 'unique', attributes: ['shareId'] });
 
   // ---- Tabelle share_events (Append-only)
-  t('share_events', 'share_events', usersReadCreate);
+  t('share_events', 'share_events', eventsTablePerms);
   col('share_events', 'string', str('shareId', 36, true));
   col('share_events', 'string', str('userId', 36, true));
   col('share_events', 'string', str('userName', 64, false));

@@ -77,6 +77,60 @@ function setActiveFolderId(v) {
   activeFolderId = (!v) ? 'all' : v;
   try { if (typeof localStorage !== 'undefined') localStorage.setItem('federwerkActiveFolderV1', activeFolderId); } catch { /* ignore */ }
 }
+// Konflikt-Filter (UI-only): zeigt nur Konflikt-Kopien (Badge → „Anzeigen").
+let conflictsOnly = false;
+function liveConflictCopies() {
+  try {
+    if (typeof FederwerkSync !== 'undefined' && FederwerkSync.listLiveConflictCopies) {
+      return FederwerkSync.listLiveConflictCopies(state.books);
+    }
+  } catch { /* Fallback unten */ }
+  return (state.books || []).filter(b => b && /\(Konflikt /.test(b.title || ''));
+}
+function renderConflictBanner() {
+  try {
+    const bar = (typeof document !== 'undefined') ? document.getElementById('conflictBanner') : null;
+    if (!bar) return;
+    const copies = liveConflictCopies();
+    if (!copies.length) {
+      bar.style.display = 'none';
+      bar.innerHTML = '';
+      if (conflictsOnly) conflictsOnly = false;
+      return;
+    }
+    bar.style.display = 'flex';
+    const n = copies.length;
+    const label = n === 1 ? '1 Konflikt-Kopie' : n + ' Konflikt-Kopien';
+    bar.innerHTML =
+      '<span class="conflict-banner-dot" aria-hidden="true"></span>' +
+      '<span>⚠ ' + esc(label) + ' – Sync-Konflikt, lokale Version als Kopie behalten.</span>' +
+      '<span style="flex:1"></span>' +
+      '<button type="button" class="mini-button' + (conflictsOnly ? ' picked' : '') + '" onclick="toggleConflictsOnly(event)" aria-label="Konflikt-Kopien anzeigen">Anzeigen</button>' +
+      '<button type="button" class="mini-button" onclick="dismissConflictBanner(event)" aria-label="Konflikt-Hinweis als erledigt markieren" title="Markiert alle aktuellen Kopien als gesehen (die Bücher bleiben erhalten)">Erledigt ✓</button>';
+  } catch { /* Anzeige-Only */ }
+}
+function toggleConflictsOnly(ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  conflictsOnly = !conflictsOnly;
+  renderLibrary();
+}
+function dismissConflictBanner(ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  try {
+    const copies = liveConflictCopies();
+    if (typeof FederwerkSync !== 'undefined' && FederwerkSync.clearConflictCopies) {
+      FederwerkSync.clearConflictCopies();
+    }
+    // Titel-Fallback: „(Konflikt …)" streichen, damit die Bücher als normal gelten.
+    for (const b of copies) {
+      if (b && /\(Konflikt /.test(b.title || '')) {
+        b.title = String(b.title).replace(/\s*\(Konflikt [^)]*\)\s*$/, '').trim() || 'Notizen';
+      }
+    }
+    conflictsOnly = false;
+  } catch { /* ignore */ }
+  persistNow(); renderLibrary();
+}
 let tool = 'pen', penColor = '#2a1a0e', penSize = 3;
 // SPEC-25: Radierer-Modi + "Nur Highlighter" (persistiert, localStorage grimoireEraserMode)
 let eraserMode = 'standard', eraserHighlighterOnly = false;
@@ -495,6 +549,8 @@ async function deleteBook(id, ev) {
     : (typeof confirm !== 'undefined' ? confirm('Buch wirklich löschen?') : true);
   if (!ok) return;
   state.books = state.books.filter(b => b.id !== id);
+  // Gelöschte Konflikt-Kopie aus der Badge-Registry nehmen.
+  try { if (typeof FederwerkSync !== 'undefined' && FederwerkSync.resolveConflictCopy) FederwerkSync.resolveConflictCopy(id); } catch { /* Anzeige-Only */ }
   // Split-Panes auf Fallback umhängen (sonst leere Bereiche)
   try {
     const api = splitApi();
@@ -1431,6 +1487,7 @@ function renderBreadcrumb(title, folders) {
 function renderLibrary() {
   ensureFoldersLocal();
   renderFolderList();
+  renderConflictBanner();
   const searchEl = $('librarySearch');
   const rawQ = ((searchEl && searchEl.value) || '');
   const q = rawQ.toLowerCase();
@@ -1438,6 +1495,13 @@ function renderLibrary() {
   if (!grid) return;
   // Ordner-Filter zuerst (dann Suche darüber) – inkl. Unterordner (OS-artig)
   let scoped = state.books || [];
+  // Konflikt-Filter (Badge → „Anzeigen"): nur lebende Konflikt-Kopien.
+  if (conflictsOnly) {
+    try {
+      const ids = new Set(liveConflictCopies().map(b => b && b.id));
+      scoped = scoped.filter(b => b && ids.has(b.id));
+    } catch { scoped = []; }
+  }
   try {
     if (typeof GrimoireFolders !== 'undefined' && GrimoireFolders.filterBooksTree) scoped = GrimoireFolders.filterBooksTree(state.books, activeFolderId, state.folders);
     else if (typeof GrimoireFolders !== 'undefined') scoped = GrimoireFolders.filterBooks(state.books, activeFolderId);

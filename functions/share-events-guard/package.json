@@ -1,0 +1,8 @@
+{
+  "name": "federwerk-share-events-guard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Appwrite Function: validiert Liveshare-Events serverseitig (Federwerk)",
+  "main": "index.js",
+  "engines": { "node": ">=20" }
+}

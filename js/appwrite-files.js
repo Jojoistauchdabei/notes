@@ -656,6 +656,7 @@
         const set = (id, v) => { const el = UI._el(id); if (el) el.value = v || ''; };
         set('awEndpoint', cfg.endpoint); set('awProject', cfg.projectId);
         set('awDatabase', cfg.databaseId); set('awBucket', cfg.bucketId);
+        set('awGuard', cfg.liveGuardUrl);
         const rt = UI._el('awRealtime'); if (rt) rt.checked = !!cfg.realtime;
         UI._msg('');
         const ov = UI._el('awOverlay');
@@ -671,6 +672,7 @@
           projectId: get('awProject') || DEFAULTS.projectId,
           databaseId: get('awDatabase') || DEFAULTS.databaseId,
           bucketId: get('awBucket') || DEFAULTS.bucketId,
+          liveGuardUrl: get('awGuard'),
         });
         UI._msg(`Gespeichert: ${cfg.databaseId} / ${cfg.bucketId}.`);
         UI.refresh(true);
