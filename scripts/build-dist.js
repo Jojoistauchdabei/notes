@@ -124,19 +124,24 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js']) {
 }
 
 // 6) index.html: ein Stylesheet, ein Bundle mit defer
+// Zeilenumbruch-agnostisch: Windows-Checkouts (core.autocrlf) liefern CRLF,
+// darum wird nie auf einen exakten \n-Block gepatcht.
 {
   const p = path.join(dist, 'index.html');
   let h = fs.readFileSync(p, 'utf8');
-  h = h.replace(/<link href="css\/styles\.css" rel="stylesheet">|<link rel="stylesheet" href="css\/styles\.css">/, `<link rel="stylesheet" href="css/${cssName}">`);
-  const oldBlock = scriptSrcs.map((s) => `<script src="${s}"></script>`).join('\n');
-  const oldBlockIndented = scriptSrcs.map((s) => `  <script src="${s}"></script>`).join('\n');
-  const newBlock = `  <script src="js/${bundleName}" defer></script>`;
-  if (h.includes(oldBlock)) h = h.replace(oldBlock, newBlock);
-  else if (h.includes(oldBlockIndented)) h = h.replace(oldBlockIndented, newBlock);
-  else {
-    console.error('build: Skript-Block in index.html nicht gefunden.');
+  const eol = h.includes('\r\n') ? '\r\n' : '\n';
+  h = h.replace(/<link\b[^>]*href="css\/styles\.css"[^>]*>/, `<link rel="stylesheet" href="css/${cssName}">`);
+  const scriptTag = /[ \t]*<script src="js\/[^"]+\.js"><\/script>[ \t]*\r?\n?/g;
+  const found = (h.match(scriptTag) || []).length;
+  if (found !== scriptSrcs.length) {
+    console.error(`build: Skript-Block in index.html unvollständig (${found}/${scriptSrcs.length} gefunden).`);
     process.exit(1);
   }
+  h = h.replace(scriptTag, '');
+  const bundleTag = `  <script src="js/${bundleName}" defer></script>`;
+  h = /<\/body>/i.test(h)
+    ? h.replace(/[ \t]*<\/body>/i, `${bundleTag}${eol}</body>`)
+    : `${h.replace(/\s*$/, '')}${eol}${bundleTag}${eol}`;
   if (h.includes('css/styles.css')) {
     console.error('build: CSS-Referenz in index.html nicht gefunden.');
     process.exit(1);
