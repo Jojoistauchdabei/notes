@@ -17,6 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { execFileSync } = require('child_process');
 
 const root = process.env.BUILD_ROOT || process.cwd();
@@ -31,28 +32,33 @@ function hash10(content) {
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 10);
 }
 
-// Minifiziert über esbuild; bei Fehler (kein Netz, kein Binary) Original zurück.
+// Minifiziert über esbuild (npx). Läuft auf Linux/macOS/Windows; jeder Fehler
+// (kein Netz, kein npx.cmd, gesperrte Temp-Datei) darf den Release-BUILD nie
+// abbrechen – dann wird unminifiziert weitergebaut (Bundle/Hash/Caching aktiv).
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'federwerk-build-'));
+process.on('exit', () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } });
+
 function minify(kind, source, label) {
-  const tmpIn = path.join(dist, `.min-${label}.in.${kind}`);
-  const tmpOut = path.join(dist, `.min-${label}.out.${kind}`);
-  fs.writeFileSync(tmpIn, source);
+  const tmpIn = path.join(tmpDir, `${label}.in.${kind}`);
+  const tmpOut = path.join(tmpDir, `${label}.out.${kind}`);
+  const cleanup = (f) => { try { fs.rmSync(f, { force: true }); } catch { /* Windows: Datei gesperrt */ } };
   try {
-    const args = [
-      '--minify',
-      '--target=es2020',
-      `--outfile=${tmpOut}`,
-      tmpIn,
-    ];
-    execFileSync('npx', ['--yes', esbuildBin, ...args], { stdio: ['ignore', 'ignore', 'pipe'] });
+    fs.writeFileSync(tmpIn, source);
+    // Eine Shell-Zeile (kein Argument-Array): findet unter Windows npx.cmd
+    // und unter POSIX npx; Pfade mit Leerzeichen/Backslashes bleiben sicher.
+    const q = (p) => '"' + String(p).split(path.sep).join('/').replace(/"/g, '\\"') + '"';
+    const cmd = ['npx', '--yes', esbuildBin, '--minify', '--target=es2020', '--outfile=' + q(tmpOut), q(tmpIn)].join(' ');
+    execFileSync(cmd, { stdio: ['ignore', 'ignore', 'pipe'], shell: true, windowsHide: true });
     const out = fs.readFileSync(tmpOut);
     if (kind === 'js') execFileSync(process.execPath, ['--check', tmpOut], { stdio: 'ignore' });
     return out.length < Buffer.byteLength(source) ? out : Buffer.from(source);
-  } catch {
-    console.warn(`build: Minifizierung für ${label} übersprungen (esbuild nicht verfügbar).`);
+  } catch (e) {
+    const why = String((e && (e.stderr || e.message)) || e).split('\n')[0].trim().slice(0, 160);
+    console.warn(`build: Minifizierung für ${label} übersprungen (${why || 'esbuild nicht verfügbar'}).`);
     return Buffer.from(source);
   } finally {
-    fs.rmSync(tmpIn, { force: true });
-    fs.rmSync(tmpOut, { force: true });
+    cleanup(tmpIn);
+    cleanup(tmpOut);
   }
 }
 
