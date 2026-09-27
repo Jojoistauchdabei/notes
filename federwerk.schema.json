@@ -134,6 +134,16 @@
         "maxReviewsPerDay": { "type": "number" }
       }
     },
+    "reviewEntry": {
+      "type": "object",
+      "description": "Eine protokollierte Kartenbewertung (Basis für Aktivität, Streak, Tagesquote).",
+      "required": ["t", "g"],
+      "properties": {
+        "t": { "type": "number", "description": "Bewertungszeitpunkt (ms seit Epoch)" },
+        "g": { "type": "string", "enum": ["again", "hard", "good", "easy"] },
+        "id": { "type": "string", "description": "Karten-ID (kann leer sein)" }
+      }
+    },
     "folder": {
       "type": "object",
       "required": ["id", "name"],
@@ -154,6 +164,7 @@
         "kind": { "type": "string", "enum": ["notebook", "flashcards"], "description": "Dokumenttyp: 'notebook' (Default, Feld darf fehlen) oder 'flashcards' (Karteikarten-Deck mit cards[] + SM-2-Lernsystem, js/flashcards.js)." },
         "cards": { "type": "array", "items": { "$ref": "#/$defs/card" }, "description": "Karteikarten (nur bei kind='flashcards')." },
         "deckOptions": { "$ref": "#/$defs/deckOptions" },
+        "reviewLog": { "type": "array", "items": { "$ref": "#/$defs/reviewEntry" }, "description": "Bewertungs-Verlauf des Decks (max. 1000 Einträge, älteste fallen raus). Fehlt bei Alt-Decks." },
         "paper": { "type": "string", "description": "Papiervorlagen-ID, Buch-weit (Design + Maße, Katalog: js/paper-templates.js, z. B. blank-a4, lined-a4, grid-a4, dots-a4, cornell-a4). Legacy '' | 'lined' | 'grid' mappen auf blank-a4 | lined-a4 | grid-a4." },
         "updatedAt": { "type": "number" },
         "folderId": { "type": ["string", "null"], "description": "Ordner-ID oder null (= Unsortiert)" },

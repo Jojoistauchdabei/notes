@@ -10,7 +10,7 @@ Referenz-Spec für den `.goodnotes`-Container, den `js/goodnotes.js` (mit `js/gn
 
 ## 2. UI / Verhalten / Aufbau
 
-- Container: ZIP (`PK` Magic `0x50 0x4B`), Einträge u. a. `schema.pb`, `index.*.pb`, `notes/<uuid>/page*.pb`, `attachments/<uuid>` (Bilder/PDFs). Beispiel-Pfade: `notes/3F2504E0-4F89-11D3-9A0C-0305E82C3301/page0.pb`, `attachments/3F2504E0-4F89-11D3-9A0C-0305E82C3301`.
+- Container: ZIP (`PK` Magic `0x50 0x4B`), Einträge u. a. `schema.pb` (1:24), `index.notes.pb`, `index.attachments.pb`, `index.search.pb`, `index.events.pb`, `document.info.pb` (leer), flach `notes/<uuid>`, `attachments/<uuid>`, `search/<uuid>` (Bilder/PDFs). Beispiel-Pfade: `notes/70595252-5538-4AC1-8911-87EF87F9B26D`, `attachments/708BD533-C2A6-43B5-B3C1-83FE9D097266` (vgl. `tmp/GOODNOTES_FORMAT.md`, ex1.goodnotes). Alte Federwerk-Exporte mit `notes/<uuid>/pageN.pb` bleiben importierbar.
 - Protobuf: Wire-Types varint/fixed32/fixed64/len-delimited, `decodeMessage`/`decodeDelimited` (varint-Längenpräfix pro Record) wie in `js/goodnotes.js`.
 - Apple-LZ4: Blöcke mit Magic `bv41` (`62 76 34 31`), Varianten `bv4-`/`bv4$`, dekomprimiert seitenweise; Trailer `f4` + RGBA-Vorschau (kleines RGBA-Bild am Block-Ende).
 - TPL: Troy-Hanson-TPL-Strokes, Header `tpl` + Format-String (z. B. Punkt-Layout x/y/pressure), danach Punkt-Arrays.

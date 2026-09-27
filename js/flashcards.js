@@ -4,9 +4,13 @@
  * - book.kind: 'notebook' (Default, Feld fehlt = Notizbuch) | 'flashcards' (Deck).
  * - Decks behalten `pages[]` (min. 1, Notiz-/Skizzen-Seiten, GoodNotes-kompatibel)
  *   und tragen zusätzlich `cards[]` + optional `deckOptions{}`.
- * - card: { id, front, back, frontImg, backImg, createdAt, updatedAt,
- *           ease, interval, reps, lapses, due, lastReview,
- *           suspended, totalReviews, correctReviews }
+  * - card: { id, front, back, frontImg, backImg, createdAt, updatedAt,
+  *           ease, interval, reps, lapses, due, lastReview,
+  *           suspended, totalReviews, correctReviews }
+  * - book.reviewLog: [{t, g, id}] – Verlauf der Bewertungen (t = ms-Epoch,
+  *   g = again|hard|good|easy, id = Karten-ID), auf REVIEW_LOG_MAX (1000)
+  *   Einträge gedeckelt. Basis für Aktivität, Streak und Tages-Trefferquote.
+  *   Fehlt bei Alt-Decks (wird geheilt), Auswertungen dann ggf. sparsamer.
  *   - front/back: Plain-Text (Rich-Text light: HTML erlaubt, wird beim Suchen gestrippt).
  *   - frontImg/backImg: optionales Bild als dataURL oder App-interne `blob:`-Ref
  *     (gleicher Blob-Store wie Seitenbilder; Export löst zu dataURL auf).
@@ -41,6 +45,12 @@
   var GRADES = ['again', 'hard', 'good', 'easy'];
   // SM-2-Qualität pro Button (Anki-Mapping).
   var GRADE_Q = { again: 0, hard: 3, good: 4, easy: 5 };
+  // Reife-Schwelle wie in Anki: Intervalle >= 21 Tage gelten als gefestigt.
+  var MATURE_DAYS = 21;
+  // Max. Einträge im Bewertungs-Verlauf (Speicherdeckel pro Deck).
+  var REVIEW_LOG_MAX = 1000;
+  // Ab so vielen "Nochmal"-Fehlern gilt eine Karte als schwierig (Leech).
+  var LEECH_LAPSES = 3;
 
   function uid() {
     try {
@@ -148,7 +158,24 @@
       try { book.cards[i] = normalizeCard(book.cards[i], t); }
       catch (e) { book.cards[i] = newCard('', '', t); }
     }
+    book.reviewLog = normalizeReviewLog(book.reviewLog);
     return book;
+  }
+
+  // Heilt den Bewertungs-Verlauf (tolerant, gibt Array zurück, gedeckelt).
+  function normalizeReviewLog(log) {
+    if (!Array.isArray(log)) return [];
+    var out = [];
+    for (var i = 0; i < log.length; i++) {
+      var e = log[i];
+      if (!e || typeof e !== 'object') continue;
+      var t = Number(e.t);
+      var g = normalizeGrade(e.g);
+      if (!isFinite(t) || !g) continue;
+      out.push({ t: Math.round(t), g: g, id: typeof e.id === 'string' ? e.id : '' });
+    }
+    if (out.length > REVIEW_LOG_MAX) out = out.slice(out.length - REVIEW_LOG_MAX);
+    return out;
   }
 
   /* ---------- SM-2-Kern ---------- */
@@ -199,6 +226,25 @@
     }
     var y = Math.round((days / 365) * 10) / 10;
     return String(y).replace('.', ',') + 'y';
+  }
+
+  // Fälligkeit als lesbarer Text relativ zu `now`: "heute", "morgen",
+  // "in N Tagen", "überfällig seit N Tagen" oder Datum (de-DE, kurz).
+  function formatDue(due, now) {
+    var t = (typeof now === 'number' && isFinite(now)) ? now : Date.now();
+    var d = Number(due);
+    if (!isFinite(d)) return '–';
+    var diffDays = Math.floor((dayKey(d) - dayKey(t)) / DAY_MS);
+    if (diffDays <= 0) {
+      if (diffDays === 0) return 'heute fällig';
+      var late = -diffDays;
+      return late === 1 ? 'seit 1 Tag überfällig' : 'seit ' + late + ' Tagen überfällig';
+    }
+    if (diffDays === 1) return 'morgen fällig';
+    if (diffDays < 14) return 'in ' + diffDays + ' Tagen fällig';
+    try {
+      return 'fällig ' + new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    } catch (e) { return 'in ' + diffDays + ' Tagen fällig'; }
   }
 
   // Bewertet eine Karte, mutiert sie (in place) + gibt sie zurück.
@@ -276,9 +322,11 @@
 
   function deckStats(book, now) {
     var t = (typeof now === 'number' && isFinite(now)) ? now : Date.now();
-    var empty = { total: 0, active: 0, suspended: 0, fresh: 0, due: 0, learned: 0, retention: null, totalReviews: 0 };
+    var empty = { total: 0, active: 0, suspended: 0, fresh: 0, due: 0, learned: 0, retention: null, totalReviews: 0,
+      maturity: { new: 0, learning: 0, young: 0, mature: 0 }, leeches: 0, streak: 0, todayReviews: 0, todayAccuracy: null, weekReviews: 0 };
     if (!book || !Array.isArray(book.cards)) return empty;
-    var s = { total: book.cards.length, active: 0, suspended: 0, fresh: 0, due: 0, learned: 0, retention: null, totalReviews: 0 };
+    var s = { total: book.cards.length, active: 0, suspended: 0, fresh: 0, due: 0, learned: 0, retention: null, totalReviews: 0,
+      maturity: { new: 0, learning: 0, young: 0, mature: 0 }, leeches: 0, streak: 0, todayReviews: 0, todayAccuracy: null, weekReviews: 0 };
     var correct = 0, total = 0;
     for (var i = 0; i < book.cards.length; i++) {
       var c = book.cards[i];
@@ -291,8 +339,21 @@
       s.totalReviews += Math.max(0, Math.round(num(c.totalReviews, 0)));
       correct += Math.max(0, Math.round(num(c.correctReviews, 0)));
       total += Math.max(0, Math.round(num(c.totalReviews, 0)));
+      try { s.maturity[maturity(c)]++; } catch (e) { /* Zähler optional */ }
     }
     if (total > 0) s.retention = Math.round((correct / total) * 1000) / 10; // % mit 1 Nachkomma
+    try { s.leeches = leeches(book).length; } catch (e) { s.leeches = 0; }
+    try {
+      var log = normalizeReviewLog(book.reviewLog);
+      s.streak = currentStreak(log, t);
+      var act = activityByDay(log, 7, t);
+      var today = act.length ? act[act.length - 1] : null;
+      if (today) {
+        s.todayReviews = today.total;
+        s.todayAccuracy = today.total > 0 ? Math.round((today.correct / today.total) * 1000) / 10 : null;
+      }
+      s.weekReviews = act.reduce(function (n, d) { return n + d.total; }, 0);
+    } catch (e) { /* Verlauf optional */ }
     return s;
   }
 
@@ -311,6 +372,141 @@
       if (day >= 0 && day < n) out[day]++;
     }
     return out;
+  }
+
+  /* ---------- Auswertungen: Reife, Verlauf, Streak ---------- */
+
+  // Lernstand einer Karte (Anki-Logik): new = ungesehen, learning = erste
+  // Wiederholungen, young = Intervall < 21 Tage, mature = gefestigt (>= 21).
+  function maturity(card) {
+    if (!card || card.suspended) return card && card.suspended ? 'suspended' : 'new';
+    if (!card.lastReview) return 'new';
+    var reps = Math.max(0, Math.round(num(card.reps, 0)));
+    var iv = Math.max(0, Math.round(num(card.interval, 0)));
+    if (reps <= 1 || iv < 1) return 'learning';
+    if (iv < MATURE_DAYS) return 'young';
+    return 'mature';
+  }
+
+  function maturityLabel(m) {
+    if (m === 'new') return 'Neu';
+    if (m === 'learning') return 'Lernend';
+    if (m === 'young') return 'Jung';
+    if (m === 'mature') return 'Reif';
+    if (m === 'suspended') return 'Pausiert';
+    return String(m || '');
+  }
+
+  // Beherrschung 0..100 (für Sortierung/Fortschrittsbalken): wächst mit dem
+  // Intervall (30+ Tage = 100). Neu = 0, gelernt mind. 5.
+  function masteryScore(card) {
+    if (!card || !card.lastReview) return 0;
+    var iv = Math.max(0, Math.round(num(card.interval, 0)));
+    return Math.min(100, Math.max(5, Math.round(iv / 30 * 100)));
+  }
+
+  // Trefferquote einer Karte in % (1 Nachkomma) oder null ohne Daten.
+  function accuracyOf(card) {
+    if (!card) return null;
+    var total = Math.max(0, Math.round(num(card.totalReviews, 0)));
+    if (total <= 0) return null;
+    var correct = Math.max(0, Math.round(num(card.correctReviews, 0)));
+    return Math.round((Math.min(correct, total) / total) * 1000) / 10;
+  }
+
+  // Schwierige Karten (Leeches): viele Nochmal-Fehler oder Ease am Minimum.
+  // Sortiert: meiste lapses zuerst. minLapses Default LEECH_LAPSES.
+  function leeches(book, minLapses) {
+    if (!book || !Array.isArray(book.cards)) return [];
+    var ml = Math.max(1, Math.round(num(minLapses, LEECH_LAPSES)));
+    return book.cards
+      .filter(function (c) {
+        if (!c || c.suspended) return false;
+        return Math.max(0, Math.round(num(c.lapses, 0))) >= ml ||
+          clampEase(c.ease) <= EASE_MIN + 0.05;
+      })
+      .sort(function (a, b) {
+        return (num(b.lapses, 0) - num(a.lapses, 0)) ||
+          (num(a.ease, EASE_START) - num(b.ease, EASE_START));
+      });
+  }
+
+  // Hängt eine Bewertung an den Verlauf (mutiert book.reviewLog, gedeckelt).
+  // Gibt true zurück, false bei ungültiger Bewertung (keine Mutation).
+  function logReview(book, cardId, grade, now) {
+    var g = normalizeGrade(grade);
+    if (!book || !g) return false;
+    var t = (typeof now === 'number' && isFinite(now)) ? now : Date.now();
+    if (!Array.isArray(book.reviewLog)) book.reviewLog = [];
+    book.reviewLog.push({ t: Math.round(t), g: g, id: typeof cardId === 'string' ? cardId : '' });
+    if (book.reviewLog.length > REVIEW_LOG_MAX) {
+      book.reviewLog = book.reviewLog.slice(book.reviewLog.length - REVIEW_LOG_MAX);
+    }
+    return true;
+  }
+
+  // Komfort: Karte bewerten + Verlauf schreiben. Gibt Karte oder null zurück.
+  function gradeAndLog(book, cardId, grade, now) {
+    if (!book || !Array.isArray(book.cards)) return null;
+    var c = null;
+    for (var i = 0; i < book.cards.length; i++) {
+      if (book.cards[i] && book.cards[i].id === cardId) { c = book.cards[i]; break; }
+    }
+    if (!c) return null;
+    var out = gradeCard(c, grade, now);
+    if (out) logReview(book, cardId, grade, now);
+    return out;
+  }
+
+  // Tages-Schlüssel (Mitternacht lokal) für Aktivitäts-Statistiken.
+  function dayKey(t) {
+    try {
+      var d = new Date(Number(t));
+      if (!isFinite(d.getTime())) return null;
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    } catch (e) { return null; }
+  }
+
+  // Bewertungen pro Tag (ältester -> neuster, Default 7, max 30):
+  // [{ day, total, correct }]. Akzeptiert Deck oder rohen Verlauf.
+  function activityByDay(bookOrLog, days, now) {
+    var n = Math.max(1, Math.min(30, Math.round(num(days, 7))));
+    var t = (typeof now === 'number' && isFinite(now)) ? now : Date.now();
+    var log = Array.isArray(bookOrLog) ? bookOrLog : normalizeReviewLog(bookOrLog && bookOrLog.reviewLog);
+    var todayKey = dayKey(t);
+    if (todayKey == null) return [];
+    var out = [];
+    for (var d = n - 1; d >= 0; d--) {
+      out.push({ day: todayKey - d * DAY_MS, total: 0, correct: 0 });
+    }
+    var idx = {};
+    out.forEach(function (r, i) { idx[r.day] = i; });
+    for (var j = 0; j < log.length; j++) {
+      var k = dayKey(log[j] && log[j].t);
+      if (k == null || !(k in idx)) continue;
+      var row = out[idx[k]];
+      row.total++;
+      if (log[j].g !== 'again') row.correct++;
+    }
+    return out;
+  }
+
+  // Lern-Streak: aufeinanderfolgende Tage mit >= 1 Bewertung (heute oder
+  // gestern endend – gestern zählt, damit der Streak morgens nicht reißt).
+  function currentStreak(bookOrLog, now) {
+    var t = (typeof now === 'number' && isFinite(now)) ? now : Date.now();
+    var log = Array.isArray(bookOrLog) ? bookOrLog : normalizeReviewLog(bookOrLog && bookOrLog.reviewLog);
+    var days = {};
+    for (var i = 0; i < log.length; i++) {
+      var k = dayKey(log[i] && log[i].t);
+      if (k != null) days[k] = true;
+    }
+    var cursor = dayKey(t);
+    if (cursor == null) return 0;
+    if (!days[cursor]) cursor -= DAY_MS; // heute noch nichts -> gestern prüfen
+    var streak = 0;
+    while (days[cursor]) { streak++; cursor -= DAY_MS; }
+    return streak;
   }
 
   /* ---------- Text / Suche / CSV ---------- */
@@ -408,6 +604,9 @@
     EASE_MAX: EASE_MAX,
     AGAIN_DELAY_MS: AGAIN_DELAY_MS,
     DAY_MS: DAY_MS,
+    MATURE_DAYS: MATURE_DAYS,
+    REVIEW_LOG_MAX: REVIEW_LOG_MAX,
+    LEECH_LAPSES: LEECH_LAPSES,
     GRADES: GRADES,
     GRADE_Q: GRADE_Q,
     uid: uid,
@@ -416,12 +615,23 @@
     normalizeGrade: normalizeGrade,
     newCard: newCard,
     normalizeCard: normalizeCard,
+    normalizeReviewLog: normalizeReviewLog,
     ensureDeck: ensureDeck,
     easeAfter: easeAfter,
     intervalAfter: intervalAfter,
     previewIntervals: previewIntervals,
     formatInterval: formatInterval,
+    formatDue: formatDue,
     gradeCard: gradeCard,
+    logReview: logReview,
+    gradeAndLog: gradeAndLog,
+    maturity: maturity,
+    maturityLabel: maturityLabel,
+    masteryScore: masteryScore,
+    accuracyOf: accuracyOf,
+    leeches: leeches,
+    activityByDay: activityByDay,
+    currentStreak: currentStreak,
     isDue: isDue,
     dueCards: dueCards,
     newCards: newCards,

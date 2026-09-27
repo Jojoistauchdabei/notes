@@ -684,7 +684,12 @@
           : null) || liveBook();
         if (b) b.updatedAt = Date.now();
         if (A.persistSoon) A.persistSoon();
-        if (A.renderCanvas) A.renderCanvas();
+        // Die betroffene Seite gezielt neu zeichnen: im Continuous-Scroll-Modus
+        // kann eine fremde Aenderung auf einer sichtbaren Nachbarseite landen,
+        // nicht auf der gerade aktiven. repaintPage trifft beide Faelle; der
+        // Rueckfall auf renderCanvas/renderAll bleibt fuer aeltere Stände.
+        if (A.repaintPage && currentPageId && currentPageId()) A.repaintPage(currentPageId(), S.share && S.share.bookId);
+        else if (A.renderCanvas) A.renderCanvas();
         else if (A.renderAll) A.renderAll();
       } catch { /* ignore */ }
     }
@@ -1253,23 +1258,34 @@
 
     /* ----- Cursor-Sender (eigene Stage-Listener) ----- */
 
+    /* Cursor senden. Gebunden wird an den Scroll-Container, nicht an #stage:
+     * im Continuous-Scroll-Modus wandern die kanonischen IDs zwischen den
+     * Buehnen, ein an #stage gebundener Listener haette nach dem naechsten
+     * Seitenwechsel an einem Element ohne ID gehangen. Der Slot unter dem
+     * Zeiger bestimmt Buehne UND Seiten-ID – sonst wuerde der Cursor auf einer
+     * Nachbarseite fuer die falsche Seite gemeldet. */
     function bindCursorSenders() {
       try {
-        for (const [stageId] of [['stage'], ['stageB']]) {
-          const st = document.getElementById(stageId);
-          if (!st || st._liveBound) continue;
-          st._liveBound = true;
-          st.addEventListener('pointermove', (ev) => {
+        for (const scId of ['stageScroll', 'stageScrollB']) {
+          const sc = document.getElementById(scId);
+          if (!sc || sc._liveBound) continue;
+          sc._liveBound = true;
+          sc.addEventListener('pointermove', (ev) => {
             try {
               if (!S.joined || !S.me) return;
               const now = Date.now();
               if (!shouldSendCursor(S.lastCursorSent, now)) return;
-              S.lastCursorSent = now;
+              const slot = ev.target && ev.target.closest ? ev.target.closest('.page-slot') : null;
+              if (!slot) return;
+              const st = slot.querySelector('.stage');
+              if (!st) return;
               const r = st.getBoundingClientRect();
               if (!r.width || !r.height) return;
+              S.lastCursorSent = now;
               const nx = (ev.clientX - r.left) / r.width;
               const ny = (ev.clientY - r.top) / r.height;
-              send('cursor', { nx, ny, pageId: currentPageId() }).catch(() => null);
+              const pid = slot.getAttribute('data-page-id') || currentPageId();
+              send('cursor', { nx, ny, pageId: pid }).catch(() => null);
             } catch { /* ignore */ }
           }, { passive: true });
         }

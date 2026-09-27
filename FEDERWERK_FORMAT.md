@@ -36,6 +36,7 @@ Format-Metadaten setzt `js/format-doc.js` (`GrimoireFormat.attachFormatMeta`).
 | `kind` | string (optional) | Dokumenttyp: `"notebook"` (Default, Feld darf fehlen) oder `"flashcards"` (Karteikarten-Deck, Logik `js/flashcards.js`, UI `js/flash-ui.js`) |
 | `cards` | Card[] (optional) | Karteikarten – nur bei `kind: "flashcards"` (s. unten) |
 | `deckOptions` | `{newPerDay, maxReviewsPerDay}` (optional) | Tages-Limits des Decks (Defaults 20 / 100) |
+| `reviewLog` | `{t, g, id}[]` (optional) | Bewertungs-Verlauf (max. 1000, älteste fallen raus; `g` = `again`/`hard`/`good`/`easy`). Fehlt bei Alt-Decks. Basis für Aktivität, Streak, Tagesquote. |
 | `pages` | Page[] | Seiten in Reihenfolge (Decks behalten min. 1 Notizseite) |
 
 ### Seite
@@ -81,6 +82,7 @@ Format-Metadaten setzt `js/format-doc.js` (`GrimoireFormat.attachFormatMeta`).
 - `front`/`back`: Frage/Antwort als Text (HTML-light erlaubt, Suche strippt Tags).
 - `frontImg`/`backImg`: optionales Bild als `dataURL` oder App-interne `blob:`-URL (gleicher Blob-Store wie Seitenbilder; Export löst zu dataURLs auf).
 - **Lernsystem (SM-2/Anki-Hybrid, `js/flashcards.js`)**: Buttons Nochmal (`again`, q=0) / Hart (`hard`, q=3) / Gut (`good`, q=4) / Leicht (`easy`, q=5). Ease-Update per SM-2-Formel (Start 2.5, clamp 1.3–2.8). Intervalle: neu → Nochmal 10 Min, Hart/Gut 1 Tag, Leicht 4 Tage; Wiederholung → Nochmal Reset (10 Min), Hart `prev×1.2`, Gut `prev×ease` (2. Wdh. fix 6 Tage), Leicht `prev×ease×1.3`. `due`/`lastReview` in ms seit Epoch, `interval` in Tagen.
+- **Auswertungen (UI `js/flash-ui.js`, Tab „📊 Auswertung")**: Reife pro Karte (`new` → `learning` → `young` → `mature` ab 21 Tagen Intervall), Beherrschung 0–100 (aus Intervall), Trefferquote, schwierige Karten (≥ 3 Fehler oder Ease am Minimum), Lern-Streak, Aktivität/Quote pro Tag, Fälligkeits-Vorschau.
 - CSV: `Vorderseite;Rückseite` pro Zeile (RFC-4180-Quotes), Kopfzeile optional.
 
 ## GoodNotes-Export

@@ -187,3 +187,78 @@ describe('flashcards/text-csv', () => {
     assert.equal(FC.cardToCsvRow({ front: 'a;b', back: 'c' }), '"a;b";c');
   });
 });
+
+describe('flashcards/auswertung', () => {
+  it('maturity stuft neu/lernend/jung/reif ein', () => {
+    assert.equal(FC.maturity(FC.newCard('f', 'b', T0)), 'new');
+    const l = FC.newCard('f', 'b', T0);
+    FC.gradeCard(l, 'good', T0);
+    assert.equal(FC.maturity(l), 'learning');
+    FC.gradeCard(l, 'good', T0 + DAY);
+    assert.equal(FC.maturity(l), 'young');
+    l.interval = 21;
+    assert.equal(FC.maturity(l), 'mature');
+    assert.equal(FC.maturityLabel('mature'), 'Reif');
+  });
+  it('masteryScore wächst mit Intervall, accuracyOf zählt Quote', () => {
+    assert.equal(FC.masteryScore(FC.newCard('f', 'b', T0)), 0);
+    assert.equal(FC.masteryScore({ lastReview: T0, interval: 30 }), 100);
+    assert.equal(FC.accuracyOf({ totalReviews: 4, correctReviews: 3 }), 75);
+    assert.equal(FC.accuracyOf({ totalReviews: 0, correctReviews: 0 }), null);
+  });
+  it('leeches findet schwierige Karten (lapses oder Ease-Minimum)', () => {
+    const ok = FC.newCard('ok', 'x', T0);
+    const bad = FC.newCard('bad', 'x', T0);
+    bad.lapses = 5;
+    const hard = FC.newCard('hard', 'x', T0);
+    hard.ease = 1.3;
+    const b = deckWith([ok, bad, hard]);
+    const l = FC.leeches(b);
+    assert.equal(l.length, 2);
+    assert.equal(l[0].front, 'bad');
+  });
+  it('logReview + gradeAndLog schreiben Verlauf (gedeckelt, tolerant)', () => {
+    const b = deckWith([FC.newCard('f', 'b', T0)]);
+    const c = b.cards[0];
+    assert.ok(FC.gradeAndLog(b, c.id, 'good', T0));
+    assert.equal(b.reviewLog.length, 1);
+    assert.deepEqual([b.reviewLog[0].g, typeof b.reviewLog[0].t], ['good', 'number']);
+    assert.equal(FC.gradeAndLog(b, 'falsch', 'good', T0), null);
+    assert.equal(FC.logReview(b, c.id, 'hmm', T0), false);
+    assert.deepEqual(FC.ensureDeck({ cards: 'kaputt' }).reviewLog, []);
+  });
+  it('activityByDay + currentStreak zählen Tage korrekt', () => {
+    const b = deckWith([FC.newCard('f', 'b', T0)]);
+    const c = b.cards[0];
+    FC.gradeAndLog(b, c.id, 'good', T0 - 2 * DAY);
+    FC.gradeAndLog(b, c.id, 'again', T0 - 2 * DAY);
+    FC.gradeAndLog(b, c.id, 'good', T0);
+    const act = FC.activityByDay(b, 3, T0);
+    assert.equal(act.length, 3);
+    assert.equal(act[0].total, 2);
+    assert.equal(act[0].correct, 1);
+    assert.equal(act[2].total, 1);
+    assert.equal(FC.currentStreak(b, T0), 1);
+    assert.equal(FC.currentStreak({ reviewLog: [] }, T0), 0);
+  });
+  it('deckStats liefert Reife-Verteilung, Streak und Tageswerte', () => {
+    const fresh = FC.newCard('n', 'x', T0);
+    const learned = FC.newCard('l', 'x', T0 - 5 * DAY);
+    FC.gradeCard(learned, 'good', T0 - 5 * DAY);
+    const b = deckWith([fresh, learned]);
+    FC.gradeAndLog(b, learned.id, 'good', T0);
+    const s = FC.deckStats(b, T0);
+    assert.equal(s.maturity.new, 1);
+    assert.equal(s.streak, 1);
+    assert.equal(s.todayReviews, 1);
+    assert.equal(s.todayAccuracy, 100);
+    assert.ok(s.weekReviews >= 1);
+  });
+  it('formatDue formuliert Fälligkeiten lesbar', () => {
+    assert.equal(FC.formatDue(T0, T0), 'heute fällig');
+    assert.equal(FC.formatDue(T0 + DAY, T0), 'morgen fällig');
+    assert.equal(FC.formatDue(T0 + 3 * DAY, T0), 'in 3 Tagen fällig');
+    assert.equal(FC.formatDue(T0 - DAY, T0), 'seit 1 Tag überfällig');
+    assert.equal(FC.formatDue(T0 - 5 * DAY, T0), 'seit 5 Tagen überfällig');
+  });
+});

@@ -205,12 +205,16 @@
             <div class="page-rail no-print" id="pageRail"></div>
             <div>
               <div class="stage-wrap">
-                <div class="stage" id="stage">
-                  <div id="bgLayer"></div>
-                  <canvas id="drawCanvas"></canvas>
-                  <canvas id="overlayCanvas"></canvas>
-                  <div class="img-layer" id="imgLayer"></div>
-                  <div class="text-layer" id="textLayer"></div>
+                <div class="stage-scroll" id="stageScroll">
+                  <div class="stage-stack" id="stageStack">
+                    <div class="stage" id="stage" data-part="stage" data-page-id="">
+                      <div id="bgLayer" data-part="bgLayer"></div>
+                      <canvas id="drawCanvas" data-part="drawCanvas"></canvas>
+                      <canvas id="overlayCanvas" data-part="overlayCanvas"></canvas>
+                      <div class="img-layer" id="imgLayer" data-part="imgLayer"></div>
+                      <div class="text-layer" id="textLayer" data-part="textLayer"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="status-line no-print">
@@ -266,12 +270,16 @@
             <div class="page-rail no-print" id="pageRailB"></div>
             <div>
               <div class="stage-wrap">
-                <div class="stage" id="stageB">
-                  <div id="bgLayerB"></div>
-                  <canvas id="drawCanvasB"></canvas>
-                  <canvas id="overlayCanvasB"></canvas>
-                  <div class="img-layer" id="imgLayerB"></div>
-                  <div class="text-layer" id="textLayerB"></div>
+                <div class="stage-scroll" id="stageScrollB">
+                  <div class="stage-stack" id="stageStackB">
+                    <div class="stage" id="stageB" data-part="stage" data-page-id="">
+                      <div id="bgLayerB" data-part="bgLayer"></div>
+                      <canvas id="drawCanvasB" data-part="drawCanvas"></canvas>
+                      <canvas id="overlayCanvasB" data-part="overlayCanvas"></canvas>
+                      <div class="img-layer" id="imgLayerB" data-part="imgLayer"></div>
+                      <div class="text-layer" id="textLayerB" data-part="textLayer"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="status-line no-print">
@@ -448,6 +456,7 @@
       <div class="editor-toolbar" role="group" aria-label="Deck-Steuerung">
         <button type="button" id="flashTabCards" class="mini-button picked" onclick="flashSwitchMode('cards')" aria-label="Karten verwalten">🂠 Karten</button>
         <button type="button" id="flashTabLearn" class="mini-button" onclick="startLearn()" aria-label="Lernmodus starten">▶ Lernen</button>
+        <button type="button" id="flashTabStats" class="mini-button" onclick="flashSwitchMode('stats')" aria-label="Auswertungen und Lernstand">📊 Auswertung</button>
       </div>
       <div id="flashBody" class="flash-body"></div>
       <div class="editor-footer" style="justify-content:space-between">
@@ -570,7 +579,7 @@
   <script src="js/graph.js"></script>
   <script src="js/search.js"></script>
   <script src="js/format-doc.js"></script>
-  <script src="js/scrollnav.js"></script>
+  <script src="js/pageflow.js"></script>
   <script src="js/paper-templates.js"></script>
   <script src="js/flashcards.js"></script>
   <script src="js/dialog.js"></script>

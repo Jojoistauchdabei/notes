@@ -380,14 +380,70 @@ select { cursor: pointer; }
 .tool-group input[type="range"] { width: 90px; accent-color: var(--accent); }
 .pane-bar { border-radius: var(--radius-sm); }
 
-/* ===== Stage ===== */
+/* ===== Stage: Continuous Scroll =====
+ * Der Seiten-Stack ist EIN Scroll-Container (.stage-scroll). Jede Seite ist
+ * ein .page-slot mit fester Hoehe (aspect-ratio) – der Slot definiert die
+ * Geometrie, NICHT der Inhalt. Dadurch veraendert Mount/Unmount einer Seite
+ * (Canvas rein/raus) das Layout nicht um einen Pixel: kein Scroll-Sprung.
+ * --stage-h wird von JS (syncStageViewport) aus den tatsaechlichen Hoehen von
+ * Header, Toolbar und Statuszeile gemessen, damit der Container genau den
+ * freien Sichtbereich nutzt. */
 .stage-wrap { display: flex; justify-content: center; min-width: 0; }
+.stage-scroll {
+  width: 100%;
+  max-height: var(--stage-h, 62dvh);
+  overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  /* Natives Scrollen gehoert dem Nutzer: vertikales Panning ist frei, das
+     Blaettern ergibt sich aus der Scrollposition (siehe js/pageflow.js). */
+  touch-action: pan-y;
+}
+.stage-stack {
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: var(--page-gap, 18px);
+  padding: 4px 0 32px;
+}
+.page-slot {
+  position: relative; width: 100%; flex: 0 0 auto;
+  /* --slot-max-w wird von measureFlow() aus der Scroller-Hoehe gesetzt:
+     die Seite passt damit IMMER komplett in den Sichtbereich. Ohne das ist
+     eine A4-Seite breiter (und damit hoher) als das Fenster und man scrollt
+     zweimal durch eine einzige Seite. */
+  max-width: var(--slot-max-w, min(760px, 100%));
+  margin: 0 auto;
+  aspect-ratio: var(--slot-ar, 210 / 297);
+  scroll-margin-top: 12px;
+}
+.page-slot > .stage { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; aspect-ratio: auto; }
 .stage {
   position: relative; width: 100%; max-width: min(760px, 100%); aspect-ratio: 210 / 297;
   background-color: #fffdf6; background-image: var(--bg-image); background-blend-mode: multiply;
   border: 2px solid var(--accent); border-radius: 6px;
   box-shadow: 0 0 0 3px var(--surface-strong), 0 14px 34px rgba(0,0,0,.3);
   overflow: hidden; touch-action: pan-x pan-y;
+}
+/* Seiten-Nummer am Papierrand (nur im Continuous-Scroll-Modus sichtbar). */
+.page-slot::after {
+  content: attr(data-page-no);
+  position: absolute; left: 50%; bottom: -17px; transform: translateX(-50%);
+  font-family: 'Cinzel', serif; font-size: 10px; color: var(--accent-muted);
+  opacity: .75; pointer-events: none; white-space: nowrap;
+}
+.page-slot[data-active="1"]::after { opacity: 1; color: var(--accent); font-weight: 700; }
+/* Der Canvas-Inhalt traegt keine-events-Ebene, die Slots sind die Trefferflaeche:
+   so trifft ein Pointer auch die Rasterflaeche einer Seite korrekt. */
+.page-slot > .stage > * { pointer-events: none; }
+.page-slot > .stage > .text-layer .text-box,
+.page-slot > .stage > .text-layer .text-box *,
+.page-slot > .stage > .img-layer .img-item,
+.page-slot > .stage > .img-layer .img-handle { pointer-events: auto; }
+/* Seiten ohne Canvas (ausserhalb des Mount-Fensters) sehen aus wie leeres
+   Papier statt wie eine Luecke – sie sind nur nicht angetastet. */
+.page-slot:not(:has(> .stage)) {
+  background-color: #fffdf6; background-blend-mode: multiply;
+  border: 2px solid var(--accent); border-radius: 6px;
 }
 /* Finger zeichnet (Toggle an): Scroll-Sperre auf der Seite, volle Kontrolle für Ink */
 .stage.finger-ink { touch-action: none; }
@@ -418,7 +474,10 @@ select { cursor: pointer; }
 #overlayCanvas, #overlayCanvasB { z-index: 3; pointer-events: none; }
 .text-layer, .img-layer { position: absolute; inset: 0; z-index: 4; }
 .text-layer { pointer-events: none; }
-.text-box { position: absolute; min-width: 80px; min-height: 30px; padding: 4px 6px; font-size: 17px; line-height: 1.4; border: 1px dashed transparent; border-radius: 4px; cursor: text; pointer-events: auto; word-break: break-word; }
+/* Tinte ist auf Papier immer dunkel: die Seite ist #fffdf6, im Dark-Mode
+   wuerde ein geerbtes helles --text sonst unlesbar hell auf hell sein.
+   Explizit gesetzte Box-Farben (t.color) gewinnen als Inline-Style. */
+.text-box { position: absolute; min-width: 80px; min-height: 30px; padding: 4px 6px; font-size: 17px; line-height: 1.4; color: #2a1a0e; border: 1px dashed transparent; border-radius: 4px; cursor: text; pointer-events: auto; word-break: break-word; }
 .text-box.selected { border-color: var(--accent); background: rgba(250,246,238,.5); }
 .text-box h1 { font-family: 'Cinzel', serif; color: var(--accent); font-size: 24px; }
 .text-box h2 { font-family: 'Cinzel', serif; color: var(--accent); font-size: 20px; }
@@ -433,6 +492,15 @@ select { cursor: pointer; }
 .split-pane { flex: 1 1 0; min-width: 0; border: 2px solid transparent; border-radius: 8px; padding: 4px; cursor: default; }
 .split-pane.active { border-color: var(--accent); background: rgba(139, 90, 43, 0.06); }
 .split-pane .pane-bar { margin-bottom: 10px; }
+/* Die Pane-Bar (Buchtitel/Papiervorlage/+ Seite) klebt unter der Werkzeugleiste.
+   Ohne das steht sie im Fluss ueber der Buehne und zwingt das FENSTER zu
+   scrollen, obwohl der Seiten-Scroller die einzige Scroll-Achse sein soll.
+   --toolbar-bottom wird von syncStageViewport() aus der gemessenen
+   Werkzeugleisten-Hoehe gesetzt (Header + 20px + Toolbar). */
+.pane-bar { position: sticky; top: calc(var(--toolbar-bottom, 200px) + var(--sat)); z-index: 39; }
+/* Der Stack soll nicht unter der klebenden Zeile verschwinden: oben etwas
+   Luft, damit die oberste Seite nicht an der Leiste klebt. */
+.stage-scroll { scroll-padding-top: 8px; }
 .split-divider { flex: 0 0 14px; cursor: col-resize; display: flex; align-items: center; justify-content: center; background: var(--surface-strong); border: 1px solid var(--border); border-radius: 7px; touch-action: none; user-select: none; }
 .split-divider:hover { background: var(--mini-button-hover-bg); }
 .split-divider-grip { font-size: 14px; color: var(--accent); letter-spacing: 1px; }
@@ -449,27 +517,11 @@ select { cursor: pointer; }
 /* ===== Status ===== */
 .status-line { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--accent-muted); margin-top: 8px; }
 /* Scroll-Navigation: sanftes Feedback am Anfang/Ende (kein Wrap) */
-#statusPage.scrollnav-flash, #statusPageB.scrollnav-flash {
+/* Rand-Feedback: Bild auf/ab am Dokumentanfang/-ende hat nichts zum Blaettern. */
+#statusPage.edge-flash, #statusPageB.edge-flash {
   background: rgba(139, 90, 43, 0.22);
   border-radius: 6px;
   transition: background 0.15s ease;
-}
-.page-thumb.scrollnav-bump { animation: scrollnav-bump 0.4s ease; }
-@keyframes scrollnav-bump {
-  0% { transform: translateX(0); }
-  30% { transform: translateX(3px); }
-  60% { transform: translateX(-2px); }
-  100% { transform: translateX(0); }
-}
-/* Scroll-Navigation: weiche Blende beim Seitenwechsel (statt hartem Schnitt) */
-.stage.scrollnav-flip { animation: scrollnav-flip 0.18s ease; }
-@keyframes scrollnav-flip {
-  from { opacity: 0.25; }
-  to { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .page-thumb.scrollnav-bump { animation: none; }
-  .stage.scrollnav-flip { animation: none; }
 }
 
 /* ===== Seiten-Preview-Pop-up ===== */
@@ -651,7 +703,14 @@ select { cursor: pointer; }
   .split-pane { border: none; padding: 0; }
   .work-layout { display: block; }
   .stage-wrap { display: block; }
-  .stage { width: 100%; max-width: none; margin: 0 auto; box-shadow: none; border: 1px solid #999; }
+  /* Druck: alle Seiten ausgeben, nicht nur das Mount-Fenster. Der Scroller
+     verliert seine Hoehenbegrenzung, jeder Slot bricht nach einer Seite um. */
+  .stage-scroll { max-height: none !important; overflow: visible !important; }
+  .stage-stack { gap: 0; padding: 0; }
+  .page-slot { break-after: page; break-inside: avoid; }
+  .page-slot:last-child { break-after: auto; }
+  .page-slot::after { display: none; }
+  .stage, .page-slot:not(:has(> .stage)) { width: 100%; max-width: none; margin: 0 auto; box-shadow: none; border: 1px solid #999; }
 }
 
 /* ===== Markdown-Source-Toggle + OFM-Vorschau (SPEC-06/13 light) ===== */
@@ -766,3 +825,52 @@ select { cursor: pointer; }
 .fw-dlg-input { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
 .fw-dlg-foot { justify-content: flex-end; }
 .fw-dlg-danger { background: #a33; border-color: #a33; color: #fff; }
+
+/* ===== Lernstand-Liste + Dashboard (Karteikarten) ===== */
+.flash-listhead { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 4px; }
+.flash-count { font-size: 12px; opacity: .7; font-weight: normal; }
+.flash-listcontrols { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.flash-listcontrols input, .flash-listcontrols select { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.flash-listcontrols input { min-width: 150px; }
+.flash-chip { display: inline-block; padding: 0 6px; border-radius: 999px; font-size: 10px; border: 1px solid currentColor; }
+.flash-m-new { color: #8a8a8a; }
+.flash-m-learning { color: #b06a00; }
+.flash-m-young { color: #2a7ab0; }
+.flash-m-mature { color: #2e7d32; }
+.flash-m-suspended { color: #999; }
+.flash-mastery { display: block; height: 4px; border-radius: 999px; background: var(--disabled-bg); overflow: hidden; margin-top: 4px; max-width: 220px; }
+.flash-mastery i { display: block; height: 100%; background: linear-gradient(90deg, #b06a00, #2e7d32); }
+.flash-dash { display: flex; flex-direction: column; gap: 10px; }
+.flash-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; }
+.flash-kpi { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 10px 6px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--surface); }
+.flash-kpi b { font-size: 20px; line-height: 1.1; color: var(--accent-dark); }
+.flash-kpi span { font-size: 11px; opacity: .72; text-align: center; }
+.flash-panel { border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--surface); padding: 10px 12px; }
+.flash-panel-title { font-family: 'Cinzel', serif; font-size: 12px; letter-spacing: .5px; color: var(--accent-muted); margin-bottom: 8px; }
+.flash-bar { display: flex; height: 16px; border-radius: 999px; overflow: hidden; background: var(--disabled-bg); }
+.flash-bar i { display: block; height: 100%; }
+.flash-bar-mature { background: #2e7d32; }
+.flash-bar-young { background: #2a7ab0; }
+.flash-bar-learning { background: #b06a00; }
+.flash-bar-new { background: #8a8a8a; }
+.flash-legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; margin-top: 8px; }
+.flash-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.flash-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.flash-dot.flash-m-mature { background: #2e7d32; }
+.flash-dot.flash-m-young { background: #2a7ab0; }
+.flash-dot.flash-m-learning { background: #b06a00; }
+.flash-dot.flash-m-new { background: #8a8a8a; }
+.flash-days { display: flex; align-items: flex-end; gap: 3px; min-height: 78px; }
+.flash-day { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; min-width: 0; }
+.flash-day i { display: block; width: 100%; max-width: 20px; border-radius: 3px 3px 0 0; background: var(--accent); opacity: .85; }
+.flash-day span { font-size: 9px; opacity: .6; white-space: nowrap; }
+.flash-leech-list { display: flex; flex-direction: column; gap: 5px; }
+.flash-leech-row { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left; font: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid var(--border-light); border-left: 3px solid #a33; border-radius: 8px; background: var(--field-bg); color: var(--text); cursor: pointer; }
+.flash-leech-row:hover { border-color: var(--accent); background: var(--mini-button-hover-bg); }
+.deck-progress { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--disabled-bg); margin-top: 4px; }
+.deck-progress i { display: block; height: 100%; }
+.deck-bar-mature { background: #2e7d32; }
+.deck-bar-young { background: #2a7ab0; }
+.deck-bar-learning { background: #b06a00; }
+.deck-bar-new { background: #8a8a8a; }
+.deck-progress-label { font-size: 11px; opacity: .7; margin-top: 3px; }

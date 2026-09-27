@@ -178,54 +178,676 @@ function setFingerDraw(v) {
   saveInputPrefs(); syncToolbar(); applyStageTouchAction();
 }
 function applyStageTouchAction() {
-  // Finger scrollt nativ (pan-y), Stift zeichnet trotzdem (Pointer Events).
-  // Nur wenn "Finger zeichnen" an ist, wird Scrollen auf der Seite gesperrt.
-  // Laserpointer sperrt immer (Zeigen statt Scrollen, speichert nichts).
-  // Scroll-Navigation an: vertikaler Finger-Swipe blättert (touch-action none),
-  // damit der Browser die Geste nicht für natives Pannen klaut.
+  // Continuous Scroll: der Scroller (.stage-scroll) darf immer nativ pan-y.
+  // "Finger zeichnen" sperrt das Panning auf der Seite, damit der Finger
+  // Tinte malt statt zu scrollen; der Laser sperrt es immer (Zeigen statt
+  // Scrollen, speichert nichts). Gilt fuer JEDE gemountete Seite, nicht nur
+  // die aktive – sonst bricht auf Nachbarseiten das Scrollen weg.
   try {
     const laserOn = (typeof GrimoireLaser !== 'undefined' && GrimoireLaser.isLaserTool)
       ? GrimoireLaser.isLaserTool(tool) : tool === 'laser';
-    const mode = (laserOn || inputPrefs.fingerDraw || scrollNavEnabled) ? 'none' : 'pan-x pan-y';
-    ['stage', 'stageB'].forEach(id => {
-      const el = $(id);
-      if (!el) return;
-      el.style.touchAction = mode;
-      el.classList.toggle('finger-ink', !!inputPrefs.fingerDraw);
-      el.classList.toggle('tool-laser', !!laserOn);
-      if (laserOn) el.style.cursor = 'none';
+    [0, 1].forEach(i => {
+      flowOf(i).mounted.forEach(el => applyTouchActionToStage(el, laserOn));
     });
   } catch { /* ignore */ }
 }
-/* ---------- Scroll-Navigation: Wheel über der Seite blättert (pro Pane) ----------
- * Nur Wheel (kein Touch/Pointer-Move): Zeichnen + Two-Finger-Tap bleiben
- * unberührt. Pinch-Zoom (ctrlKey+Wheel) wird nie gehandelt. Default AN,
- * persistiert unter federwerkScrollNavV1 (s. js/scrollnav.js). */
-let scrollNavEnabled = true;
-let scrollNavPane = { 0: null, 1: null };
-let scrollNavSwipe = { 0: null, 1: null }; // Touch-Swipe-States (eigener acc)
-try {
-  if (typeof GrimoireScrollNav !== 'undefined') {
-    scrollNavEnabled = GrimoireScrollNav.loadEnabled(typeof localStorage !== 'undefined' ? localStorage : null);
-  } else if (typeof localStorage !== 'undefined') {
-    const raw = localStorage.getItem('federwerkScrollNavV1');
-    if (raw != null) scrollNavEnabled = !(raw === '0' || raw === 'false');
+/* Cursor passend zum Werkzeug. Gilt fuer jede gemountete Seite – im
+ * Continuous-Scroll-Modus ist der Zeiger auch auf Nachbarseiten, die sonst
+ * mit dem Standardpfeil statt mit dem Werkzeug-Cursor da stuenden. */
+function stageCursorFor(t) {
+  const isLaser = (typeof GrimoireLaser !== 'undefined' && GrimoireLaser.isLaserTool)
+    ? GrimoireLaser.isLaserTool(t) : t === 'laser';
+  if (isLaser) return 'none';
+  if (t === 'text') return 'text';
+  if (t === 'move') return 'move';
+  return 'crosshair';
+}
+/* Zustand einer einzelnen Buehne setzen. Wird auch direkt beim Mounten
+ * aufgerufen, damit eine neu eingeblendete Seite sofort richtig reagiert. */
+function applyTouchActionToStage(el, laserOn) {
+  if (!el) return;
+  const on = laserOn == null
+    ? ((typeof GrimoireLaser !== 'undefined' && GrimoireLaser.isLaserTool) ? GrimoireLaser.isLaserTool(tool) : tool === 'laser')
+    : !!laserOn;
+  el.style.touchAction = (on || inputPrefs.fingerDraw) ? 'none' : 'pan-x pan-y';
+  el.classList.toggle('finger-ink', !!inputPrefs.fingerDraw);
+  el.classList.toggle('tool-laser', !!on);
+  el.style.cursor = on ? 'none' : stageCursorFor(tool);
+}
+/* ---------- Page-Flow: Continuous Scroll (pro Pane) ----------
+ * Alle Seiten eines Dokuments liegen untereinander in EINEM Scroll-Container
+ * (.stage-scroll). Es wird nicht mehr geblaettert: der Nutzer scrollt, und die
+ * Seite an der Fokuslinie gilt als gelesen. Die Geometrie (welche Seite, wo,
+ * welcher Ausschnitt ist sichtbar) rechnet js/pageflow.js – hier nur das
+ * DOM-Glue: Slots bauen, Seiten mounten, kanonische IDs umhaengen, Scroll
+ * zur aktiven Seite synchronisieren.
+ *
+ * Zwei Invarianten, die das Ganze tragen:
+ * 1. Die Hoehe kommt vom .page-slot (aspect-ratio), NICHT vom Inhalt. Mounten
+ *    und Unmounten einer Seite aendert das Layout also um keinen Pixel –
+ *    Scrollen bleibt dadurch rueckenlos.
+ * 2. Nur die aktive Seite traegt die kanonischen IDs (#stage, #drawCanvas, …).
+ *    Dadurch zeigt der gesamte Bestand, der per $(eid(...)) sucht (Canvas-
+ *    Export, Liveshare-Cursor, Text-/Bild-Layer), unveraendert auf die
+ *    gelesene Seite. Nachbarseiten werden ueber [data-part] addressiert.
+ *
+ * Geraete mit vielen Seiten: nur das Mount-Fenster um die sichtbaren Seiten
+ * (plus Overscan) bekommt Canvases. Pool-Elemente werden wiederverwendet. */
+const PAGE_GAP = 18;      // Luecke zwischen zwei Seiten im Stack (CSS --page-gap)
+const PAGE_LEAD = 12;     // Fokuslinie: Abstand Oberkante -> "gelesene" Seite
+const PAGE_OVERSCAN = 600; // Vorab rendern, bevor eine Seite in den Blick kommt
+const STAGE_PARTS = ['bgLayer', 'drawCanvas', 'overlayCanvas', 'imgLayer', 'textLayer'];
+
+function pageFlowApi() {
+  try { return (typeof GrimoirePageFlow !== 'undefined') ? GrimoirePageFlow : null; }
+  catch { return null; }
+}
+function newFlowState() {
+  return { slots: [], mounted: new Map(), pool: [], layout: null, raf: 0, mountAll: false, ids: '' };
+}
+const paneFlow = [newFlowState(), newFlowState()];
+function flowOf(i) { return paneFlow[i === 1 ? 1 : 0]; }
+function scrollerFor(i) { return $(eid('stageScroll', i)); }
+function stackFor(i) { return $(eid('stageStack', i)); }
+
+function stagePartOf(stageEl, part) {
+  if (!stageEl) return null;
+  if (part === 'stage') return stageEl;
+  try { return stageEl.querySelector('[data-part="' + part + '"]'); } catch { return null; }
+}
+/* Frische Buehne ohne IDs – die IDs wandern spaeter auf die aktive Seite. */
+function buildStageEl() {
+  const s = document.createElement('div');
+  s.className = 'stage';
+  s.setAttribute('data-part', 'stage');
+  s.setAttribute('data-page-id', '');
+  const mk = (tag, part, cls) => {
+    const el = document.createElement(tag);
+    el.setAttribute('data-part', part);
+    if (cls) el.className = cls;
+    return el;
+  };
+  s.appendChild(mk('div', 'bgLayer'));
+  s.appendChild(mk('canvas', 'drawCanvas'));
+  s.appendChild(mk('canvas', 'overlayCanvas'));
+  s.appendChild(mk('div', 'imgLayer', 'img-layer'));
+  s.appendChild(mk('div', 'textLayer', 'text-layer'));
+  return s;
+}
+/* IDs auf `stageEl` umhaengen (von der bisherigen Seite abnehmen). */
+function promoteStageEl(stageEl, i) {
+  if (!stageEl) return;
+  const sfx = paneSuffix(i);
+  const ids = { stage: 'stage' + sfx, bgLayer: 'bgLayer' + sfx, drawCanvas: 'drawCanvas' + sfx,
+    overlayCanvas: 'overlayCanvas' + sfx, imgLayer: 'imgLayer' + sfx, textLayer: 'textLayer' + sfx };
+  Object.keys(ids).forEach(part => {
+    const el = stagePartOf(stageEl, part);
+    if (!el) return;
+    try {
+      const old = document.getElementById(ids[part]);
+      if (old && old !== el) old.removeAttribute('id');
+      el.id = ids[part];
+    } catch { /* ignore */ }
+  });
+}
+function demoteStageEl(stageEl) {
+  if (!stageEl) return;
+  try { stageEl.removeAttribute('id'); } catch { /* ignore */ }
+  STAGE_PARTS.forEach(part => {
+    const el = stagePartOf(stageEl, part);
+    if (el) { try { el.removeAttribute('id'); } catch { /* ignore */ } }
+  });
+}
+function pageIndexInPane(i, pageId) {
+  const b = paneBook(i);
+  if (!b || !b.pages || !pageId) return -1;
+  return b.pages.findIndex(p => p.id === pageId);
+}
+function stageForPageId(i, pageId) { return flowOf(i).mounted.get(pageId) || null; }
+
+/* Slot-Stack an die Seiten des Buches anpassen. Nur bei echter Aenderung
+ * (Seitenanzahl/Reihenfolge) wird neu gebaut – dann darf der Scroll-Container
+ * zurueck auf den Anfang, weil die alte Position meaningless ist. */
+function ensureStackFor(i) {
+  const stack = stackFor(i);
+  if (!stack) return false;
+  const f = flowOf(i);
+  const b = paneBook(i);
+  const pages = (b && b.pages) ? b.pages : [];
+  const sig = pages.map(p => p.id).join('|');
+  const dims = [];
+  pages.forEach(p => { const d = pageDimsOf(p, b && b.paper); dims.push((d.w > 0 && d.h > 0) ? d : { w: CANVAS_W, h: CANVAS_H }); });
+  const changed = (sig !== f.ids);
+  if (changed) {
+    // Alle Buehnen einsammeln und in den Pool legen (nicht zerstoeren: die
+    // Canvas-Backing-Stores sind teuer, die Elemente werden weiterverwendet).
+    f.mounted.forEach(el => {
+      try { if (el.parentNode) el.parentNode.removeChild(el); } catch { /* ignore */ }
+      f.pool.push(el);
+    });
+    f.mounted.clear();
+    try { stack.innerHTML = ''; } catch { /* ignore */ }
+    f.slots = [];
+    pages.forEach((p, k) => {
+      const slot = document.createElement('div');
+      slot.className = 'page-slot';
+      slot.setAttribute('data-page-id', p.id || '');
+      slot.style.setProperty('--slot-ar', dims[k].w + ' / ' + dims[k].h);
+      stack.appendChild(slot);
+      f.slots.push(slot);
+    });
+    f.ids = sig;
+    f.layout = null;
+    const sc = scrollerFor(i);
+    if (sc) { try { sc.scrollTop = 0; } catch { /* ignore */ } }
+  } else {
+    // Seitenanzahl gleich, aber vielleicht ein anderes Format -> Slot-Hoehe
+    // nachziehen, damit die Scroll-Geometrie wieder stimmt.
+    for (let k = 0; k < pages.length; k++) {
+      const slot = f.slots[k];
+      if (!slot) continue;
+      const ar = dims[k].w + ' / ' + dims[k].h;
+      if (slot.style.getPropertyValue('--slot-ar') !== ar) {
+        slot.style.setProperty('--slot-ar', ar);
+        f.layout = null; // neu messen
+      }
+    }
   }
-} catch { scrollNavEnabled = true; }
-function isScrollNavEnabled() { return !!scrollNavEnabled; }
-function setScrollNavEnabled(v) {
-  scrollNavEnabled = !!v;
+  // Seiten-Nummern und "aktiv"-Markierung (rein kosmetisch, kein Layout-Effekt).
+  const cur = panePageId(i);
+  for (let k = 0; k < f.slots.length; k++) {
+    const slot = f.slots[k];
+    const pid = pages[k] ? pages[k].id : '';
+    if (slot.getAttribute('data-page-no') !== String(k + 1)) slot.setAttribute('data-page-no', String(k + 1));
+    const act = pid && pid === cur ? '1' : '0';
+    if (slot.getAttribute('data-active') !== act) slot.setAttribute('data-active', act);
+  }
+  return changed;
+}
+
+/* Scroll-Geometrie aus den tatsaechlichen Slot-Hoehen (ein Reflow-Lauf).
+ * Setzt vorher --slot-max-w: die Seitenbreite folgt der Scroller-Hoehe, damit
+ * jede Seite vollstaendig sichtbar ist und ein Scroll-Dreh eine Seite
+ * weiterbringt statt zwei. Ohne diese Deckelung waere A4 in einem 1280er-
+ * Fenster 746px breit und damit 1055px hoch – groesser als der Scroller. */
+function measureFlow(i) {
+  const f = flowOf(i);
+  const PF = pageFlowApi();
+  const sc = scrollerFor(i);
+  const viewH = sc ? sc.clientHeight : 0;
+  const b = paneBook(i);
+  if (viewH > 0 && b && b.pages && b.pages.length === f.slots.length) {
+    let widest = 0;
+    for (let k = 0; k < f.slots.length; k++) {
+      const p = b.pages[k];
+      if (!p) continue;
+      const d = pageDimsOf(p, b.paper);
+      if (!(d.w > 0) || !(d.h > 0)) continue;
+      // Hoehe passt -> Breite, plus etwas Luft, damit die Seiten-Nummer
+      // unterhalb des Papiers Platz hat und nicht am Rand klebt.
+      const fit = Math.max(160, Math.min(760, Math.floor((viewH - 26) * d.w / d.h)));
+      f.slots[k].style.setProperty('--slot-max-w', fit + 'px');
+      if (fit > widest) widest = fit;
+    }
+    // Scroller an die breiteste Seite heranholen: die Bildlaufleiste gehoert
+    // neben das Papier, nicht an den Fensterrand 700px weiter aussen.
+    if (sc && widest > 0) {
+      const avail = sc.parentElement ? sc.parentElement.clientWidth : 0;
+      if (avail > 0) sc.style.maxWidth = Math.min(avail, widest + 22) + 'px';
+    }
+  }
+  const heights = f.slots.map(s => Math.max(1, s.offsetHeight || 0));
+  if (!heights.length) { f.layout = PF ? PF.buildLayout([], PAGE_GAP) : null; return f.layout; }
+  f.layout = PF ? PF.buildLayout(heights, PAGE_GAP) : null;
+  return f.layout;
+}
+
+/* Eine Seite in ihren Slot haengen und zeichnen. */
+function mountSlotFor(i, k) {
+  const f = flowOf(i);
+  const b = paneBook(i);
+  if (!b || !b.pages || k < 0 || k >= b.pages.length) return null;
+  const p = b.pages[k];
+  const slot = f.slots[k];
+  if (!slot) return null;
+  if (f.mounted.has(p.id)) return f.mounted.get(p.id);
+  const el = f.pool.pop() || buildStageEl();
+  slot.appendChild(el);
+  el.setAttribute('data-page-id', p.id);
+  el._pageId = p.id;
+  f.mounted.set(p.id, el);
+  paintStageEl(i, el, p);
+  try { bindStageFor(i, el); } catch { /* Pointer-Bindung optional */ }
+  try { bindTapGesturesFor(i, el); } catch { /* Tap-Gesten optional */ }
+  try { applyTouchActionToStage(el); } catch { /* Touch-Action optional */ }
+  return el;
+}
+function unmountPageId(i, pageId) {
+  const f = flowOf(i);
+  const el = f.mounted.get(pageId);
+  if (!el) return;
+  // Die aktive Seite bleibt immer gemountet – sie traegt die IDs.
+  if (pageId === panePageId(i)) return;
+  f.mounted.delete(pageId);
+  if (stageForActiveHasId(el)) demoteStageEl(el);
+  try { if (el.parentNode) el.parentNode.removeChild(el); } catch { /* ignore */ }
+  el._pageId = '';
+  el.setAttribute('data-page-id', '');
+  if (f.pool.length < 8) f.pool.push(el); // Pool deckeln
+}
+function stageForActiveHasId(el) { return !!(el && el.id); }
+
+/* Sichtbares Fenster (+Overscan) mounten, alles andere ausklappen. */
+function syncMountFor(i) {
+  const f = flowOf(i);
+  const b = paneBook(i);
+  if (!b || !b.pages.length || !f.slots.length) return;
+  if (!f.layout) measureFlow(i);
+  let start = 0, end = f.slots.length - 1;
+  const PF = pageFlowApi();
+  const sc = scrollerFor(i);
+  if (!f.mountAll && PF && f.layout && sc) {
+    const r = PF.windowRange(f.layout, sc.scrollTop, sc.clientHeight, PAGE_OVERSCAN);
+    start = r.start; end = r.end;
+  }
+  for (let k = start; k <= end; k++) mountSlotFor(i, k);
+  // Die aktive Seite bleibt IMMER gemountet: sie traegt die kanonischen IDs
+  // und ist der Anker fuer Koordinaten, Export und Undo. Nach einem Sprung
+  // ueber weite Distanzen liegt sie ausserhalb des Fensters – dann wird sie
+  // zusaetzlich gemountet, ohne das Fenster zu vergroessern (sonst wuerde ein
+  // Sprung zu Seite 500 kurzzeitig 500 Canvases anlegen).
+  const actK = pageIndexInPane(i, panePageId(i));
+  if (actK >= 0 && (actK < start || actK > end)) mountSlotFor(i, actK);
+  const stale = [];
+  f.mounted.forEach((el, pid) => {
+    const k = b.pages.findIndex(p => p.id === pid);
+    if (k < start || k > end) stale.push(pid);
+  });
+  stale.forEach(pid => unmountPageId(i, pid));
+}
+
+/* Alles rendern, was auf einer Buehne gehoert: Papier, Hintergrund, Tinte,
+ * Textfelder, Bilder. Wird beim Mounten und beim Aktivwerden benutzt. */
+function paintStageEl(i, st, page) {
+  if (!st || !page) return;
+  const book = paneBook(i);
+  const d = pageDimsOf(page, book && book.paper);
+  applyPaperToStage(st, page, book);
+  applyBgToLayer(stagePartOf(st, 'bgLayer'), page);
+  renderPageCanvas(st, page, d);
+  const ui = paneUI[i] || {};
+  const act = (i === activePaneIdx());
+  renderTextInto(stagePartOf(st, 'textLayer'), page, act ? selectedBox : (ui.selBox || null), i);
+  renderImgInto(stagePartOf(st, 'imgLayer'), page, act ? selectedImg : (ui.selImg || null), i);
+  st._pageId = page.id;
+}
+
+/* Eine Seite zur gelesen Seite machen: Page-State setzen, IDs umhaengen, die
+ * aktive Seite frisch zeichnen, Rail/Status nachziehen. `keepUndo` bleibt
+ * beim Blättern standardmaessig true: der Undo-Stapel ist dokumentweit, und
+ * ein Undo springt ueber restore() ohnehin auf die richtige Seite. */
+function activatePanePage(i, pageId, opts) {
+  const o = opts || {};
+  const key = i === 1 ? 1 : 0;
+  if (!pageId) return false;
+  if (panePageId(key) === pageId) return false;
+  const prev = stageForPageId(key, panePageId(key));
+  const api = splitApi();
+  const bid = paneBookId(key);
+  if (api) api.setPaneDoc(split, key, bid, pageId);
+  else split.panes[key] = { bookId: bid, pageId: pageId };
+  if (key === 0) state.openPageId = pageId;
+  syncSplitToState();
+  const ui = paneUI[key];
+  if (!o.keepUndo) {
+    if (ui) { ui.undo = []; ui.redo = []; }
+    if (key === activePaneIdx()) { undoStack = []; redoStack = []; }
+  }
+  // Die Auswahl gehoert zu einer Seite: bei jedem Seitenwechsel weg, egal ob
+  // gescrollt, geklickt oder geblaettert wurde.
+  if (ui) { ui.selBox = null; ui.selImg = null; }
+  if (key === activePaneIdx()) { selectedBox = null; selectedImg = null; }
+  // Seite ggf. erst mounten, damit sie die IDs uebernehmen kann.
+  const st = stageForPageId(key, pageId) || mountSlotFor(key, pageIndexInPane(key, pageId));
+  promoteStageEl(st, key);
+  renderActiveChromeFor(key);
+  if (prev && prev !== st) {
+    // Die eben verlassene Seite verliert ihre Auswahl-Markierung.
+    try { renderTextInto(stagePartOf(prev, 'textLayer'), panePage(key), null, key); } catch { /* ignore */ }
+    try { renderImgInto(stagePartOf(prev, 'imgLayer'), panePage(key), null, key); } catch { /* ignore */ }
+  }
+  return true;
+}
+/* Papier/Hintergrund/Tinte/Text/Bilder der aktiven Seite neu zeichnen plus
+ * Rail-Markierung und Seitenformat-Anzeige. Bewusst ohne Rail-Neuaufbau –
+ * das ist der teure Teil und beim Blättern unnoetig. */
+function renderActiveChromeFor(i) {
+  applyPaperFor(i); applyBgFor(i); renderCanvasFor(i);
+  renderTextLayerFor(i); renderImgLayerFor(i);
+  updateRailSelection(i);
+  syncPaneChrome(i);
+  markActiveSlot(i);
+}
+/* Kosmetische Aktiv-Markierung des Slots. Nur der zuvor aktive und der neue
+ * Slot werden angefasst – bei 300 Seiten waere ein Durchlauf ueber alle Slots
+ * pro Seitenwechsel spuerbar. */
+function markActiveSlot(i) {
+  const f = flowOf(i);
+  const cur = panePageId(i);
+  const b = paneBook(i);
+  const pages = (b && b.pages) ? b.pages : [];
+  const k = cur ? pages.findIndex(p => p.id === cur) : -1;
+  const nextSlot = (k >= 0 && k < f.slots.length) ? f.slots[k] : null;
+  const prevSlot = f.activeSlot || null;
+  if (prevSlot === nextSlot) return;
+  if (prevSlot) prevSlot.setAttribute('data-active', '0');
+  if (nextSlot) nextSlot.setAttribute('data-active', '1');
+  f.activeSlot = nextSlot;
+}
+/* Nur die Rail-Markierung an die aktive Seite anpassen (billig, kein Neuaufbau
+ * aller Thumbnails) – die Thumbnails selbst bleiben unangetastet. */
+function updateRailSelection(i) {
   try {
-    if (typeof GrimoireScrollNav !== 'undefined') GrimoireScrollNav.saveEnabled(typeof localStorage !== 'undefined' ? localStorage : null, scrollNavEnabled);
-    else if (typeof localStorage !== 'undefined') localStorage.setItem('federwerkScrollNavV1', scrollNavEnabled ? '1' : '0');
-  } catch { /* ignore */ }
-  applyStageTouchAction();
-  syncToolbar();
+    const rail = $(eid('pageRail', i));
+    if (!rail) return;
+    const cur = panePageId(i);
+    // renderRailFor legt rail._thumbByPage an (Seiten-ID -> Thumb). Ohne den
+    // Index (sehr alter DOM-Stand) faellt es auf den linearen Weg zurueck.
+    const byPage = rail._thumbByPage;
+    if (byPage && byPage.get) {
+      const next = cur ? byPage.get(cur) : null;
+      const prev = rail._selectedThumb || null;
+      if (prev === next) return;
+      if (prev) prev.classList.remove('selected');
+      if (next) next.classList.add('selected');
+      rail._selectedThumb = next || null;
+      return;
+    }
+    const thumbs = rail.querySelectorAll('.page-thumb');
+    for (let k = 0; k < thumbs.length; k++) {
+      const on = !!(thumbs[k].getAttribute('data-pid') === cur);
+      if (thumbs[k].classList.contains('selected') !== on) thumbs[k].classList.toggle('selected', on);
+    }
+  } catch { /* Rail-Markierung optional */ }
 }
-function toggleScrollNav(ev) {
-  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
-  setScrollNavEnabled(!isScrollNavEnabled());
+/* Rail-Statuszeile (Seite x/y) ohne Thumbnails neu zu zeichnen. */
+function syncStatusPageFor(i) {
+  try {
+    const st = $(eid('statusPage', i));
+    if (!st) return;
+    const b = paneBook(i);
+    if (!b || !b.pages.length) { st.textContent = 'Seite 1/1'; return; }
+    const k = b.pages.findIndex(p => p.id === panePageId(i));
+    let fmt = '';
+    try {
+      const cur = b.pages[k < 0 ? 0 : k];
+      let own = null;
+      if (typeof PagesImport !== 'undefined' && PagesImport.sanitizePageSize) own = PagesImport.sanitizePageSize(cur && cur.size);
+      if (own && typeof PagesImport !== 'undefined' && PagesImport.formatLabel) fmt = ' · ' + PagesImport.formatLabel(own);
+      else if (typeof FederwerkPaper !== 'undefined' && FederwerkPaper.resolve) {
+        const t = FederwerkPaper.resolve(b.paper);
+        fmt = ' · ' + ((t && t.name) || 'Buchvorlage');
+      }
+    } catch { /* Format-Label optional */ }
+    st.textContent = 'Seite ' + ((k < 0 ? 0 : k) + 1) + '/' + b.pages.length + fmt;
+  } catch { /* Status optional */ }
 }
+
+/* Scrollposition -> aktive Seite. Wird aus dem scroll-Event getrieben und
+ * nutzt rAF, damit ein Wheel-Sturm nicht pro Event rendert. */
+function onFlowScrollFor(i) {
+  const f = flowOf(i);
+  if (f.raf) return;
+  f.raf = (typeof requestAnimationFrame === 'function')
+    ? requestAnimationFrame(() => { f.raf = 0; applyFlowScroll(i); })
+    : 0;
+  if (!f.raf) applyFlowScroll(i);
+}
+function applyFlowScroll(i) {
+  const key = i === 1 ? 1 : 0;
+  const sc = scrollerFor(key);
+  const f = flowOf(key);
+  const b = paneBook(key);
+  if (!sc || !b || !b.pages.length || !f.slots.length) return;
+  if (!f.layout) measureFlow(key);
+  const PF = pageFlowApi();
+  if (!PF || !f.layout) return;
+  const k = PF.pageFromScroll(f.layout, sc.scrollTop, sc.clientHeight, PAGE_LEAD);
+  const p = b.pages[k];
+  if (!p) return;
+  if (activePaneIdx() !== key) { try { setActivePane(key, true); } catch { /* ignore */ } }
+  // Reihenfolge ist wichtig: erst die neue aktive Seite setzen, DANN fenstern.
+  // Sonst blockiert die noch aktive alte Seite ihren eigenen Unmount und ihre
+  // Canvas bleibt fuer immer belegt.
+  const changed = activatePanePage(key, p.id, { keepUndo: true });
+  syncMountFor(key); // nach dem Scroll: neue Seiten vorab rendern
+  if (changed) { try { syncStatusPageFor(key); } catch { /* optional */ } }
+  else markActiveSlot(key);
+}
+
+/* Seite in den Sichtbereich scrollen. Ohne smooth springt die Position exakt;
+ * mit smooth wandert sie, und die aktive Seite folgt unterwegs dem Scroll. */
+function scrollPaneToPage(i, pageId, smooth) {
+  const key = i === 1 ? 1 : 0;
+  const sc = scrollerFor(key);
+  const b = paneBook(key);
+  if (!sc || !b) return false;
+  const k = pageIndexInPane(key, pageId);
+  if (k < 0) return false;
+  const f = flowOf(key);
+  if (!f.layout) measureFlow(key);
+  const PF = pageFlowApi();
+  let target = 0;
+  if (PF && f.layout) {
+    // Steht die Seite schon an der Fokuslinie, nicht ruecken (kein Sprung,
+    // wenn der Nutzer mitten in einer Seite liest).
+    const derived = PF.pageFromScroll(f.layout, sc.scrollTop, sc.clientHeight, PAGE_LEAD);
+    if (derived === k) { markActiveSlot(key); return false; }
+    target = PF.offsetForPage(f.layout, k, sc.clientHeight, PAGE_LEAD);
+  } else {
+    const slot = f.slots[k];
+    if (slot) { try { sc.scrollTop = slot.offsetTop - PAGE_LEAD; } catch { /* ignore */ } return true; }
+  }
+  try {
+    if (smooth && typeof sc.scrollTo === 'function') sc.scrollTo({ top: target, behavior: 'smooth' });
+    else sc.scrollTop = target;
+  } catch { try { sc.scrollTop = target; } catch { /* ignore */ } }
+  return true;
+}
+/* Tastatur-/Rail-Navigation: eine Seite vor/zurueck. */
+function stepPanePage(i, dir) {
+  const key = i === 1 ? 1 : 0;
+  const b = paneBook(key);
+  if (!b || !b.pages.length) return false;
+  const sc = scrollerFor(key);
+  const f = flowOf(key);
+  const PF = pageFlowApi();
+  let pos = pageIndexInPane(key, panePageId(key));
+  if (pos < 0) pos = 0;
+  let next = null;
+  if (PF) next = PF.neighborIndex(pos, dir, b.pages.length);
+  else next = ((pos + dir >= 0 && pos + dir < b.pages.length) ? pos + dir : null);
+  if (next == null) { flowBoundaryFeedback(key); return false; }
+  try { if (activePaneIdx() !== key) setActivePane(key, true); } catch { /* ignore */ }
+  if (activatePanePage(key, b.pages[next].id)) {
+    try { syncStatusPageFor(key); } catch { /* ignore */ }
+  }
+  scrollPaneToPage(key, b.pages[next].id, true);
+  if (sc && f) { /* f bleibt fuer spaetere Nutzung referenziert */ }
+  return true;
+}
+/* Sprung an den ersten/letzten Seitenindex (Pos1/Ende). Weicher Scroll, damit
+ * der Weg durch die Seiten sichtbar bleibt. */
+function jumpToPageEdge(i, k) {
+  const key = i === 1 ? 1 : 0;
+  const b = paneBook(key);
+  if (!b || !b.pages.length) return false;
+  const idx = Math.max(0, Math.min(b.pages.length - 1, k | 0));
+  const pid = b.pages[idx].id;
+  try { if (activePaneIdx() !== key) setActivePane(key, true); } catch { /* ignore */ }
+  if (activatePanePage(key, pid, { keepUndo: true })) {
+    try { syncStatusPageFor(key); } catch { /* ignore */ }
+  }
+  return scrollPaneToPage(key, pid, true);
+}
+function flowBoundaryFeedback(i) {
+  try {
+    const st = $(eid('statusPage', i));
+    if (st) {
+      st.classList.remove('edge-flash');
+      void st.offsetWidth;
+      st.classList.add('edge-flash');
+      setTimeout(() => { try { st.classList.remove('edge-flash'); } catch { /* ignore */ } }, 450);
+    }
+  } catch { /* Feedback optional */ }
+}
+
+/* Der Scroller fuellt den freien Sichtbereich: alles, was Header, Toolbar und
+ * Statuszeile belegen, wird abgezogen. Gemessen statt geraten, damit die
+ * Breakpoints (Header bricht auf Mobil um) nicht nachgezogen werden muessen. */
+function syncStageViewport() {
+  try {
+    const header = document.querySelector('.header');
+    const toolbar = document.querySelector('.toolbar');
+    const root = document.documentElement;
+    if (!root) return;
+    const vh = window.innerHeight || 0;
+    if (!vh) return;
+    const hH = header ? Math.round(header.getBoundingClientRect().height) : 0;
+    const tH = toolbar ? Math.round(toolbar.getBoundingClientRect().height) : 0;
+    let satTop = 0;
+    try { satTop = parseFloat(getComputedStyle(root).getPropertyValue('--sat')) || 0; }
+    catch { /* Safe-Area optional */ }
+    // Alles, was im Fluss ueber der Buehne klebt, gehoert in eine Oberkante:
+    // Header + Werkzeugleiste + Pane-Bar (Buchtitel-Zeile). Die Pane-Bar
+    // haengt per CSS bei --toolbar-bottom, wird aber trotzdem mitgerechnet –
+    // sonst waere die Buehne zu hoch und die Statuszeile laege ausserhalb.
+    const gap = 20; // --toolbar-top = Header + 20px
+    const toolbarBottom = hH + gap + tH;
+    const barH = paneBarHeight();
+    root.style.setProperty('--toolbar-bottom', Math.round(toolbarBottom + satTop) + 'px');
+    // 24px Reserve fuer Rahmen/Luechten, 26px fuer die Statuszeile.
+    const reserve = 24 + satTop;
+    const statusH = 26;
+    const avail = vh - toolbarBottom - barH - statusH - reserve;
+    root.style.setProperty('--stage-h', Math.max(200, Math.round(avail)) + 'px');
+  } catch { /* Viewport-Berechnung optional */ }
+}
+/* Hoehe der Pane-Bar des aktiven Pane (Buchtitel/Vorlage/+ Seite). */
+function paneBarHeight() {
+  try {
+    const i = activePaneIdx();
+    const pane = $(i === 1 ? 'pane1' : 'pane0');
+    const bar = pane && pane.querySelector('.pane-bar');
+    if (!bar) return 0;
+    // Nur im sichtbaren Zustand messen (display:none liefert 0 -> dann 0).
+    const h = Math.round(bar.getBoundingClientRect().height);
+    return h > 0 && h < 400 ? h : 0;
+  } catch { /* Pane-Bar optional */ return 0; }
+}
+/* Das Fenster so ausrichten, dass die klebende Leiste direkt ueber der Buehne
+ * sitzt. Ohne das schiebt der Fluss (Navigktionszeile + Pane-Bar) die Buehne
+ * nach unten und das Fenster scrollt zusaetzlich zum Seiten-Scroller mit –
+ * zwei Scroll-Achsen fuer eine Sache, genau das, was sich "merkwuerdig"
+ * anfuehlt. Einmalig beim Oeffnen und bei Resize, nie waehrend des Lesens. */
+function alignBookViewWindow() {
+  try {
+    const sc = scrollerFor(activePaneIdx());
+    if (!sc || !openBook()) return;
+    const cs = getComputedStyle(document.documentElement);
+    const tb = parseFloat(cs.getPropertyValue('--toolbar-bottom')) || 0;
+    const barH = paneBarHeight();
+    const docTop = sc.getBoundingClientRect().top + (window.scrollY || 0);
+    const want = Math.max(0, Math.round(docTop - (tb + barH)));
+    const max = Math.max(0, document.scrollingElement.scrollHeight - window.innerHeight);
+    if (want > 0) window.scrollTo(0, Math.min(want, max));
+  } catch { /* Ausrichtung optional */ }
+}
+
+/* Sichtbare Nachbarseiten nachziehen. Deren Inhalt kann sich aendern, ohne
+ * dass sie gerade aktiv ist – Liveshare, Undo, Import, radieren. Ohne das
+ * zeigte eine sichtbare Nachbarseite veralteten Inhalt, bis man weg- und
+ * zurueckgescrollt hatte. Kosten: höchstens ein paar Canvas pro renderAll. */
+function repaintMountedNeighbors(i) {
+  const f = flowOf(i);
+  const b = paneBook(i);
+  if (!b || !b.pages || !f.mounted.size) return;
+  const cur = panePageId(i);
+  const ui = paneUI[i] || {};
+  f.mounted.forEach((el, pid) => {
+    if (pid === cur) return;
+    const pg = b.pages.find(p => p.id === pid);
+    if (!pg) return;
+    // Nachbarseiten zeigen nie eine Auswahl (die gehoert der aktiven Seite).
+    try {
+      applyPaperToStage(el, pg, b);
+      applyBgToLayer(stagePartOf(el, 'bgLayer'), pg);
+      renderPageCanvas(el, pg, pageDimsOf(pg, b.paper));
+      renderTextInto(stagePartOf(el, 'textLayer'), pg, null, i);
+      renderImgInto(stagePartOf(el, 'imgLayer'), pg, null, i);
+    } catch { /* Nachbar-Render optional */ }
+  });
+}
+/* Eine einzelne Seite neu zeichnen, falls sie gerade gemountet ist (z.B. eine
+ * fremde Aenderung aus der Live-Teilnahme). Unbekannte Seiten: kein Fehler –
+ * sie werden beim Mounten ohnehin frisch gezeichnet. */
+function repaintPage(pageId, bookId) {
+  [0, 1].forEach(i => {
+    if (bookId && paneBookId(i) !== bookId) return;
+    const el = stageForPageId(i, pageId);
+    if (!el) return;
+    const b = paneBook(i);
+    const pg = b && b.pages ? b.pages.find(p => p.id === pageId) : null;
+    if (!pg) return;
+    const isActive = (pageId === panePageId(i));
+    const act = (i === activePaneIdx());
+    try {
+      applyPaperToStage(el, pg, b);
+      applyBgToLayer(stagePartOf(el, 'bgLayer'), pg);
+      renderPageCanvas(el, pg, pageDimsOf(pg, b.paper));
+      const ui = paneUI[i] || {};
+      renderTextInto(stagePartOf(el, 'textLayer'), pg, isActive && act ? selectedBox : (isActive ? (ui.selBox || null) : null), i);
+      renderImgInto(stagePartOf(el, 'imgLayer'), pg, isActive && act ? selectedImg : (isActive ? (ui.selImg || null) : null), i);
+    } catch { /* Render optional */ }
+  });
+}
+
+/* Druck: alle Seiten ausgeben, nicht nur das Mount-Fenster. */
+function setFlowMountAll(on) {
+  [0, 1].forEach(i => {
+    const f = flowOf(i);
+    f.mountAll = !!on;
+    if (on) {
+      const b = paneBook(i);
+      if (b) for (let k = 0; k < b.pages.length; k++) mountSlotFor(i, k);
+    } else {
+      syncMountFor(i);
+      promoteStageEl(stageForPageId(i, panePageId(i)), i);
+    }
+  });
+}
+
+/* Ereignisse des Scrollers: scroll -> aktive Seite, pointerdown -> Seite unter
+ * dem Finger aktivieren (Capture, damit Textbox-/Greif-Handler, die auf
+ * currentPage() zugreifen, bereits die richtige Seite sehen). */
+function bindFlowFor(i) {
+  const sc = scrollerFor(i);
+  if (!sc || sc._flowBound) return;
+  sc._flowBound = true;
+  sc.addEventListener('scroll', () => { try { onFlowScrollFor(i); } catch { /* ignore */ } }, { passive: true });
+  sc.addEventListener('pointerdown', (ev) => {
+    try {
+      const slot = ev.target && ev.target.closest ? ev.target.closest('.page-slot') : null;
+      if (!slot) return;
+      const pid = slot.getAttribute('data-page-id');
+      if (!pid || pid === panePageId(i)) return;
+      if (activePaneIdx() !== i) setActivePane(i, true);
+      activatePanePage(i, pid, { keepUndo: false });
+    } catch { /* Seitenwechsel beim Tippen optional */ }
+  }, true);
+}
+function bindFlow() { bindFlowFor(0); bindFlowFor(1); }
+
 let undoStack = [], redoStack = [];
 let drawing = null, selectedBox = null, selectedImg = null;
 let saveTimer = null;
@@ -505,6 +1127,9 @@ function openBookView(id, pageId, paneIdx) {
   $('viewBook').classList.add('active');
   syncSplitToState();
   syncToolbar(); renderAll(); persistSoon();
+  // Nach dem ersten Aufbau: Fenster so ausrichten, dass die klebende Leiste
+  // direkt ueber der Buehne sitzt (nur wenn darueber noch etwas steht).
+  try { alignBookViewWindow(); } catch { /* Ausrichtung optional */ }
 }
 function openBookInPane(id, paneIdx) {
   if (!id) return;
@@ -1606,6 +2231,7 @@ function renderLibrary() {
     let metaLine = '';
     let typeBadge = '';
     let deckActions = '';
+    let deckProgress = '';
     if (deck) {
       let stats = null;
       try {
@@ -1614,6 +2240,12 @@ function renderLibrary() {
       const n = Array.isArray(b.cards) ? b.cards.length : 0;
       const due = stats ? stats.due : 0;
       const learned = stats ? stats.learned : 0;
+      const mature = (stats && stats.maturity) ? (stats.maturity.mature || 0) : 0;
+      const young = (stats && stats.maturity) ? (stats.maturity.young || 0) : 0;
+      const learning = (stats && stats.maturity) ? (stats.maturity.learning || 0) : 0;
+      const fresh = (stats && stats.maturity) ? (stats.maturity.new || 0) : n;
+      const progressTotal = Math.max(1, mature + young + learning + fresh);
+      const donePct = Math.round(((mature + young) / progressTotal) * 100);
       let first = '';
       try {
         const c0 = (b.cards || [])[0];
@@ -1625,8 +2257,16 @@ function renderLibrary() {
       preview = first ? esc(first) : (n ? 'Tippen zum Lernen.' : 'Noch keine Karten – tippen zum Anlegen.');
       metaLine = n + ' Karte(n) · ' + due + ' fällig · ' + learned + ' gelernt · ' + new Date(b.updatedAt).toLocaleDateString('de-DE');
       typeBadge = '<span style="display:inline-block;font-size:11px;border:1px solid currentColor;border-radius:999px;padding:0 8px;margin-left:8px;opacity:.9" title="Karteikarten-Deck mit SM-2-Lernsystem">🂠 Deck</span>';
+      deckProgress = n ? '<div class="deck-progress" title="Reif ' + mature + ' · Jung ' + young + ' · Lernend ' + learning + ' · Neu ' + fresh + '">'
+        + '<i class="deck-bar-mature" style="width:' + Math.round((mature / progressTotal) * 100) + '%"></i>'
+        + '<i class="deck-bar-young" style="width:' + Math.round((young / progressTotal) * 100) + '%"></i>'
+        + '<i class="deck-bar-learning" style="width:' + Math.round((learning / progressTotal) * 100) + '%"></i>'
+        + '<i class="deck-bar-new" style="width:' + Math.round((fresh / progressTotal) * 100) + '%"></i>'
+        + '</div><div class="deck-progress-label">' + donePct + ' % gefestigt · '
+        + (stats && stats.streak ? stats.streak + ' Tage 🔥' : 'noch kein Streak') + '</div>' : '';
       deckActions = '<button class="mini-button" onclick="openDeckLearn(\'' + b.id + '\',event)" title="Lernmodus starten (fällige Karten)">▶ Lernen' + (due ? ' (' + due + ')' : '') + '</button>'
-        + '<button class="mini-button" onclick="openDeckView(\'' + b.id + '\',event)" title="Karten verwalten">🂠 Karten</button>';
+        + '<button class="mini-button" onclick="openDeckView(\'' + b.id + '\',event)" title="Karten verwalten">🂠 Karten</button>'
+        + '<button class="mini-button" onclick="openDeckStats(\'' + b.id + '\',event)" title="Auswertungen und Lernfortschritt">📊 Auswertung</button>';
     } else {
       const firstText = (b.pages || []).flatMap(p => p.texts || [])[0];
       preview = firstText ? esc(stripHtml(firstText.html).slice(0, 120)) : 'Leere Seiten – tippen zum Öffnen.';
@@ -1654,6 +2294,7 @@ function renderLibrary() {
       + '<div class="notebook-title">' + esc(b.title) + badge + '</div>'
       + '<div class="notebook-meta">' + folderBadge + '<span>' + esc(metaLine) + '</span></div>'
       + '<div class="notebook-preview">' + preview + '</div>'
+      + deckProgress
       + snippetHtml
       + '<div class="notebook-actions">'
       + (deck ? deckActions : '<button class="mini-button" onclick="openBookInSplit(\'' + b.id + '\',event)" title="Als zweites Dokument daneben öffnen (Split-Screen, ein Fenster)">⇉ Split</button>')
@@ -1714,6 +2355,10 @@ function moveHistory(from, to) {
   if (!from.length) return;
   const entry = from[from.length - 1], s = JSON.parse(entry);
   const b = openBook(); if (!b || b.id !== s.bookId) return;
+  // Die Gegen-Aufzeichnung traegt die Seiten-ID, die VOR dem Rueckgang aktiv
+  // war – historyState() liest sie selbst. Damit holt ein Undo die Seite aus
+  // der Historie und ein Redo die davor: Seitenwechsel sind Teil des Zustands,
+  // den die Historie aufzeichnet (u.a. abgesichert in tests/app-history.test.js).
   const inverse = historyState(!!s.pages); if (!inverse) return;
   to.push(inverse);
   from.pop();
@@ -1721,17 +2366,18 @@ function moveHistory(from, to) {
 }
 function undo() { moveHistory(undoStack, redoStack); }
 function redo() { moveHistory(redoStack, undoStack); }
+/* Expliziter Seitenwechsel (Rail, Tastatur, Vorlagen-Button, Import). Die
+ * Undo-Historie bleibt bewusst erhalten: sie ist dokumentweit, und restore()
+ * springt ueber die gespeicherte Seiten-ID ohnehin auf die richtige Seite
+ * zurueck. Sie zu leeren wuerde im Continuous-Scroll-Modus jeden Undo nach
+ * dem Scrollen unmoeglich machen. */
 function setPanePageAndRender(i, pid) {
   try { if (typeof stopLaser === 'function') stopLaser(); } catch { /* ignore */ }
-  const api = splitApi();
-  const bid = paneBookId(i);
-  if (api) api.setPaneDoc(split, i, bid, pid);
-  else split.panes[i] = { bookId: bid, pageId: pid };
-  if (i === 0) state.openPageId = pid;
-  const ui = paneUI[i];
-  if (ui) { ui.undo = []; ui.redo = []; ui.selBox = null; ui.selImg = null; }
-  if (i === activePaneIdx()) { undoStack = []; redoStack = []; selectedBox = null; selectedImg = null; }
-  syncSplitToState(); persistSoon(); renderAll();
+  activatePanePage(i, pid, { keepUndo: true });
+  persistSoon(); renderAll();
+  // renderAll rueckt nur, wenn noetig; der weiche Lauf laesst den Weg durch
+  // die Seiten beim Rail-Klick sichtbar.
+  if (i === 0 || splitEnabled()) { try { scrollPaneToPage(i, pid, true); } catch { /* ignore */ } }
 }
 function addPage() {
   const b = openBook(); if (!b) return;
@@ -1992,17 +2638,16 @@ function setTool(t) {
   try { if (typeof stopLaser === 'function') stopLaser(); } catch { /* ignore */ }
   parkActiveUI();
   syncToolbar(); renderTextLayer(); renderImgLayer();
-  try { if (typeof applyStageTouchAction === 'function') applyStageTouchAction(); } catch { /* ignore */ }
   const names = { pen: '✒ Stift', marker: '🖍 Marker', eraser: '⌫ Radierer', text: 'T Text', move: '✥ Auswahl', laser: '🔦 Laser' };
   const st0 = $('statusTool'), st1 = $('statusToolB');
   if (st0) st0.textContent = names[t] || t;
   if (st1) st1.textContent = names[t] || t;
+  // Cursor + Touch-Aktion fuer ALLE gemounteten Seiten setzen, nicht nur fuer
+  // #stage: im Continuous-Scroll-Modus sind Nachbarseiten sichtbar.
+  try { if (typeof applyStageTouchAction === 'function') applyStageTouchAction(); } catch { /* ignore */ }
   const s0 = $('stage'), s1 = $('stageB');
-  const isLaser = (typeof GrimoireLaser !== 'undefined' && GrimoireLaser.isLaserTool)
-    ? GrimoireLaser.isLaserTool(t) : t === 'laser';
-  const cur = isLaser ? 'none' : t === 'text' ? 'text' : t === 'move' ? 'move' : 'crosshair';
-  if (s0) { s0.style.cursor = cur; s0.classList.toggle('tool-laser', isLaser); }
-  if (s1) { s1.style.cursor = cur; s1.classList.toggle('tool-laser', isLaser); }
+  if (s0) s0.style.cursor = stageCursorFor(t);
+  if (s1) s1.style.cursor = stageCursorFor(t);
 }
 function setColor(v) { penColor = v; }
 function setSize(v) { penSize = +v; $('sizeLabel').textContent = v + 'px'; }
@@ -2035,14 +2680,12 @@ function openTextEditorForSelected() {
 
 /* ---------- Canvas (pane-bewusst, Suffix '' / 'B') ---------- */
 function canvas(idx) { return $(eid('drawCanvas', idx)); }
-function ctx2d(idx) { const c = canvas(idx); return c ? c.getContext('2d') : null; }
 function overlayEl(idx) { return $(eid('overlayCanvas', idx)); }
-function fitCanvasFor(idx) {
-  const c = $(eid('drawCanvas', idx)), o = $(eid('overlayCanvas', idx));
+function fitCanvasIn(st, d) {
+  const c = stagePartOf(st, 'drawCanvas'), o = stagePartOf(st, 'overlayCanvas');
   if (!c || !o) return;
   // Backing folgt dem Seitenformat (gedeckelt, damit große Formate
   // nicht den Speicher sprengen); Koordinaten bleiben Seiten-Einheiten.
-  const d = paneDims(idx);
   let dpr = Math.min(2, window.devicePixelRatio || 1);
   try {
     if (typeof PagesImport !== 'undefined' && PagesImport.backingForPage) {
@@ -2057,9 +2700,16 @@ function fitCanvasFor(idx) {
   c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
   o.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
 }
+function fitCanvasFor(idx) { fitCanvasIn($(eid('stage', idx)), paneDims(idx)); }
 function fitCanvas() { fitCanvasFor(activePaneIdx()); }
-function stagePosFor(ev, idx) {
-  const r = $(eid('stage', idx)).getBoundingClientRect();
+/* Client -> Seiten-Koordinaten. `st` ist optional: im Continuous-Scroll-Modus
+ * kann der Zeiger auf einer Nachbarseite stehen, die nicht die aktive ist –
+ * dann zaehlt deren Rechteck, nicht das der aktiven Seite. */
+function stagePosFor(ev, idx, st) {
+  const stage = st || $(eid('stage', idx));
+  if (!stage) return { x: 0, y: 0, nx: 0, ny: 0, p: 0.5 };
+  const r = stage.getBoundingClientRect();
+  if (!r.width || !r.height) return { x: 0, y: 0, nx: 0, ny: 0, p: 0.5 };
   // Apple Pencil Pressure miterfassen (Fallback 0.5 bei 0/unbekannt: Hover, Maus, fehlende Sensorik)
   let p = 0.5;
   try {
@@ -2177,28 +2827,40 @@ function drawStroke(c, s) {
   }
   c.restore();
 }
-function renderCanvasFor(idx) {
-  fitCanvasFor(idx);
-  const c = ctx2d(idx);
+function renderPageCanvas(st, page, d) {
+  if (!st || !page) return;
+  fitCanvasIn(st, d);
+  const c = stagePartOf(st, 'drawCanvas');
   if (!c) return;
-  const p = panePage(idx); if (!p) return;
-  const d = paneDims(idx);
-  c.clearRect(0, 0, d.w, d.h);
-  p.strokes.forEach(s => drawStroke(c, s));
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, d.w, d.h);
+  page.strokes.forEach(s => drawStroke(g, s));
 }
+function renderCanvasFor(idx) { renderPageCanvas($(eid('stage', idx)), panePage(idx), paneDims(idx)); }
 function renderCanvas() { renderCanvasFor(activePaneIdx()); }
-function previewStroke(points, color, size, toolName) {
-  const oc = overlayEl(activePaneIdx()); if (!oc) return;
+/* Overlay der Buehne, auf der gerade gezeichnet wird. Ohne `st` die aktive
+ * Seite – im Continuous-Scroll-Modus kann der Zeiger aber auch auf einer
+ * Nachbarseite stehen, dann zaehlt deren eigenes Overlay. */
+function overlayFor(st, idx) {
+  const key = (idx == null) ? activePaneIdx() : idx;
+  if (st) {
+    const el = stagePartOf(st, 'overlayCanvas');
+    if (el) return el;
+  }
+  return overlayEl(key);
+}
+function previewStroke(points, color, size, toolName, st, idx) {
+  const oc = overlayFor(st, idx); if (!oc) return;
   const o = oc.getContext('2d');
-  const d = paneDims(activePaneIdx());
+  const d = paneDims((idx == null) ? activePaneIdx() : idx);
   o.clearRect(0, 0, d.w, d.h);
   if (points && points.length) drawStroke(o, { tool: toolName, color, size, points });
 }
 // Apple Pencil Hover-Preview: Ghost-Kreis am Cursor, kein Zeichnen (nur pen-Hover, Stift/Marker).
-function drawHoverPreview(pos) {
-  const oc = overlayEl(activePaneIdx()); if (!oc) return;
+function drawHoverPreview(pos, st, idx) {
+  const oc = overlayFor(st, idx); if (!oc) return;
   const g = oc.getContext('2d');
-  const d = paneDims(activePaneIdx());
+  const d = paneDims((idx == null) ? activePaneIdx() : idx);
   g.clearRect(0, 0, d.w, d.h);
   const base = tool === 'marker' ? penSize * 3 : penSize;
   g.save();
@@ -2297,8 +2959,10 @@ function distToStroke(pt, s, radius) {
   return s.points.some(q => Math.hypot(q.x - pt.x, q.y - pt.y) <= radius + s.size / 2);
 }
 
-function bindStageFor(idx) {
-  const stage = $(eid('stage', idx));
+function bindStageFor(idx, el) {
+  // `el` optional: im Continuous-Scroll-Modus wird JEDE gemountete Buehne
+  // gebunden, nicht nur die aktive – sonst waeren Nachbarseiten stumm.
+  const stage = el || $(eid('stage', idx));
   if (!stage || stage._splitBound) return;
   stage._splitBound = true;
   const activePointers = new Set();
@@ -2328,7 +2992,7 @@ function bindStageFor(idx) {
     } catch { list = [ev]; }
     let added = 0;
     for (const ce of list) {
-      const pos = stagePosFor(ce, idx);
+      const pos = stagePosFor(ce, idx, stage);
       let sm = null;
       if (into.stabilizer) {
         try { sm = into.stabilizer.push({ x: pos.x, y: pos.y, p: pos.p }, (ce.timeStamp || Date.now())); } catch { sm = null; }
@@ -2373,7 +3037,7 @@ function bindStageFor(idx) {
     if (isLaserActive()) {
       if (ev.isPrimary === false) return;
       activePointers.add(ev.pointerId);
-      const posL = stagePosFor(ev, idx);
+      const posL = stagePosFor(ev, idx, stage);
       if (!currentPage()) return;
       try { stage.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
       try { ev.preventDefault(); } catch { /* ignore */ }
@@ -2384,7 +3048,7 @@ function bindStageFor(idx) {
     const inkTool = (tool === 'pen' || tool === 'marker' || tool === 'eraser');
     if (inkTool && !wantsInk(ev)) return;
     activePointers.add(ev.pointerId);
-    const pos = stagePosFor(ev, idx);
+    const pos = stagePosFor(ev, idx, stage);
     const p = currentPage(); if (!p) return;
     if (tool === 'pen' || tool === 'marker') {
       snapshot();
@@ -2394,7 +3058,7 @@ function bindStageFor(idx) {
       drawing = { tool, color: penColor, size: tool === 'marker' ? penSize * 3 : penSize, points: [], stabilizer: stab, pointerType: String(ev.pointerType || 'mouse') };
       pushCoalesced(ev, drawing);
       if (!drawing.points.length) drawing.points.push({ x: pos.x, y: pos.y, p: pos.p });
-      previewStroke(drawing.points, drawing.color, drawing.size, drawing.tool);
+      previewStroke(drawing.points, drawing.color, drawing.size, drawing.tool, stage, idx);
     } else if (tool === 'eraser') {
       snapshot();
       try { stage.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
@@ -2424,12 +3088,12 @@ function bindStageFor(idx) {
     if (isLaserActive()) {
       if (ev.isPrimary === false) return;
       if (activePaneIdx() !== idx) { try { setActivePane(idx, true); } catch { /* ignore */ } }
-      laserPushFor(idx, stagePosFor(ev, idx));
+      laserPushFor(idx, stagePosFor(ev, idx, stage));
       return;
     }
     // Apple Pencil Hover (pen, keine Buttons, Stift/Marker): nur Ghost-Vorschau, kein Zeichnen.
     if (!drawing && ev.pointerType === 'pen' && ev.buttons === 0 && (tool === 'pen' || tool === 'marker')) {
-      drawHoverPreview(stagePosFor(ev, idx));
+      drawHoverPreview(stagePosFor(ev, idx, stage), stage, idx);
       return;
     }
     if (!drawing) return;
@@ -2437,7 +3101,7 @@ function bindStageFor(idx) {
     // Touch-Scroll während aktivem Ink-Stroke: anderer Pointer -> ignorieren
     // (aktiver Stroke gehört Pen/Maus; Finger-Scroll läuft parallel nativ).
     if (ev.pointerType === 'touch' && drawing.pointerType && drawing.pointerType !== 'touch') return;
-    const pos = stagePosFor(ev, idx);
+    const pos = stagePosFor(ev, idx, stage);
     if (drawing.erasing) {
       if (eraseTrail) {
         eraseTrail.push({ x: pos.x, y: pos.y, t: Date.now() });
@@ -2448,7 +3112,7 @@ function bindStageFor(idx) {
     const before = drawing.points.length;
     pushCoalesced(ev, drawing);
     if (drawing.points.length !== before) {
-      previewStroke(drawing.points, drawing.color, drawing.size, drawing.tool);
+      previewStroke(drawing.points, drawing.color, drawing.size, drawing.tool, stage, idx);
     }
   });
   stage.addEventListener('pointerleave', () => { if (isLaserActive()) return; clearHoverPreview(); });
@@ -2527,8 +3191,10 @@ function eraseAt(pos) {
 /* SPEC-25: Zwei-Finger-Tap = undo(), Drei-Finger-Tap = redo() (Touch-Handler
  * auf stage, Dauer <300ms, kaum Bewegung -> kein Konflikt mit Pinch-Zoom).
  * Buttons bleiben unverändert. */
-function bindTapGesturesFor(idx) {
-  const stage = $(eid('stage', idx));
+function bindTapGesturesFor(idx, el) {
+  // Wie bindStageFor: jede gemountete Buehne mitbinden, sonst funktioniert
+  // der Zwei-/Drei-Finger-Tap nur auf der aktiven Seite.
+  const stage = el || $(eid('stage', idx));
   if (!stage || stage._tapGesturesBound) return;
   stage._tapGesturesBound = true;
   let startT = 0, maxTouches = 0, maxMove = 0;
@@ -2576,167 +3242,9 @@ function bindTapGesturesFor(idx) {
 }
 function bindTapGestures() { bindTapGesturesFor(0); bindTapGesturesFor(1); }
 
-/* ---------- Scroll-Navigation (Wheel blättert, pro Pane, Split-kompatibel) ----------
- * Nur `wheel` auf .stage-wrap/.stage löst aus – Pointer/Touch-Zeichnung und
- * Two-Finger-Tap bleiben unberührt. Pinch-Zoom (ctrlKey/metaKey) läuft durch
- * an den Browser. Ein Flip nutzt setPanePageAndRender (leert UI-Stapel korrekt)
- * und zieht den aktiven Pane mit (wie andere Pane-Aktionen). Kein Wrap:
- * am Anfang/Ende blinkt die Statuszeile + Rail-Thumb kurz auf. */
-function scrollNavFlipInPane(idx, dir) {
-  const key = (idx === 1) ? 1 : 0;
-  const b = paneBook(key); if (!b || !b.pages.length) return false;
-  const cur = panePageId(key);
-  let pos = b.pages.findIndex(p => p.id === cur);
-  if (pos < 0) pos = 0;
-  let next = null;
-  try {
-    next = (typeof GrimoireScrollNav !== 'undefined')
-      ? GrimoireScrollNav.neighborIndex(pos, dir, b.pages.length)
-      : ((pos + dir >= 0 && pos + dir < b.pages.length) ? pos + dir : null);
-  } catch { next = null; }
-  if (next == null) { scrollNavBoundaryFeedback(key); return false; }
-  setActivePane(key, true);
-  setPanePageAndRender(key, b.pages[next].id);
-  // Weiche Blende statt hartem Schnitt (reine Optik, kein Einfluss auf State).
-  try {
-    const st = $(eid('stage', key));
-    if (st) {
-      st.classList.remove('scrollnav-flip');
-      void st.offsetWidth; // Animation neu starten
-      st.classList.add('scrollnav-flip');
-      setTimeout(() => { try { st.classList.remove('scrollnav-flip'); } catch { /* ignore */ } }, 240);
-    }
-  } catch { /* Feedback optional */ }
-  return true;
-}
-function scrollNavBoundaryFeedback(idx) {
-  try {
-    const st = $(eid('statusPage', idx));
-    if (st) {
-      st.classList.remove('scrollnav-flash');
-      void st.offsetWidth; // Animation neu starten
-      st.classList.add('scrollnav-flash');
-      setTimeout(() => { try { st.classList.remove('scrollnav-flash'); } catch { /* ignore */ } }, 450);
-    }
-    const rail = $(eid('pageRail', idx));
-    if (rail) {
-      const sel = rail.querySelector('.page-thumb.selected');
-      if (sel) {
-        sel.classList.remove('scrollnav-bump');
-        void sel.offsetWidth;
-        sel.classList.add('scrollnav-bump');
-        setTimeout(() => { try { sel.classList.remove('scrollnav-bump'); } catch { /* ignore */ } }, 450);
-      }
-    }
-  } catch { /* Feedback optional */ }
-}
-function scrollNavGuardsPass() {
-  // Gemeinsame Vorbedingungen für Wheel- und Swipe-Blättern.
-  if (!isScrollNavEnabled()) return false;
-  if (!$('viewBook') || !$('viewBook').classList.contains('active')) return false;
-  // Overlays (Texteditor/Preview/Graph/Cloud) nicht stören.
-  if (($('editorOverlay') && $('editorOverlay').classList.contains('active'))
-    || ($('previewOverlay') && $('previewOverlay').classList.contains('active'))
-    || ($('graphOverlay') && $('graphOverlay').classList.contains('active'))
-    || ($('awOverlay') && $('awOverlay').classList.contains('active'))) return false;
-  if (typeof GrimoireScrollNav === 'undefined') return false;
-  return true;
-}
-function bindScrollNavFor(idx) {
-  const stage = $(eid('stage', idx));
-  if (!stage) return;
-  const wrap = (stage.closest && stage.closest('.stage-wrap')) || stage;
-  if (wrap._scrollNavBound) return;
-  wrap._scrollNavBound = true;
-  wrap.addEventListener('wheel', (ev) => {
-    try {
-      if (!scrollNavGuardsPass()) return; // aus / Overlay / kein Modul -> nativ
-      const key = (idx === 1) ? 1 : 0;
-      if (!scrollNavPane[key]) scrollNavPane[key] = GrimoireScrollNav.createPaneState();
-      const r = GrimoireScrollNav.stepWheel(scrollNavPane[key], ev || {}, Date.now());
-      if (!r.handled) return; // horizontal / Pinch-Zoom -> Browser
-      if (r.flip) {
-        ev.preventDefault();
-        scrollNavFlipInPane(key, r.flip);
-        return;
-      }
-      // Immer schlucken, wenn als vertikaler Scroll erkannt – auch am
-      // Buchanfang/-ende. Sonst springt natives Fenster-Scroll durch
-      // (Buchrand fühlt sich „kaputt“ an); Feedback ist der Boundary-Blink.
-      ev.preventDefault();
-    } catch { /* Wheel-Navigation optional, Zeichnung unberührt */ }
-  }, { passive: false });
-  // Finger-Vertikal-Swipe blättert auf Touch-Geräten (iPad: kein Wheel):
-  // 2 Finger immer; 1 Finger wenn „Schreiben: aus“ (fingerDraw aus) –
-  // das ist das erwartete Verhalten des Schreib-Toggles.
-  // Wichtig: touchstart ist NICHT passiv und ruft bei Beanspruchung sofort
-  // preventDefault – sonst krallt sich der Browser die Geste für natives
-  // Scrollen/Zoomen und es kommen keine touchmove-Events mehr an (dann würde
-  // der Swipe nie die Schwelle erreichen). Tap-Gesten (Undo/Redo, touchend-
-  // gesteuert) und Stift-Zeichnung bleiben unberührt; Pinch-Zoom auf der
-  // Bühne ist bei aktivierter Scroll-Navigation dem Blättern gewichen.
-  stage.addEventListener('touchstart', (ev) => {
-    try {
-      stage._swipe = null;
-      if (!scrollNavGuardsPass()) return;
-      const n = (ev.touches && ev.touches.length) || 0;
-      const claim = (n === 2) || (n === 1 && !inputPrefs.fingerDraw);
-      if (!claim) return;
-      try { ev.preventDefault(); } catch { /* ignore */ }
-      let c;
-      if (n === 1) {
-        c = { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
-      } else {
-        c = { x: (ev.touches[0].clientX + ev.touches[1].clientX) / 2, y: (ev.touches[0].clientY + ev.touches[1].clientY) / 2 };
-      }
-      stage._swipe = { x0: c.x, y0: c.y, lx: c.x, ly: c.y, engaged: false, n: n };
-    } catch { stage._swipe = null; }
-  }, { passive: false });
-  stage.addEventListener('touchmove', (ev) => {
-    try {
-      const sw = stage._swipe;
-      if (!sw) return;
-      if (!scrollNavGuardsPass()) { stage._swipe = null; return; }
-      const n = (ev.touches && ev.touches.length) || 0;
-      if (n !== sw.n) { stage._swipe = null; return; }
-      let cx, cy;
-      if (n === 1) {
-        cx = ev.touches[0].clientX; cy = ev.touches[0].clientY;
-      } else {
-        cx = (ev.touches[0].clientX + ev.touches[1].clientX) / 2;
-        cy = (ev.touches[0].clientY + ev.touches[1].clientY) / 2;
-      }
-      if (!sw.engaged) {
-        // Erst einrasten, sonst loslassen (Tap/Pinch bleiben nativ).
-        if (!GrimoireScrollNav.swipeEngage(cx - sw.x0, cy - sw.y0)) {
-          if (Math.abs(cx - sw.x0) > Math.abs(cy - sw.y0) && Math.abs(cx - sw.x0) >= 24) stage._swipe = null;
-          return;
-        }
-        sw.engaged = true;
-        sw.lx = cx; sw.ly = cy;
-      }
-      ev.preventDefault(); // vertikaler Swipe gehört dem Seitenwechsel
-      const key = (idx === 1) ? 1 : 0;
-      if (!scrollNavSwipe[key]) scrollNavSwipe[key] = GrimoireScrollNav.createSwipeState();
-      // Natürliche Scrollrichtung wie am Rad: Finger hoch = scrollt runter = nächste Seite.
-      const r = GrimoireScrollNav.stepSwipe(scrollNavSwipe[key], sw.ly - cy, Date.now());
-      sw.lx = cx; sw.ly = cy;
-      if (r.flip) scrollNavFlipInPane(key, r.flip);
-    } catch { /* Swipe-Navigation optional, Zeichnung unberührt */ }
-  }, { passive: false });
-  const swipeEnd = () => { try { stage._swipe = null; } catch { /* ignore */ } };
-  stage.addEventListener('touchend', swipeEnd);
-  stage.addEventListener('touchcancel', swipeEnd);
-}
-function bindScrollNav() { bindScrollNavFor(0); bindScrollNavFor(1); }
-
 /* ---------- Text- & Bild-Layer (pro Pane, Suffix '' / 'B') ---------- */
-function renderTextLayerFor(idx) {
-  const layer = $(eid('textLayer', idx));
+function renderTextInto(layer, p, sel, idx) {
   if (!layer) return;
-  const p = panePage(idx);
-  const ui = paneUI[idx] || {};
-  const sel = (idx === activePaneIdx()) ? selectedBox : (ui.selBox || null);
   if (!p) { layer.innerHTML = ''; return; }
   layer.innerHTML = '';
   p.texts.forEach(t => {
@@ -2762,6 +3270,11 @@ function renderTextLayerFor(idx) {
     if (tool === 'move' || tool === 'text') makeDraggable(d, t, 'text');
     layer.appendChild(d);
   });
+}
+function renderTextLayerFor(idx) {
+  const ui = paneUI[idx] || {};
+  const sel = (idx === activePaneIdx()) ? selectedBox : (ui.selBox || null);
+  renderTextInto($(eid('textLayer', idx)), panePage(idx), sel, idx);
 }
 function renderTextLayer() { renderTextLayerFor(activePaneIdx()); }
 /* SPEC-07 light: eingebetteter ```query-Block in Textboxen.
@@ -2802,12 +3315,8 @@ function renderQueryBlocks(container, allBooks) {
     pre.replaceWith(box);
   });
 }
-function renderImgLayerFor(idx) {
-  const layer = $(eid('imgLayer', idx));
+function renderImgInto(layer, p, sel, idx) {
   if (!layer) return;
-  const p = panePage(idx);
-  const ui = paneUI[idx] || {};
-  const sel = (idx === activePaneIdx()) ? selectedImg : (ui.selImg || null);
   if (!p) { layer.innerHTML = ''; return; }
   layer.innerHTML = '';
   p.images.forEach(im => {
@@ -2838,6 +3347,11 @@ function renderImgLayerFor(idx) {
     if (tool === 'move') makeDraggable(d, im, 'img');
     layer.appendChild(d);
   });
+}
+function renderImgLayerFor(idx) {
+  const ui = paneUI[idx] || {};
+  const sel = (idx === activePaneIdx()) ? selectedImg : (ui.selImg || null);
+  renderImgInto($(eid('imgLayer', idx)), panePage(idx), sel, idx);
 }
 function renderImgLayer() { renderImgLayerFor(activePaneIdx()); }
 function makeDraggable(el, obj, kind) {
@@ -3153,12 +3667,20 @@ async function importPdfAsPages(ev, presetRange) {
 function renderRailFor(idx) {
   const rail = $(eid('pageRail', idx));
   if (!rail) return;
-  const b = paneBook(idx); if (!b) { rail.innerHTML = ''; return; }
+  const b = paneBook(idx); if (!b) { rail.innerHTML = ''; rail._thumbByPage = null; rail._selectedThumb = null; return; }
   const curPid = panePageId(idx);
   rail.innerHTML = '';
+  // Index Seiten-ID -> Thumb, damit das Blättern im Continuous-Scroll-Modus
+  // O(1) markieren kann, statt bei jeder Seite ueber alle Thumbnails zu laufen.
+  const thumbByPage = new Map();
+  rail._thumbByPage = thumbByPage;
+  rail._selectedThumb = null;
   b.pages.forEach((p, i) => {
     const d = document.createElement('div');
     d.className = 'page-thumb' + (p.id === curPid ? ' selected' : '');
+    d.setAttribute('data-pid', p.id || '');
+    if (p.id) thumbByPage.set(p.id, d);
+    if (p.id === curPid) rail._selectedThumb = d;
     // Thumbnail im nativen Seitenverhältnis (Contain in 140×198-Box)
     const pd = pageDimsOf(p, b && b.paper);
     const tScale = Math.min(140 / pd.w, 198 / pd.h);
@@ -3226,38 +3748,38 @@ function renderRailFor(idx) {
   }
 }
 function renderRail() { renderRailFor(activePaneIdx()); }
-function applyPaperFor(idx) {
-  const b = paneBook(idx);
-  const st = $(eid('stage', idx));
+function applyPaperToStage(st, page, book) {
   if (!st) return;
   // Alle Papier-Klassen abräumen (Legacy 'lined'/'grid' inkl.), dann die der
-  // aufgelösten Vorlage legen. Ohne Lib: Legacy-Verhalten (b.paper direkt).
+  // aufgelösten Vorlage legen. Ohne Lib: Legacy-Verhalten (book.paper direkt).
   const P = paperApi();
   try {
     if (P) st.classList.remove.apply(st.classList, P.allCssClasses());
     else st.classList.remove('lined', 'grid');
   } catch { try { st.classList.remove('lined', 'grid'); } catch { /* ignore */ } }
   if (P) {
-    try { P.cssClasses(b && b.paper).forEach(c => st.classList.add(c)); } catch { /* ohne Pattern */ }
-  } else if (b && b.paper) {
-    try { st.classList.add(b.paper); } catch { /* ignore */ }
+    try { P.cssClasses(book && book.paper).forEach(c => st.classList.add(c)); } catch { /* ohne Pattern */ }
+  } else if (book && book.paper) {
+    try { st.classList.add(book.paper); } catch { /* ignore */ }
   }
-  // Bühnen-Verhältnis folgt der tatsächlichen Seite (page.size gesetzt vom
-  // Vorlagenwechsel bzw. Bild-/PDF-Format) – Fallback Buch-Vorlage/A4.
+  // Buehnen-Verhältnis folgt der tatsaechlichen Seite (page.size gesetzt vom
+  // Vorlagenwechsel bzw. Bild-/PDF-Format). Im Slot kommt die Hoehe aus dem
+  // aspect-ratio des .page-slot, dann waere hier ein Inline-Format schaedlich.
   try {
-    const pd = pageDimsOf(panePage(idx), b && b.paper);
+    if (st.closest && st.closest('.page-slot')) return;
+    const pd = pageDimsOf(page, book && book.paper);
     if (pd && pd.w > 0 && pd.h > 0) st.style.aspectRatio = pd.w + ' / ' + pd.h;
   } catch { /* CSS-Default (210/297) bleibt */ }
 }
+function applyPaperFor(idx) { applyPaperToStage($(eid('stage', idx)), panePage(idx), paneBook(idx)); }
 function applyPaper() { applyPaperFor(activePaneIdx()); }
-function applyBgFor(idx) {
-  const p = panePage(idx);
-  const bg = $(eid('bgLayer', idx));
+function applyBgToLayer(bg, p) {
   if (!bg) return;
   let src = (p && p.bg) || null;
   if (src && typeof GrimoireStore !== 'undefined') src = GrimoireStore.url(src) || null;
   bg.style.backgroundImage = src ? 'url("' + src + '")' : 'none';
 }
+function applyBgFor(idx) { applyBgToLayer($(eid('bgLayer', idx)), panePage(idx)); }
 function applyBg() { applyBgFor(activePaneIdx()); }
 function clearPageBg() {
   const p = currentPage(); if (!p || !p.bg) return;
@@ -3266,9 +3788,41 @@ function clearPageBg() {
   touchBook(); persistSoon(); renderAll();
 }
 function renderAllFor(idx) {
-  applyPaperFor(idx); applyBgFor(idx); renderCanvasFor(idx);
-  renderTextLayerFor(idx); renderImgLayerFor(idx); renderRailFor(idx);
-  syncPaneChrome(idx);
+  const key = idx === 1 ? 1 : 0;
+  // 1) Slot-Stack an die Seiten anpassen (Seitenanzahl/Format).
+  ensureStackFor(key);
+  const b = paneBook(key);
+  // Aktive Seite validieren (z.B. nach Import/Undo auf eine entfernte Seite).
+  if (b && b.pages.length) {
+    let cur = panePageId(key);
+    if (!cur || !b.pages.some(p => p.id === cur)) {
+      const fallback = b.pages[0].id;
+      const api = splitApi();
+      if (api) api.setPaneDoc(split, key, paneBookId(key), fallback);
+      else split.panes[key] = { bookId: paneBookId(key), pageId: fallback };
+      if (key === 0) state.openPageId = fallback;
+      syncSplitToState();
+    }
+  }
+  // 2) Sichtbar-Hoehe des Scrollers bestimmen (die haengt an Header/Toolbar),
+  //    dann Geometrie messen und das Mount-Fenster fuellen.
+  syncStageViewport();
+  measureFlow(key);
+  syncMountFor(key);
+  // 3) Aktive Seite behaelt die kanonischen IDs, danach wird sie gezeichnet.
+  //    Sie kann ausserhalb des Mount-Fensters liegen (Seitensprung per Rail,
+  //    Undo, Import) – dann erst mounten, sonst hinge #stage noch an der
+  //    vorherigen Seite.
+  const actStage = stageForPageId(key, panePageId(key)) || mountSlotFor(key, pageIndexInPane(key, panePageId(key)));
+  promoteStageEl(actStage, key);
+  applyPaperFor(key); applyBgFor(key); renderCanvasFor(key);
+  renderTextLayerFor(key); renderImgLayerFor(key);
+  markActiveSlot(key);
+  repaintMountedNeighbors(key);
+  renderRailFor(key);
+  // 4) Scrollposition an die aktive Seite anpassen (rueckt nur, wenn noetig).
+  scrollPaneToPage(key, panePageId(key), false);
+  syncPaneChrome(key);
 }
 function renderAll() {
   applySplitLayout();
@@ -3821,10 +4375,49 @@ function bindSplitDivider() {
     try { ev.preventDefault(); } catch { /* ignore */ }
   });
 }
-window.addEventListener('resize', () => { if (openBook()) { renderCanvasFor(0); if (splitEnabled()) renderCanvasFor(1); } });
+/* Resize: Sichtbar-Hoehe neu bestimmen, Slot-Geometrie neu messen und alle
+ * gemounteten Seiten neu zeichnen (nicht nur die aktive – Nachbarseiten sind
+ * sichtbar und wachsen mit). */
+let flowResizeRaf = 0;
+function onViewportResize() {
+  if (flowResizeRaf) return;
+  const run = () => {
+    flowResizeRaf = 0;
+    if (!openBook()) return;
+    syncStageViewport();
+    [0, 1].forEach(i => {
+      if (i === 1 && !splitEnabled()) return;
+      const f = flowOf(i);
+      f.layout = null;
+      measureFlow(i);
+      // Aktive Seite mit den kanonischen IDs zuerst, dann der Rest.
+      promoteStageEl(stageForPageId(i, panePageId(i)), i);
+      f.mounted.forEach((el, pid) => {
+        const b = paneBook(i);
+        const pg = b && b.pages ? b.pages.find(p => p.id === pid) : null;
+        if (!pg) return;
+        renderPageCanvas(el, pg, pageDimsOf(pg, b && b.paper));
+        if (pid === panePageId(i)) applyPaperFor(i);
+      });
+      syncMountFor(i);
+    });
+    alignBookViewWindow();
+  };
+  flowResizeRaf = (typeof requestAnimationFrame === 'function') ? requestAnimationFrame(run) : 0;
+  if (!flowResizeRaf) run();
+}
+window.addEventListener('resize', onViewportResize);
+window.addEventListener('orientationchange', onViewportResize);
+/* Druck: der Scroller verliert seine Hoehenbegrenzung (siehe @media print),
+ * also muessen vorher ALLE Seiten gemountet werden – sonst kommen leere
+ * Seiten mit raus. */
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeprint', () => { try { setFlowMountAll(true); } catch { /* ignore */ } });
+  window.addEventListener('afterprint', () => { try { setFlowMountAll(false); } catch { /* ignore */ } });
+}
 bindStage();
 bindTapGestures();
-bindScrollNav();
+bindFlow();
 bindSplitDivider();
 if (typeof GrimoireStore !== 'undefined') {
   // Blob-URLs trudeln asynchron ein -> sichtbare Ebenen nachrendern
@@ -3853,6 +4446,18 @@ document.addEventListener('keydown', e => {
       if (!mod && !e.altKey && (e.key === 'l' || e.key === 'L')) { e.preventDefault(); setTool('laser'); return; }
       if (!mod && !e.altKey && (e.key === 'p' || e.key === 'P')) { e.preventDefault(); setTool('pen'); return; }
       if (e.key === 'Escape' && isLaserActive()) { e.preventDefault(); setTool('pen'); return; }
+      // Seiten-Navigation: Bild auf/ab blättert eine Seite, Pos1/Ende an den
+      // Rand. Der aeussere Guard schliesst Eingabefelder und Overlays aus.
+      if (!mod && !e.altKey) {
+        const b = openBook();
+        if (b && b.pages && b.pages.length) {
+          const ai = activePaneIdx();
+          if (e.key === 'PageDown') { e.preventDefault(); stepPanePage(ai, 1); return; }
+          if (e.key === 'PageUp') { e.preventDefault(); stepPanePage(ai, -1); return; }
+          if (e.key === 'Home') { e.preventDefault(); jumpToPageEdge(ai, 0); return; }
+          if (e.key === 'End') { e.preventDefault(); jumpToPageEdge(ai, b.pages.length - 1); return; }
+        }
+      }
     }
   } catch { /* Shortcuts optional */ }
 });
@@ -3880,7 +4485,7 @@ document.addEventListener('keydown', e => {
   try { pullFoldersFromMirror(); } catch { /* ignore */ }
   renderLibrary();
   restoreSplitFromState();
-  bindStage(); bindTapGestures(); bindScrollNav(); bindSplitDivider();
+  bindStage(); bindTapGestures(); bindFlow(); bindSplitDivider();
   try { applyStageTouchAction(); } catch { /* Eingabe-Prefs optional */ }
   if (state.openBookId && state.books.some(b => b.id === state.openBookId)) openBookView(state.openBookId, state.openPageId, 0);
   else if (state.books.length) openBookView(state.books[0].id, state.books[0].pages[0] && state.books[0].pages[0].id, 0);

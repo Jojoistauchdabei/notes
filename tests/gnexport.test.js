@@ -28,16 +28,36 @@ describe('gnexport', () => {
     assert.equal(zip[1], 0x4b); // 'K'
   });
 
-  it('ZIP enthält document.pb, notes/<uuid>/page1.pb, index.notes.pb (SPEC-34)', async () => {
+  it('ZIP im Real-Layout: notes/<uuid> flach, schema.pb, index.*.pb, search/* (ex1)', async () => {
     const zip = GoodNotes.exportGoodNotes(smallBook());
     const members = await GNZip.readZip(zip);
-    assert.ok(members['document.pb'], 'document.pb fehlt');
+    assert.ok(!members['document.pb'], 'document.pb darf nicht mehr da sein (Real hat keins)');
     assert.ok(members['index.notes.pb'], 'index.notes.pb fehlt');
-    const pageKeys = Object.keys(members).filter(k => k.startsWith('notes/') && k.endsWith('.pb'));
+    assert.ok(members['schema.pb'], 'schema.pb fehlt');
+    assert.deepEqual(Array.from(members['schema.pb']), [0x08, 0x18]);
+    assert.ok(members['index.search.pb'], 'index.search.pb fehlt');
+    assert.ok(members['document.info.pb'], 'document.info.pb fehlt');
+    assert.equal(members['document.info.pb'].length, 0);
+    const pageKeys = Object.keys(members).filter(k => k.startsWith('notes/'));
     assert.equal(pageKeys.length, 1);
-    const m = /^notes\/([0-9a-f-]{36})\/page1\.pb$/.exec(pageKeys[0]);
-    assert.ok(m, 'Pfad nicht SPEC-34-förmig: ' + pageKeys[0]);
+    const m = /^notes\/([0-9a-f-]{36})$/.exec(pageKeys[0]);
+    assert.ok(m, 'Pfad nicht Real-förmig (notes/<uuid>): ' + pageKeys[0]);
     assert.ok(members[pageKeys[0]].length > 0);
+    const searchKeys = Object.keys(members).filter(k => k.startsWith('search/'));
+    assert.equal(searchKeys.length, 1);
+    assert.equal(searchKeys[0], 'search/' + m[1]);
+  });
+
+  it('alter Export (notes/<uuid>/pageN.pb) bleibt importierbar', async () => {
+    const zip = GoodNotes.exportGoodNotes(smallBook());
+    const members = await GNZip.readZip(zip);
+    const pageKey = Object.keys(members).find(k => k.startsWith('notes/'));
+    const legacy = { ...members };
+    legacy['notes/legacy-uuid-1234-5678-90ab-cdef12345678/page1.pb'] = legacy[pageKey];
+    delete legacy[pageKey];
+    const doc = GoodNotes.parseDocument(legacy, 'fallback');
+    assert.equal(doc.pages.length, 1);
+    assert.equal(doc.pages[0].strokes.length, 1);
   });
 
   it('writeZip roundtrip (local headers + central directory)', async () => {

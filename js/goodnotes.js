@@ -1831,11 +1831,28 @@ var GoodNotes = (function () {
   function indexNotesPb(pages) {
     const entries = pages.map((p, i) => {
       const uuid = p.uuid || ('page' + i);
-      const path = p.path || ('notes/page' + (i + 1));
+      const path = p.path || ('notes/' + uuid);
       return wmsg([[1, 2, strToBytes(uuid)], [2, 2, strToBytes(path)]]);
     });
     return wdelimited(entries);
   }
+  // Echte GoodNotes-6-Dateien (tmp/ex1.goodnotes) nutzen flache notes/<uuid>-
+  // Pfade plus schema.pb (1:24), index.attachments.pb, index.search.pb und
+  // search/<seiten-uuid>. Ältere Federwerk-Exporte mit notes/<uuid>/pageN.pb
+  // bleiben importierbar (parseDocument scannt jedes notes/*).
+  function schemaPb() { return new Uint8Array([0x08, 0x18]); }
+  function indexAttachmentsPb(attUuids) {
+    return wdelimited(attUuids.map(u => wmsg([[1, 2, strToBytes(u)], [2, 2, strToBytes('attachments/' + u)]])));
+  }
+  function indexSearchPb(pageUuids) {
+    return wdelimited(pageUuids.map((u, i) => {
+      const parts = [[1, 2, strToBytes(u)], [2, 2, strToBytes('search/' + u)]];
+      if (i > 0) parts.push([3, 0, 1]);
+      else if (pageUuids.length > 1) { /* erste ohne Flag wie in ex1 */ }
+      return wmsg(parts);
+    }));
+  }
+  function emptySearchPb() { return new Uint8Array([0x04, 0x10, 0x01, 0x1a, 0x00]); }
   function indexEventsPb(title) {
     const inner = wmsg([[1, 2, strToBytes(title)], [1, 2, strToBytes('aaaaaaaa-0000-4000-8000-aaaaaaaa0001')]]);
     return wdelimited([wmsg([[30, 2, wmsg([[1, 2, inner]])]])]);
@@ -1863,7 +1880,9 @@ var GoodNotes = (function () {
     const pages = book.pages || [];
     const uuids = pages.map(() => uuid4());
     const files = [];
-    const pagePaths = pages.map((_, i) => 'notes/' + uuids[i] + '/page' + (i + 1) + '.pb');
+    // Flaches Real-Layout: notes/<uuid> (kein /pageN.pb-Suffix, vgl. ex1.goodnotes)
+    const pagePaths = pages.map((_, i) => 'notes/' + uuids[i]);
+    const attUuids = [];
 
     files.push(['index.notes.pb', indexNotesPb(pages.map((p, i) => ({ uuid: uuids[i], path: pagePaths[i] })))]);
 
@@ -1922,6 +1941,7 @@ var GoodNotes = (function () {
         const q = normToPt(im.x || 0, im.y || 0);
         recs.push(imageRecord(uuid4(), attUuid, q[0], q[1], iw, ih));
         files.push(['attachments/' + attUuid, data.bytes]);
+        attUuids.push(attUuid);
       }
 
       // Seiten-Hintergrund (Bild/PDF-Raster) als seitenfüllendes Bild (Contain)
@@ -1937,17 +1957,22 @@ var GoodNotes = (function () {
         }
         recs.push(imageRecord(uuid4(), attUuid, bx, by, bw, bh));
         files.push(['attachments/' + attUuid, bg.bytes]);
+        attUuids.push(attUuid);
       }
 
       if (recs.length) files.push([pagePaths[pi], wdelimited(recs)]);
+      // Minimaler Suchindex pro Seite (GoodNotes erwartet search/<uuid>)
+      files.push(['search/' + uuids[pi], emptySearchPb()]);
     }
 
     files.push(['index.events.pb', indexEventsPb(title)]);
-    files.push(['document.pb', documentPb(title, pages.length)]);
-    files.push(['document.info.pb', documentInfoPb(title)]);
+    // Real-Layout: document.info.pb ist leer, schema.pb = 1:24, kein document.pb
+    files.push(['document.info.pb', new Uint8Array(0)]);
+    files.push(['schema.pb', schemaPb()]);
+    if (attUuids.length) files.push(['index.attachments.pb', indexAttachmentsPb(attUuids)]);
+    files.push(['index.search.pb', indexSearchPb(uuids)]);
 
     files.push(['thumbnail.jpg', makeThumbnail()]);
-    files.push(['search/0', new Uint8Array(0)]);
     try {
       files.push(['federwerk.json', strToBytes(JSON.stringify(federwerkMeta(title, pages.length)))]);
     } catch { /* Metadaten optional – Export bleibt gültig */ }
@@ -2054,7 +2079,7 @@ var GoodNotes = (function () {
 
   return {
     parseDocument, mapPage, runsToHtml, exportGoodNotes, federwerkMeta,
-    _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9, writeZip, strokeRecord, textRecord, imageRecord, metaRecord, indexNotesPb, indexEventsPb, documentPb, documentInfoPb, parseHtmlToRuns, tplEncode, bv4n, lz4Literals, wvarint, wfield, wmsg, wdelimited, concatU8, stripHtml, crc32, makeThumbnail, uuid4, imageFileDims, dataUrlBytes, looksLikeUuid,
+    _internals: { decodeMessage, decodeDelimited, decodeTpl, decodeAppleLz4, extractPoints, parseStrokeField, parseImageElements, parseShapeRecord, parseTexts, parseCurves, geometryFromField9, writeZip, strokeRecord, textRecord, imageRecord, metaRecord, indexNotesPb, indexEventsPb, documentPb, documentInfoPb, schemaPb, indexAttachmentsPb, indexSearchPb, emptySearchPb, parseHtmlToRuns, tplEncode, bv4n, lz4Literals, wvarint, wfield, wmsg, wdelimited, concatU8, stripHtml, crc32, makeThumbnail, uuid4, imageFileDims, dataUrlBytes, looksLikeUuid,
       exportGeom: { PAGE_W, PAGE_H, EX_DPI, EX_IW, EX_IH, EX_SC, EX_OFFY, EX_WSC }, canvasToPt, normToPt, canvasSizeToPt, pageExportScale }
   };
 })();
