@@ -1,49 +1,279 @@
 #!/usr/bin/env node
 'use strict';
+/* Federwerk MCP-CLI: stdio- oder HTTP-Transport mit zwei Backends.
+ *
+ *  - Mit APPWRITE_API_KEY + APPWRITE_USER_ID: echte Cloud-Notizen (mcp/).
+ *  - Ohne: In-Memory-Demo mit VOLLEM Toolset (alle 21 Tools), damit eine KI
+ *    bzw. ein Mensch den Umgang (Notizen, Ordner, Decks, Suche, Graph) ohne
+ *    Cloud-Zugang üben kann. Der Demo-Stand verfällt beim Beenden.
+ */
 
 const http = require('node:http');
 const { createMcpHandler, runStdio } = require('./index');
+const C = require('./content');
 
-function createFallbackHandler() {
-  const mockNotes = [
-    { $id: 'demo-1', title: 'Willkommen bei Federwerk', content: 'Dies ist eine lokale Demo-Notiz.', updatedAt: new Date().toISOString() },
-  ];
-  const mockFolders = [
-    { $id: 'folder-1', name: 'Hauptordner', parentId: null },
-  ];
+function createDemoHandler() {
+  const docs = new Map(); // id -> {id,title,folderId,pages,kind,cards,deckOptions,reviewLog,updatedAt,deleted}
+  const folders = new Map(); // id -> {id,name,parentId}
+
+  const seed = {
+    id: 'demo-1', title: 'Willkommen bei Federwerk', folderId: null,
+    pages: C.contentToPages('Dies ist eine lokale Demo-Notiz.\n\n- [ ] Aufgabe ausprobieren\n- [x] MCP-Server starten', 'markdown'),
+    kind: 'notebook', cards: [], deckOptions: C.normalizeDeckOptions(null),
+    reviewLog: [], updatedAt: new Date().toISOString(), deleted: false,
+  };
+  docs.set(seed.id, seed);
+  folders.set('folder-1', { id: 'folder-1', name: 'Hauptordner', parentId: null });
+
+  const live = () => [...docs.values()].filter((d) => !d.deleted);
+  const getDoc = (id) => {
+    const d = docs.get(String(id));
+    if (!d || d.deleted) throw new Error('Document not found');
+    return d;
+  };
+  const getFolder = (id) => {
+    const f = folders.get(String(id));
+    if (!f) throw new Error('Folder not found');
+    return f;
+  };
+  const toDoc = (d) => {
+    const md = C.pagesToMarkdown(d.pages);
+    const out = {
+      id: d.id, title: d.title, folderId: d.folderId, kind: d.kind,
+      updatedAt: d.updatedAt, pages: d.pages.length,
+      markdown: md.slice(0, C.INLINE_MARKDOWN_MAX + 500), truncated: md.length > C.INLINE_MARKDOWN_MAX + 500,
+    };
+    if (d.kind === 'flashcards') {
+      out.cards = d.cards.slice(0, 200);
+      out.cardsTruncated = d.cards.length > 200;
+      out.cardsTotal = d.cards.length;
+      out.deckOptions = d.deckOptions;
+    }
+    return out;
+  };
+  const fullDocs = () => live().map((d) => ({ ...toDoc(d), markdown: C.pagesToMarkdown(d.pages) }));
 
   return createMcpHandler({
-    listDocuments: async (limit = 100) => mockNotes.slice(0, limit),
-    getDocument: async (id) => {
-      const note = mockNotes.find(n => n.$id === id);
-      if (!note) throw new Error('Document not found');
-      return note;
+    listDocuments: async (limit = 100, folderId = null, opts = {}) => {
+      const max = Math.min(Math.max(Number(limit) || 100, 1), 100);
+      const target = folderId || (opts && opts.folderId);
+      const kind = opts && opts.kind;
+      return live()
+        .filter((d) => (!target || d.folderId === target) && (!kind || d.kind === kind))
+        .slice(0, max).map(toDoc);
     },
-    listFolders: async () => mockFolders,
+    getDocument: async (id) => toDoc(getDoc(id)),
+    listFolders: async () => [...folders.values()],
     searchDocuments: async (query, limit = 100) => {
-      const q = String(query).toLowerCase();
-      return mockNotes.filter(n => n.title.toLowerCase().includes(q) || (n.content && n.content.toLowerCase().includes(q))).slice(0, limit);
+      const needle = String(query || '').trim().toLowerCase();
+      if (!needle) return [];
+      const max = Math.min(Math.max(Number(limit) || 100, 1), 100);
+      const out = [];
+      for (const d of live()) {
+        const hay = [d.title, C.pagesToMarkdown(d.pages),
+          ...d.cards.map((c) => `${C.stripTagsLite(c.front)} ${C.stripTagsLite(c.back)}`)].join('\n').toLowerCase();
+        if (hay.includes(needle)) {
+          out.push({ id: d.id, title: d.title, snippet: C.snippetFor(C.pagesToMarkdown(d.pages), [needle]), updatedAt: d.updatedAt });
+        }
+        if (out.length >= max) break;
+      }
+      return out;
+    },
+    advancedSearch: async (query, limit) => C.advancedSearchDocs(fullDocs(), String(query || ''), limit),
+    getGraph: async (id, depth) => {
+      const graph = C.buildGraph(fullDocs());
+      if (id) {
+        if (!graph.nodes.some((n) => n.id === id)) throw new Error('Document not found');
+        return C.localGraph(graph, id, depth == null ? 1 : depth);
+      }
+      return graph;
+    },
+    createDocument: async (input = {}) => {
+      C.checkTitle(input.title);
+      if (input.folderId) getFolder(String(input.folderId));
+      const kind = input.kind === 'flashcards' ? 'flashcards' : 'notebook';
+      const d = {
+        id: C.newId('n'), title: C.normTitle(input.title),
+        folderId: input.folderId ? String(input.folderId) : null,
+        pages: C.contentToPages(input.content || '', input.contentFormat || 'markdown'),
+        kind, cards: [], deckOptions: C.normalizeDeckOptions(null), reviewLog: [],
+        updatedAt: new Date().toISOString(), deleted: false,
+      };
+      docs.set(d.id, d);
+      return toDoc(d);
+    },
+    updateDocument: async (id, input = {}) => {
+      const d = getDoc(id);
+      if (input.title !== undefined) { C.checkTitle(input.title); d.title = C.normTitle(input.title); }
+      if (input.folderId !== undefined) {
+        const fid = String(input.folderId || '').trim();
+        if (fid) getFolder(fid);
+        d.folderId = fid || null;
+      }
+      if (input.content !== undefined) {
+        const pages = C.contentToPages(input.content || '', input.contentFormat || 'markdown');
+        if (input.append) {
+          const html = pages.length && pages[0].texts.length ? pages[0].texts[0].html : '<p></p>';
+          if (!d.pages.length) d.pages = [C.blankPage()];
+          const last = d.pages[d.pages.length - 1];
+          last.texts = Array.isArray(last.texts) ? last.texts : [];
+          last.texts.push({ id: C.newId('t'), x: 0.08, y: 0.05, html });
+        } else {
+          d.pages = pages;
+        }
+      }
+      d.updatedAt = new Date().toISOString();
+      return toDoc(d);
+    },
+    deleteDocument: async (id, input = {}) => {
+      const d = getDoc(id);
+      if (input && input.permanent) { docs.delete(d.id); return { id: d.id, deleted: true, permanent: true }; }
+      d.deleted = true; d.title = '(gelöscht)';
+      return { id: d.id, deleted: true, permanent: false };
+    },
+    duplicateDocument: async (id, input = {}) => {
+      const d = getDoc(id);
+      if (input && input.title !== undefined) C.checkTitle(input.title);
+      const copy = {
+        ...d, id: C.newId('n'),
+        title: input && input.title ? C.normTitle(input.title) : `${d.title} (Kopie)`,
+        pages: JSON.parse(JSON.stringify(d.pages)),
+        cards: d.cards.map((c) => ({ ...C.normalizeCard(c), id: C.newId('c') })),
+        updatedAt: new Date().toISOString(), deleted: false,
+      };
+      docs.set(copy.id, copy);
+      return toDoc(copy);
+    },
+    moveDocument: async (id, folderId) => {
+      const d = getDoc(id);
+      const fid = String(folderId || '').trim();
+      if (fid) getFolder(fid);
+      d.folderId = fid || null;
+      d.updatedAt = new Date().toISOString();
+      return toDoc(d);
+    },
+    createFolder: async (input = {}) => {
+      const name = String(input.name || '').trim().slice(0, 60);
+      if (!name) throw new Error('name ist erforderlich');
+      if (input.parentId) getFolder(String(input.parentId));
+      const f = { id: C.newId('f'), name, parentId: input.parentId ? String(input.parentId) : null };
+      folders.set(f.id, f);
+      return f;
+    },
+    renameFolder: async (id, name) => {
+      const f = getFolder(id);
+      const clean = String(name || '').trim().slice(0, 60);
+      if (!clean) throw new Error('name ist erforderlich');
+      f.name = clean;
+      return { ...f };
+    },
+    deleteFolder: async (id, input = {}) => {
+      getFolder(id);
+      const target = input && input.moveDocumentsTo ? String(input.moveDocumentsTo) : '';
+      if (target) getFolder(target);
+      let moved = 0;
+      for (const d of live()) {
+        if (d.folderId === id) { d.folderId = target || null; moved++; }
+      }
+      folders.delete(id);
+      return { id, deleted: true, documentsMoved: moved, moveDocumentsTo: target || null };
+    },
+    createDeck: async (input = {}) => {
+      C.checkTitle(input.title);
+      if (input.folderId) getFolder(String(input.folderId));
+      const cards = C.checkCards(input.cards || [], false);
+      const d = {
+        id: C.newId('n'), title: C.normTitle(input.title),
+        folderId: input.folderId ? String(input.folderId) : null,
+        pages: [C.blankPage()], kind: 'flashcards', cards,
+        deckOptions: C.normalizeDeckOptions(null), reviewLog: [],
+        updatedAt: new Date().toISOString(), deleted: false,
+      };
+      docs.set(d.id, d);
+      return toDoc(d);
+    },
+    listCards: async (deckId, filter, limit) => {
+      const d = getDoc(deckId);
+      if (d.kind !== 'flashcards') throw new Error('Document is not a deck');
+      const t = C.nowMs();
+      const max = Math.min(Math.max(Number(limit) || 100, 1), 100);
+      let list = d.cards;
+      if (filter === 'due') list = list.filter((c) => C.isDue(c, t));
+      else if (filter === 'new') list = list.filter((c) => !c.lastReview && !c.suspended);
+      return list.slice(0, max);
+    },
+    addCards: async (deckId, cards) => {
+      const fresh = C.checkCards(cards, true);
+      const d = getDoc(deckId);
+      if (d.kind !== 'flashcards') throw new Error('Document is not a deck');
+      d.cards.push(...fresh);
+      d.updatedAt = new Date().toISOString();
+      return fresh;
+    },
+    updateCard: async (deckId, cardId, input = {}) => {
+      const d = getDoc(deckId);
+      if (d.kind !== 'flashcards') throw new Error('Document is not a deck');
+      const card = d.cards.find((c) => c.id === cardId);
+      if (!card) throw new Error('Card not found');
+      if (input.front !== undefined) card.front = String(input.front);
+      if (input.back !== undefined) card.back = String(input.back);
+      if (input.suspended !== undefined) card.suspended = !!input.suspended;
+      card.updatedAt = C.nowMs();
+      C.normalizeCard(card);
+      d.updatedAt = new Date().toISOString();
+      return card;
+    },
+    deleteCard: async (deckId, cardId) => {
+      const d = getDoc(deckId);
+      if (d.kind !== 'flashcards') throw new Error('Document is not a deck');
+      const ix = d.cards.findIndex((c) => c.id === cardId);
+      if (ix < 0) throw new Error('Card not found');
+      d.cards.splice(ix, 1);
+      d.updatedAt = new Date().toISOString();
+      return { deckId, cardId, deleted: true };
+    },
+    reviewCard: async (deckId, cardId, grade) => {
+      const d = getDoc(deckId);
+      if (d.kind !== 'flashcards') throw new Error('Document is not a deck');
+      const card = d.cards.find((c) => c.id === cardId);
+      if (!card) throw new Error('Card not found');
+      if (!C.normalizeGrade(grade)) throw new Error('grade muss again|hard|good|easy sein');
+      C.gradeCardInPlace(card, grade);
+      d.reviewLog = C.normalizeReviewLog([...d.reviewLog, { t: C.nowMs(), g: C.normalizeGrade(grade), id: cardId }]);
+      d.updatedAt = new Date().toISOString();
+      return { card, preview: C.previewIntervals(card) };
+    },
+    deckStats: async (deckId) => {
+      const d = getDoc(deckId);
+      if (d.kind !== 'flashcards') throw new Error('Document is not a deck');
+      return { deckId, ...C.deckStats(d.cards, d.reviewLog) };
     },
   });
 }
 
-function getHandler() {
+async function getHandler() {
+  let M = null;
   try {
-    const { createAppwriteHandler, getConfig } = require('../mcp');
-    const config = getConfig();
-    if (config.apiKey && config.userId) {
-      return createAppwriteHandler(config);
-    }
+    M = require('../mcp');
   } catch {
-    // Fall back to demo handler if mcp module cannot connect
+    process.stderr.write('Federwerk MCP: Appwrite-Modul fehlt – Demo-Backend (flüchtig).\n');
+    return createDemoHandler();
   }
-  return createFallbackHandler();
+  const config = M.getConfig();
+  if (!config.apiKey && !config.session) {
+    process.stderr.write('Federwerk MCP: weder APPWRITE_API_KEY noch APPWRITE_SESSION – Demo-Backend (flüchtig).\n');
+    return createDemoHandler();
+  }
+  // Wirft bei ungültiger/abgelaufener Session (kein stiller Demo-Fallback!).
+  const userId = await M.resolveUserId(config);
+  process.stderr.write(`Federwerk MCP: Cloud-Backend als Nutzer ${userId} (${config.apiKey ? 'API-Key' : 'Session'}).\n`);
+  return M.createAppwriteHandler(M.withUser(config, userId));
 }
 
 async function main() {
   const args = process.argv.slice(2);
   const isHttp = args.includes('--http');
-  const handler = getHandler();
+  const handler = await getHandler();
 
   if (isHttp) {
     const portIndex = args.indexOf('--http') + 1;
@@ -99,4 +329,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main, getHandler };
+module.exports = { main, getHandler, createDemoHandler };

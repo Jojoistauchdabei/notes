@@ -1,5 +1,8 @@
 # Federwerk MCP Appwrite Function
 
+> Vollständige Doku (Setup, alle 21 Tools, Speicherformat, Troubleshooting):
+> [`docs/mcp.md`](../docs/mcp.md).
+
 This directory contains the Appwrite Function entry point for Federwerk's Model Context Protocol (MCP) server. It enables AI assistants (Claude, Cursor, Antigravity, etc.) to securely query notes, folders, and documents stored in Federwerk's Appwrite TablesDB.
 
 ## Architecture
@@ -7,12 +10,23 @@ This directory contains the Appwrite Function entry point for Federwerk's Model 
 - **`mcpserver/`**: Core MCP protocol logic (JSON-RPC 2.0, standard tool schema, stdio transport runner).
 - **`mcp/`**: Appwrite Function adapter (HTTP context handler, authentication, TablesDB REST client, file offload resolver).
 
-## Tools Provided
+## Tools Provided (21, lesend + schreibend)
 
-1. `list_documents`: Returns note documents for the authenticated user (supports `limit` and `folderId` filters; automatically filters out deleted tombstones).
-2. `get_document`: Retrieves a note by ID, automatically resolving offloaded storage content (>40 KB).
-3. `list_folders`: Returns the user's folder hierarchy.
-4. `search_documents`: Performs search across document titles and note content.
+Lesen: `list_documents` (mit `limit`, `folderId`, `kind`), `get_document`
+(inkl. Markdown und – bei Decks – Karten), `list_folders`,
+`search_documents` (Titel + Inhalt + Karten), `advanced_search`
+(Query-Sprache), `get_graph` (Wikilinks).
+
+Schreiben wie ein Mensch: `create_document`, `update_document`
+(`append:true`), `delete_document` (Tombstone / `permanent:true`),
+`duplicate_document`, `move_document`, `create_folder`, `rename_folder`,
+`delete_folder`, `create_deck`, `list_cards`, `add_cards`, `update_card`,
+`delete_card`, `review_card` (SM-2), `deck_stats`.
+
+Details + Speicherformat (v1/v2-Envelope, Offload, Limits):
+`mcpserver/README.md`. Ohne Credentials läuft `mcpserver/cli.js` mit einem
+In-Memory-Demo-Backend (volles Toolset, Stand verfällt beim Beenden) –
+gut zum Üben von Abläufen ohne Cloud.
 
 ## Setup & Deployment on Appwrite
 
@@ -24,6 +38,11 @@ This directory contains the Appwrite Function entry point for Federwerk's Model 
 
 ### 2. Configure Environment Variables
 
+Empfohlen (ohne API-Key): einmalig `node mcpserver/login.js --email DU@BEISPIEL.DE`
+(Passwort-Abfrage interaktiv), dann `APPWRITE_SESSION` übernehmen –
+`APPWRITE_USER_ID` wird aus der Session abgeleitet. Alternativ Key-Modus
+(`APPWRITE_API_KEY` + Pflicht-`APPWRITE_USER_ID`).
+
 Set the following environment variables in the Appwrite Console under **Function Settings > Variables**:
 
 | Variable | Description | Example / Default |
@@ -34,19 +53,23 @@ Set the following environment variables in the Appwrite Console under **Function
 | `APPWRITE_NOTES_TABLE_ID`| Table for notes | `notes` |
 | `APPWRITE_FOLDERS_TABLE_ID`| Table for folders | `folders` |
 | `APPWRITE_BUCKET_ID` | Storage bucket for attachments | `attachments` |
-| `APPWRITE_API_KEY` | Server API key (Database read permissions) | `<appwrite-secret-api-key>` |
-| `APPWRITE_USER_ID` | Appwrite User ID whose notes are served (mandatory scoping) | `<user-id>` |
+| `APPWRITE_SESSION` | User session secret from `node mcpserver/login.js` (recommended, no API key needed) | `<session-secret>` |
+| `APPWRITE_API_KEY` | Server API key (alternative to session) | `<appwrite-secret-api-key>` |
+| `APPWRITE_USER_ID` | Appwrite User ID (auto-resolved from session; mandatory with API key) | `<user-id>` |
 | `MCP_TOKEN` | Bearer token for client authentication | `<random-secret-token>` |
 
-> **Security Note**: Never expose `APPWRITE_API_KEY` or `MCP_TOKEN`. When `MCP_TOKEN` is configured, all requests require `Authorization: Bearer <MCP_TOKEN>` or `X-MCP-Token: <MCP_TOKEN>`.
+> **Security Note**: Never expose `APPWRITE_SESSION`, `APPWRITE_API_KEY` or
+> `MCP_TOKEN`. Session mode is inherently user-scoped; with API key mode set
+> **`APPWRITE_USER_ID`** – **without that scope, anyone holding `MCP_TOKEN`
+> can read every user's notes** (only safe for single-user deployments).
 
-> **Single-user scoping**: `APPWRITE_USER_ID` is mandatory – the Function only
-> ever serves this user's notes. The Cloudflare Worker (`worker.js`, routes
-> `POST /mcp/search|read|prompt`) has the same single static `MCP_TOKEN`
-> design, but reads with an admin API key: set **`MCP_USER_ID`** (or
-> `APPWRITE_USER_ID`) as Worker secret to scope search/read to one Appwrite
-> user. **Without that scope, anyone holding `MCP_TOKEN` can read every
-> user's notes** – only safe for single-user deployments.
+> **User scoping**: Im Session-Modus serviert die Function nur den
+> eingeloggten Nutzer (empfohlen). Im Key-Modus ist `APPWRITE_USER_ID`
+> Pflicht-Scope. Der Cloudflare Worker (`worker.js`, Routen
+> `POST /mcp/search|read|prompt`) hat dasselbe statische `MCP_TOKEN`-Design,
+> liest aber mit Admin-Key: dort `MCP_USER_ID` (oder `APPWRITE_USER_ID`) als
+> Worker-Secret setzen. **Ohne Scope liest jeder `MCP_TOKEN`-Inhaber alle
+> Notizen** – nur für Single-User-Deployments ok.
 
 ### 3. Deploy via Appwrite CLI
 

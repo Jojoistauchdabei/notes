@@ -15,7 +15,7 @@
  * Notizquelle: Export-JSON (Gesamt-Export {books} oder Einzelbuch {pages}).
  * Ohne --file antwortet die Suche mit leerer Trefferliste statt Fehler.
  * Token: --token oder automatisch generiert (wird beim Start ausgegeben).
- * Über curl: siehe MCP_CURL.md.
+ * Über curl: siehe docs/mcp.md (Kap. 3.4).
  */
 'use strict';
 
@@ -202,7 +202,7 @@ if (require.main === module) {
     console.log('  User:  ' + (USER || '(–)'));
     console.log('  Token: ' + TOKEN);
     console.log('  Datei: ' + (FILE || '(keine – leere Bibliothek)'));
-    console.log('Doku: MCP_CURL.md');
+    console.log('Doku: docs/mcp.md');
   });
 }
 

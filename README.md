@@ -64,6 +64,14 @@ npm test   # 46 Tests, inkl. GoodNotes-Konformanz (tests/)
 
 Läuft automatisch bei jedem Push/PR auf `main` (`.github/workflows/ci.yml`, Node 20 + 22).
 Live: https://notes.ponnet.org
+
+## MCP (KI-Zugang: lesen + schreiben)
+
+Federwerk hat einen echten MCP-Server (JSON-RPC 2.0, 21 Tools): Notizen
+anlegen/bearbeiten/löschen, Ordner verwalten, Karteikarten-Decks inkl.
+SM-2-Bewertung, Query-Suche und Wikilink-Graph – für Claude Desktop, Cursor,
+Opencode u. a. Lokal per `node mcpserver/cli.js` (stdio), in der Cloud als
+Appwrite Function (`mcp/`). Vollständige Doku: [`docs/mcp.md`](docs/mcp.md).
 Dekodierlogik portiert aus [parser-for-goodnotes](https://github.com/Kaih1825/parser-for-goodnotes) von Kaih1825 (MIT License, © 2025 Document Parser for GoodNotes contributors).
 
 Dekodierlogik portiert aus [parser-for-goodnotes](https://github.com/Kaih1825/parser-for-goodnotes) von Kaih1825 (MIT License, © 2025 Document Parser for GoodNotes contributors).

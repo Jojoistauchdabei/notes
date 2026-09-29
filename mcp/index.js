@@ -12,6 +12,21 @@ try {
   }
 }
 
+let C = null;
+try {
+  C = require('../mcpserver/content');
+} catch {
+  try {
+    C = require('./content');
+  } catch {
+    try {
+      C = require('@federwerk/mcpserver/content');
+    } catch {
+      throw new Error('MCP content helpers fehlen (mcpserver/content.js, siehe scripts/build-mcp.js)');
+    }
+  }
+}
+
 function getConfig() {
   return {
     endpoint: process.env.APPWRITE_ENDPOINT || 'https://fra.cloud.appwrite.io/v1',
@@ -21,6 +36,10 @@ function getConfig() {
     foldersTableId: process.env.APPWRITE_FOLDERS_TABLE_ID || 'folders',
     bucketId: process.env.APPWRITE_BUCKET_ID || 'attachments',
     apiKey: process.env.APPWRITE_API_KEY,
+    // Key-los: Benutzer-Session (Secret aus `node mcpserver/login.js`).
+    // Der Server handelt dann als dieser Nutzer – fremde Notizen sind
+    // prinzipbedingt unerreichbar (besser als Admin-Key + UserID-Filter).
+    session: process.env.APPWRITE_SESSION,
     userId: process.env.APPWRITE_USER_ID,
     token: process.env.MCP_TOKEN,
   };
@@ -44,12 +63,50 @@ function authValue(headers) {
 }
 
 function requireConfig(config, headers) {
-  if (!config.apiKey || !config.userId) {
-    throw new Error('APPWRITE_API_KEY and APPWRITE_USER_ID are required');
+  if (!config.apiKey && !config.session) {
+    throw new Error('APPWRITE_API_KEY oder APPWRITE_SESSION erforderlich (Session via `node mcpserver/login.js`, siehe docs/mcp.md)');
   }
   if (config.token && authValue(headers) !== config.token) {
     throw new Error('Unauthorized');
   }
+}
+
+// Auth-Header Richtung Appwrite: Admin-Key bevorzugt, sonst Benutzer-Session
+// (X-Appwrite-Session – wie die App selbst in js/appwrite-files.js).
+function authHeaders(config) {
+  const h = { 'X-Appwrite-Project': config.projectId };
+  if (config.apiKey) h['X-Appwrite-Key'] = config.apiKey;
+  else if (config.session) h['X-Appwrite-Session'] = config.session;
+  return h;
+}
+
+// UserID aus der Session auflösen (einmal pro Prozess cachen; Key-Modus
+// braucht weiterhin explizit APPWRITE_USER_ID als Scope).
+let cachedSessionUser = null;
+async function resolveUserId(config) {
+  if (config.userId) return config.userId;
+  if (!config.session) {
+    throw new Error('APPWRITE_USER_ID erforderlich (nur im Session-Modus automatisch)');
+  }
+  if (cachedSessionUser && cachedSessionUser.session === config.session) {
+    return cachedSessionUser.userId;
+  }
+  const res = await fetch(`${config.endpoint.replace(/\/$/, '')}/account`, {
+    headers: { ...authHeaders(config), 'X-Appwrite-Response-Format': '2.0.0' },
+  });
+  if (!res.ok) {
+    const err = new Error('Session ungültig oder abgelaufen – bitte neu einloggen (`node mcpserver/login.js`)');
+    err.status = res.status;
+    throw err;
+  }
+  const me = await res.json().catch(() => ({}));
+  if (!me || !me.$id) throw new Error('Session ungültig – bitte neu einloggen (`node mcpserver/login.js`)');
+  cachedSessionUser = { session: config.session, userId: me.$id };
+  return me.$id;
+}
+
+function withUser(config, userId) {
+  return Object.assign({}, config, { userId });
 }
 
 function query(method, values, attribute) {
@@ -64,8 +121,7 @@ async function appwriteRequest(config, path, queries = [], method = 'GET', bodyD
   const url = new URL(config.endpoint.replace(/\/$/, '') + path);
   queries.forEach((value, index) => url.searchParams.set(`queries[${index}]`, value));
   const headers = {
-    'X-Appwrite-Project': config.projectId,
-    'X-Appwrite-Key': config.apiKey,
+    ...authHeaders(config),
     'X-Appwrite-Response-Format': '2.0.0',
     'Content-Type': 'application/json',
   };
@@ -139,10 +195,7 @@ async function resolveNoteContent(config, row) {
       const bucketId = config.bucketId || 'attachments';
       const fileUrl = `${config.endpoint.replace(/\/$/, '')}/storage/buckets/${encodeURIComponent(bucketId)}/files/${encodeURIComponent(row.contentFileId)}/download`;
       const res = await fetch(fileUrl, {
-        headers: {
-          'X-Appwrite-Project': config.projectId,
-          'X-Appwrite-Key': config.apiKey,
-        },
+        headers: authHeaders(config),
       });
       if (res.ok) {
         row.content = await res.text();
@@ -160,6 +213,125 @@ function isLiveRow(row) {
   if (row.deleted === true || row.deleted === 1) return false;
   if (row.title === '(gelöscht)') return false;
   return true;
+}
+
+function userPerms(userId) {
+  return [`read("user:${userId}")`, `update("user:${userId}")`, `delete("user:${userId}")`];
+}
+
+function rowsPath(config, tableId) {
+  return `/tablesdb/${encodeURIComponent(config.databaseId)}/tables/${encodeURIComponent(tableId)}/rows`;
+}
+
+// POST mit rowId+Permissions, bei 409 (existiert) PUT – wie js/appwrite-sync.js upsertRow.
+async function upsertRow(config, tableId, rowId, data) {
+  const perms = userPerms(config.userId);
+  try {
+    return await appwriteRequest(config, rowsPath(config, tableId), [], 'POST',
+      { rowId, data, permissions: perms });
+  } catch (err) {
+    if (err && err.status === 409) {
+      return await appwriteRequest(config, `${rowsPath(config, tableId)}/${encodeURIComponent(rowId)}`, [], 'PUT', { data });
+    }
+    throw err;
+  }
+}
+
+async function patchRow(config, tableId, rowId, data) {
+  return await appwriteRequest(config, `${rowsPath(config, tableId)}/${encodeURIComponent(rowId)}`, [], 'PUT', { data });
+}
+
+async function deleteRow(config, tableId, rowId) {
+  return await appwriteRequest(config, `${rowsPath(config, tableId)}/${encodeURIComponent(rowId)}`, [], 'DELETE');
+}
+
+// Content > OFFLOAD_BYTES wandert als JSON-Datei in den Bucket (Dedupe via
+// fester Datei-ID aus SHA-256, 409 = existiert schon) – wie js/appwrite-sync.js.
+async function sha256HexWeb(bytes) {
+  const c = (typeof crypto !== 'undefined' && crypto.subtle)
+    || (typeof require === 'function' && require('crypto').webcrypto.subtle);
+  if (!c) throw new Error('kein subtle crypto');
+  const d = await c.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function uploadOffloaded(config, jsonBytes) {
+  const hash = await sha256HexWeb(jsonBytes);
+  const fileId = 'fw' + hash.slice(0, 32);
+  const form = new FormData();
+  form.append('fileId', fileId);
+  form.append('file', new Blob([jsonBytes], { type: 'application/json' }), `${fileId}.json`);
+  const url = `${config.endpoint.replace(/\/$/, '')}/storage/buckets/${encodeURIComponent(config.bucketId || 'attachments')}/files`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: authHeaders(config),
+    body: form,
+  });
+  if (!res.ok && res.status !== 409) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`Bucket-Upload ${res.status}: ${t.slice(0, 200)}`);
+  }
+  return fileId;
+}
+
+async function splitContent(config, contentStr) {
+  const bytes = new TextEncoder().encode(contentStr);
+  if (bytes.length > C.OFFLOAD_BYTES) {
+    const fileId = await uploadOffloaded(config, bytes);
+    return { content: '', contentFileId: fileId };
+  }
+  return { content: contentStr, contentFileId: null };
+}
+
+// Row laden + Offload auflösen + Envelope dekodieren -> Arbeitskopie für Writes.
+async function loadDocParts(config, id) {
+  const row = await fetchTableRow(config, config.notesTableId, id);
+  if (!row || row.userId !== config.userId) throw new Error('Document not found');
+  if (!isLiveRow(row)) throw new Error('Document has been deleted');
+  await resolveNoteContent(config, row);
+  const dec = C.decodeContent(row.content || '');
+  return {
+    row,
+    parts: {
+      title: row.title || '',
+      folderId: row.folderId || null,
+      pages: dec.pages,
+      kind: dec.kind,
+      cards: dec.cards.map((c) => C.normalizeCard(c)),
+      deckOptions: C.normalizeDeckOptions(dec.deckOptions),
+      reviewLog: C.normalizeReviewLog(dec.reviewLog),
+      createdAt: row.createdAt || row.$createdAt || null,
+      contentFileId: row.contentFileId || null,
+    },
+  };
+}
+
+async function saveDocParts(config, rowId, parts) {
+  const built = C.rowDataFromDocParts(parts, config.userId, {
+    title: parts.title, folderId: parts.folderId,
+    pages: parts.pages, kind: parts.kind, cards: parts.cards,
+    deckOptions: parts.deckOptions, reviewLog: parts.reviewLog,
+    createdAt: parts.createdAt, contentFileId: parts.contentFileId,
+  });
+  C.checkContentBytes(built.content);
+  const split = await splitContent(config, built.content);
+  const data = { ...built.data, content: split.content, contentFileId: split.contentFileId };
+  const saved = await upsertRow(config, config.notesTableId, rowId, data);
+  return saved && (saved.$id || saved.id) ? saved : { $id: rowId, ...data };
+}
+
+async function ensureFolder(config, folderId) {
+  if (!folderId) return null;
+  const fid = String(folderId);
+  if (!fid.trim()) return null;
+  const all = await rows(config, config.foldersTableId);
+  const hit = all.find((f) => (f.$id || f.id) === fid && isLiveRow(f));
+  if (!hit) throw new Error('Folder not found');
+  return hit;
+}
+
+function folderRowFor(config, f) {
+  return { userId: config.userId, name: f.name, parentId: f.parentId || null };
 }
 
 async function rows(config, tableId, additionalQueries = []) {
@@ -184,26 +356,45 @@ async function rows(config, tableId, additionalQueries = []) {
 }
 
 function createAppwriteHandler(config) {
+  // Alle Docs (mit Inhalt) für Suche/Graph – paginiert, max 2000.
+  async function allDocs() {
+    const all = await rows(config, config.notesTableId);
+    const docs = [];
+    for (const row of all.filter(isLiveRow)) {
+      try {
+        await resolveNoteContent(config, row);
+        const d = C.docFromRow(row);
+        d.markdown = (d.markdown || '').slice(0, 20000);
+        docs.push(d);
+      } catch { /* unlesbare Row überspringen */ }
+    }
+    return docs;
+  }
+
   return createMcpHandler({
     listDocuments: async (limit = 100, folderId = null, opts = {}) => {
       const max = Math.min(Math.max(Number(limit) || 100, 1), 100);
       const targetFolder = folderId || (opts && opts.folderId);
+      const kind = opts && opts.kind;
       const extra = [query('orderAsc', [], 'updatedAt')];
       if (targetFolder) {
         extra.push(query('equal', [targetFolder], 'folderId'));
       }
       const all = await rows(config, config.notesTableId, extra);
-      return all.filter(isLiveRow).slice(0, max);
+      let live = all.filter(isLiveRow);
+      if (kind === 'notebook' || kind === 'flashcards') {
+        live = live.filter((r) => {
+          const dec = C.decodeContent(r.content || '');
+          const k = dec.kind || 'notebook';
+          return k === kind;
+        });
+      }
+      return live.slice(0, max);
     },
     getDocument: async (id) => {
-      const row = await fetchTableRow(config, config.notesTableId, id);
-      if (!row || row.userId !== config.userId) {
-        throw new Error('Document not found');
-      }
-      if (!isLiveRow(row)) {
-        throw new Error('Document has been deleted');
-      }
-      return await resolveNoteContent(config, row);
+      const { row } = await loadDocParts(config, id);
+      // Volle Karten nur hier (list/search bleiben schlank).
+      return C.docFromRow({ ...row }, { cardsLimit: 200 });
     },
     listFolders: async () => {
       const all = await rows(config, config.foldersTableId, [query('orderAsc', [], '$updatedAt')]);
@@ -214,12 +405,230 @@ function createAppwriteHandler(config) {
       if (!needle) return [];
       const max = Math.min(Math.max(Number(limit) || 100, 1), 100);
       const all = await rows(config, config.notesTableId);
-      return all
-        .filter(row => isLiveRow(row) && (
-          String(row.title || '').toLowerCase().includes(needle) ||
-          String(row.content || '').toLowerCase().includes(needle)
-        ))
-        .slice(0, max);
+      const out = [];
+      for (const row of all) {
+        if (!isLiveRow(row)) continue;
+        const dec = C.decodeContent(row.content || '');
+        const md = C.pagesToMarkdown(dec.pages);
+        const hay = [
+          String(row.title || ''),
+          md,
+          ...dec.cards.map((c) => `${C.stripTagsLite(c.front)} ${C.stripTagsLite(c.back)}`),
+        ].join('\n').toLowerCase();
+        if (hay.includes(needle)) {
+          out.push({
+            id: row.$id || row.id,
+            title: row.title || 'Unbenannt',
+            snippet: C.snippetFor(md.replace(/\s+/g, ' ') || String(row.title || ''), [needle]),
+            updatedAt: row.updatedAt || row.$updatedAt || null,
+          });
+        }
+        if (out.length >= max) break;
+      }
+      return out;
+    },
+    advancedSearch: async (text, limit = 100) => {
+      const q = String(text || '').trim();
+      if (!q) return [];
+      return C.advancedSearchDocs(await allDocs(), q, limit);
+    },
+    getGraph: async (id, depth) => {
+      const graph = C.buildGraph(await allDocs());
+      if (id) {
+        if (!graph.nodes.some((n) => n.id === id)) throw new Error('Document not found');
+        return C.localGraph(graph, id, depth == null ? 1 : depth);
+      }
+      return graph;
+    },
+    createDocument: async (input = {}) => {
+      C.checkTitle(input.title);
+      await ensureFolder(config, input.folderId);
+      const kind = input.kind === 'flashcards' ? 'flashcards' : 'notebook';
+      const pages = C.contentToPages(input.content || '', input.contentFormat || 'markdown');
+      const rowId = C.rowIdFor(C.newId('n'), 'b');
+      await saveDocParts(config, rowId, {
+        title: C.normTitle(input.title),
+        folderId: input.folderId ? String(input.folderId) : null,
+        pages, kind,
+        cards: kind === 'flashcards' ? [] : [],
+        deckOptions: C.normalizeDeckOptions(null),
+        reviewLog: [],
+      });
+      const { row } = await loadDocParts(config, rowId);
+      return C.docFromRow(row);
+    },
+    updateDocument: async (id, input = {}) => {
+      const { parts } = await loadDocParts(config, id);
+      if (input.title !== undefined) {
+        C.checkTitle(input.title);
+        parts.title = C.normTitle(input.title);
+      }
+      if (input.folderId !== undefined) {
+        const fid = String(input.folderId || '').trim();
+        await ensureFolder(config, fid || null);
+        parts.folderId = fid || null;
+      }
+      if (input.content !== undefined) {
+        const pages = C.contentToPages(input.content || '', input.contentFormat || 'markdown');
+        if (input.append) {
+          const html = pages.length && pages[0].texts.length ? pages[0].texts[0].html : '';
+          if (!parts.pages.length) parts.pages = [C.blankPage()];
+          const last = parts.pages[parts.pages.length - 1];
+          last.texts = Array.isArray(last.texts) ? last.texts : [];
+          last.texts.push({ id: C.newId('t'), x: 0.08, y: 0.05, html: html || '<p></p>' });
+        } else {
+          parts.pages = pages;
+        }
+      }
+      await saveDocParts(config, id, parts);
+      const { row } = await loadDocParts(config, id);
+      return C.docFromRow(row);
+    },
+    deleteDocument: async (id, input = {}) => {
+      await loadDocParts(config, id); // Existenz-Check (404 bei fremd/gelöscht)
+      if (input && input.permanent) {
+        await deleteRow(config, config.notesTableId, id);
+        return { id, deleted: true, permanent: true };
+      }
+      const t = C.nowIso();
+      await patchRow(config, config.notesTableId, id, {
+        title: '(gelöscht)', content: '', contentFileId: null, folderId: null,
+        updatedAt: t, deletedAt: t,
+      });
+      return { id, deleted: true, permanent: false };
+    },
+    duplicateDocument: async (id, input = {}) => {
+      const { parts } = await loadDocParts(config, id);
+      if (input && input.title !== undefined) C.checkTitle(input.title);
+      const rowId = C.rowIdFor(C.newId('n'), 'b');
+      const title = input && input.title ? C.normTitle(input.title) : `${parts.title} (Kopie)`;
+      const fresh = {
+        ...parts,
+        title,
+        createdAt: null,
+        // Karten-IDs neu vergeben (sonst kollidieren Review-Zuordnungen).
+        cards: parts.cards.map((c) => ({ ...C.normalizeCard(c), id: C.newId('c') })),
+      };
+      await saveDocParts(config, rowId, fresh);
+      const { row } = await loadDocParts(config, rowId);
+      return C.docFromRow(row);
+    },
+    moveDocument: async (id, folderId) => {
+      const { parts } = await loadDocParts(config, id);
+      const fid = String(folderId || '').trim();
+      await ensureFolder(config, fid || null);
+      parts.folderId = fid || null;
+      await saveDocParts(config, id, parts);
+      const { row } = await loadDocParts(config, id);
+      return C.docFromRow(row);
+    },
+    createFolder: async (input = {}) => {
+      const name = String(input.name || '').trim().slice(0, 60);
+      if (!name) throw new Error('name ist erforderlich');
+      if (input.parentId) await ensureFolder(config, String(input.parentId));
+      const id = C.rowIdFor(C.newId('f'), 'f');
+      await upsertRow(config, config.foldersTableId, id,
+        folderRowFor(config, { name, parentId: input.parentId ? String(input.parentId) : null }));
+      return { id, name, parentId: input.parentId ? String(input.parentId) : null };
+    },
+    renameFolder: async (id, name) => {
+      const clean = String(name || '').trim().slice(0, 60);
+      if (!clean) throw new Error('name ist erforderlich');
+      const all = await rows(config, config.foldersTableId);
+      const hit = all.find((f) => (f.$id || f.id) === id);
+      if (!hit || !isLiveRow(hit)) throw new Error('Folder not found');
+      await patchRow(config, config.foldersTableId, id, { name: clean });
+      return { id, name: clean, parentId: hit.parentId || null };
+    },
+    deleteFolder: async (id, input = {}) => {
+      const all = await rows(config, config.foldersTableId);
+      const hit = all.find((f) => (f.$id || f.id) === id);
+      if (!hit || !isLiveRow(hit)) throw new Error('Folder not found');
+      const target = input && input.moveDocumentsTo ? String(input.moveDocumentsTo) : '';
+      if (target) await ensureFolder(config, target);
+      const docs = await rows(config, config.notesTableId, [query('equal', [id], 'folderId')]);
+      let moved = 0;
+      for (const r of docs.filter(isLiveRow).slice(0, 100)) {
+        await patchRow(config, config.notesTableId, r.$id || r.id,
+          { folderId: target || null, updatedAt: C.nowIso() });
+        moved++;
+      }
+      await deleteRow(config, config.foldersTableId, id);
+      return { id, deleted: true, documentsMoved: moved, moveDocumentsTo: target || null };
+    },
+    createDeck: async (input = {}) => {
+      C.checkTitle(input.title);
+      await ensureFolder(config, input.folderId);
+      const cards = C.checkCards(input.cards || [], false);
+      const rowId = C.rowIdFor(C.newId('n'), 'b');
+      await saveDocParts(config, rowId, {
+        title: C.normTitle(input.title),
+        folderId: input.folderId ? String(input.folderId) : null,
+        pages: [C.blankPage()],
+        kind: 'flashcards',
+        cards,
+        deckOptions: C.normalizeDeckOptions(null),
+        reviewLog: [],
+      });
+      const { row } = await loadDocParts(config, rowId);
+      return C.docFromRow(row, { cardsLimit: 200 });
+    },
+    listCards: async (deckId, filter, limit) => {
+      const { parts } = await loadDocParts(config, deckId);
+      if (parts.kind !== 'flashcards') throw new Error('Document is not a deck');
+      const t = C.nowMs();
+      const max = Math.min(Math.max(Number(limit) || 100, 1), 100);
+      let list = parts.cards;
+      if (filter === 'due') list = list.filter((c) => C.isDue(c, t));
+      else if (filter === 'new') list = list.filter((c) => !c.lastReview && !c.suspended);
+      return list.slice(0, max);
+    },
+    addCards: async (deckId, cards) => {
+      const fresh = C.checkCards(cards, true);
+      const { parts } = await loadDocParts(config, deckId);
+      if (parts.kind !== 'flashcards') throw new Error('Document is not a deck');
+      parts.cards.push(...fresh);
+      await saveDocParts(config, deckId, parts);
+      return fresh;
+    },
+    updateCard: async (deckId, cardId, input = {}) => {
+      const { parts } = await loadDocParts(config, deckId);
+      if (parts.kind !== 'flashcards') throw new Error('Document is not a deck');
+      const card = parts.cards.find((c) => c.id === cardId);
+      if (!card) throw new Error('Card not found');
+      if (input.front !== undefined) card.front = String(input.front);
+      if (input.back !== undefined) card.back = String(input.back);
+      if (input.suspended !== undefined) card.suspended = !!input.suspended;
+      card.updatedAt = C.nowMs();
+      C.normalizeCard(card);
+      await saveDocParts(config, deckId, parts);
+      return card;
+    },
+    deleteCard: async (deckId, cardId) => {
+      const { parts } = await loadDocParts(config, deckId);
+      if (parts.kind !== 'flashcards') throw new Error('Document is not a deck');
+      const ix = parts.cards.findIndex((c) => c.id === cardId);
+      if (ix < 0) throw new Error('Card not found');
+      parts.cards.splice(ix, 1);
+      await saveDocParts(config, deckId, parts);
+      return { deckId, cardId, deleted: true };
+    },
+    reviewCard: async (deckId, cardId, grade) => {
+      const { parts } = await loadDocParts(config, deckId);
+      if (parts.kind !== 'flashcards') throw new Error('Document is not a deck');
+      const card = parts.cards.find((c) => c.id === cardId);
+      if (!card) throw new Error('Card not found');
+      const { normalizeGrade } = C;
+      if (!normalizeGrade(grade)) throw new Error('grade muss again|hard|good|easy sein');
+      C.gradeCardInPlace(card, grade);
+      parts.reviewLog = C.normalizeReviewLog([...parts.reviewLog, { t: C.nowMs(), g: normalizeGrade(grade), id: cardId }]);
+      await saveDocParts(config, deckId, parts);
+      return { card, preview: C.previewIntervals(card) };
+    },
+    deckStats: async (deckId) => {
+      const { parts } = await loadDocParts(config, deckId);
+      if (parts.kind !== 'flashcards') throw new Error('Document is not a deck');
+      return { deckId, ...C.deckStats(parts.cards, parts.reviewLog) };
     },
   });
 }
@@ -295,7 +704,8 @@ async function main(context = {}, resArg) {
 
   try {
     requireConfig(config, req && req.headers);
-    const handler = createAppwriteHandler(config);
+    const userId = await resolveUserId(config);
+    const handler = createAppwriteHandler(withUser(config, userId));
     const result = await handler(parseBody(req));
     if (result === null || result === undefined) return safeRes.empty();
     return safeRes.json(result);
@@ -315,6 +725,10 @@ main.main = main;
 main.getConfig = getConfig;
 main.createAppwriteHandler = createAppwriteHandler;
 main.requireConfig = requireConfig;
+main.authHeaders = authHeaders;
+main.resolveUserId = resolveUserId;
+main.withUser = withUser;
+main._resetSessionCache = () => { cachedSessionUser = null; };
 main.parseBody = parseBody;
 main.authValue = authValue;
 

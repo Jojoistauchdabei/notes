@@ -80,7 +80,7 @@ describe('mcp/appwrite-function', () => {
     assert.equal(res.body.error.message, 'Unauthorized');
   });
 
-  it('erfordert APPWRITE_API_KEY und APPWRITE_USER_ID', async () => {
+  it('erfordert APPWRITE_API_KEY oder APPWRITE_SESSION', async () => {
     delete process.env.APPWRITE_API_KEY;
     const res = createMockRes();
     await mcpFunction({
@@ -94,7 +94,51 @@ describe('mcp/appwrite-function', () => {
     });
     assert.equal(res.status, 500);
     assert.equal(res.body.error.code, -32000);
-    assert.match(res.body.error.message, /APPWRITE_API_KEY/);
+    assert.match(res.body.error.message, /APPWRITE_SESSION/);
+  });
+
+  it('akzeptiert Session statt API-Key (Header-Auswahl)', () => {
+    const withKey = mcpFunction.authHeaders({ projectId: 'p', apiKey: 'k', session: 's' });
+    assert.equal(withKey['X-Appwrite-Key'], 'k');
+    assert.equal(withKey['X-Appwrite-Session'], undefined);
+    const withSession = mcpFunction.authHeaders({ projectId: 'p', session: 's' });
+    assert.equal(withSession['X-Appwrite-Session'], 's');
+    assert.equal(withSession['X-Appwrite-Key'], undefined);
+  });
+
+  it('löst die User-ID aus der Session auf (einmalig, dann Cache)', async () => {
+    mcpFunction._resetSessionCache();
+    const realFetch = global.fetch;
+    let calls = 0;
+    global.fetch = async () => {
+      calls++;
+      return { ok: true, json: async () => ({ $id: 'user-xyz' }) };
+    };
+    try {
+      const cfg = { endpoint: 'https://x/v1', projectId: 'p', session: 'sess-1' };
+      assert.equal(await mcpFunction.resolveUserId(cfg), 'user-xyz');
+      assert.equal(await mcpFunction.resolveUserId(cfg), 'user-xyz');
+      assert.equal(calls, 1);
+      assert.deepEqual(mcpFunction.withUser(cfg, 'user-xyz').userId, 'user-xyz');
+    } finally {
+      global.fetch = realFetch;
+      mcpFunction._resetSessionCache();
+    }
+  });
+
+  it('meldet abgelaufene Sessions verständlich', async () => {
+    mcpFunction._resetSessionCache();
+    const realFetch = global.fetch;
+    global.fetch = async () => ({ ok: false, status: 401 });
+    try {
+      await assert.rejects(
+        mcpFunction.resolveUserId({ endpoint: 'https://x/v1', projectId: 'p', session: 'alt' }),
+        /neu einloggen/,
+      );
+    } finally {
+      global.fetch = realFetch;
+      mcpFunction._resetSessionCache();
+    }
   });
 
   it('parst Body im String- oder JSON-Format', () => {

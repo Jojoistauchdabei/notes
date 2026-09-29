@@ -18,6 +18,8 @@
  * Appwrite-userId gefiltert (Query + Nachfilter + Einzel-Check, fremde Rows
  * -> 404). Ohne dieses Scoping ist der Worker nur für Einzelnutzer sicher.
  *
+ * Doku (beide MCP-Zugänge, Tools, Speicherformat): docs/mcp.md.
+ *
  * Lokal testen: npx wrangler dev --test-scheduled? Nein: `wrangler dev`
  * und curl gegen http://localhost:8787/mcp/health.
  */
@@ -260,7 +262,7 @@ async function handleMcp(request, env) {
   }
   const aw = appwriteCfg(env);
   if (!aw) {
-    return json({ error: 'Keine Notizquelle konfiguriert – lokalen Server nutzen: node mcp-server.js --file grimoire-export.json (siehe MCP_CURL.md)' }, 503, env);
+    return json({ error: 'Keine Notizquelle konfiguriert – lokalen Server nutzen: node mcp-server.js --file grimoire-export.json (siehe docs/mcp.md)' }, 503, env);
   }
 
   if (path === '/mcp/search' && method === 'POST') {

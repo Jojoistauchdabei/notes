@@ -10,6 +10,7 @@
   },
   "scripts": {
     "start": "node cli.js",
-    "start:http": "node cli.js --http"
+    "start:http": "node cli.js --http",
+    "login": "node login.js"
   }
 }

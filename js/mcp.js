@@ -12,7 +12,7 @@
  *   DOM-frei und in Node testbar. Browser-Glue speichert die lokale
  *   MCP-Konfiguration ({user, pass, token}) in localStorage – das ist
  *   Komfortschutz für ein Single-User-Gerät, kein Ersatz für Server-Secrets
- *   (Worker: MCP_TOKEN als Secret, siehe MCP_CURL.md).
+ *   (Worker: MCP_TOKEN als Secret, siehe docs/mcp.md).
  */
 (function () {
   'use strict';

@@ -17,6 +17,8 @@ describe('appwrite-sync/datei', () => {
     for (const k of ['msToIso', 'isoToMs', 'rowIdForBook', 'isAwFileRef',
       'hashFromAwRef', 'rewriteRefs', 'bookContentJson', 'parseContentJson',
       'folderHash', 'planRows', 'makeConflictTitle', 'rowToNoteMeta',
+      'isDeckBook', 'bookEnvelope', 'parseEnvelope', 'applyEnvelopeToBook',
+      'hashableBook', 'normDeckCards', 'normDeckOptions', 'normReviewLog',
       'syncNow', 'syncFolders', 'startRealtime', 'stopRealtime', 'rtChannels']) {
       assert.equal(typeof S[k], 'function', k);
     }
@@ -76,6 +78,58 @@ describe('appwrite-sync/refs', () => {
     const j = S.bookContentJson({ pages });
     assert.deepEqual(S.parseContentJson(j), pages);
     assert.equal(S.parseContentJson('müll'), null);
+  });
+  it('notebook bleibt v1 (kompakt, abwärtskompatibel)', () => {
+    const j = S.bookContentJson({ title: 'N', pages });
+    assert.deepEqual(JSON.parse(j), { v: 1, pages });
+  });
+  it('deck reist als v2-Envelope mit Karten', () => {
+    const book = {
+      title: 'Deck', kind: 'flashcards', pages,
+      cards: [{ id: 'c1', front: 'F', back: 'B' }],
+      deckOptions: { newPerDay: 5, maxReviewsPerDay: 50 },
+      reviewLog: [{ t: 1700000000000, g: 'good', id: 'c1' }],
+    };
+    const env = S.parseEnvelope(S.bookContentJson(book));
+    assert.equal(env.kind, 'flashcards');
+    assert.deepEqual(env.pages, pages);
+    assert.equal(env.cards.length, 1);
+    assert.equal(env.cards[0].front, 'F');
+    assert.deepEqual(env.deckOptions, { newPerDay: 5, maxReviewsPerDay: 50 });
+    assert.deepEqual(env.reviewLog, [{ t: 1700000000000, g: 'good', id: 'c1' }]);
+    // parseContentJson liefert weiter nur Seiten (Bestands-API)
+    assert.deepEqual(S.parseContentJson(S.bookContentJson(book)), pages);
+  });
+  it('parseEnvelope heilt v1/Altbestand/Müll tolerant', () => {
+    const v1 = S.parseEnvelope(JSON.stringify({ v: 1, pages }));
+    assert.equal(v1.kind, 'notebook');
+    assert.deepEqual(v1.pages, pages);
+    assert.deepEqual(v1.cards, []);
+    const bad = S.parseEnvelope('müll');
+    assert.equal(bad.pages, null);
+    assert.equal(bad.kind, 'notebook');
+    const legacyDeck = S.parseEnvelope(JSON.stringify({ v: 1, pages, kind: 'deck' }));
+    assert.equal(legacyDeck.kind, 'flashcards');
+  });
+  it('applyEnvelopeToBook übernimmt Decks, löscht Karten nie still', () => {
+    const b = { title: 'X', kind: 'notebook', pages };
+    S.applyEnvelopeToBook(b, S.parseEnvelope(S.bookContentJson({
+      kind: 'flashcards', pages, cards: [{ front: 'a', back: 'b' }],
+    })));
+    assert.equal(b.kind, 'flashcards');
+    assert.equal(b.cards.length, 1);
+    assert.equal(b.deckOptions.newPerDay, 20);
+    // Notebook-Envelope fasst lokale Karten nicht an (nur kind kippt)
+    S.applyEnvelopeToBook(b, S.parseEnvelope(JSON.stringify({ v: 1, pages })));
+    assert.equal(b.kind, 'notebook');
+    assert.equal(b.cards.length, 1);
+  });
+  it('hashableBook unterscheidet Kartenstände', () => {
+    const h1 = JSON.stringify(S.hashableBook({ title: 'D', kind: 'flashcards', pages, cards: [{ front: 'a', back: 'b' }] }));
+    const h2 = JSON.stringify(S.hashableBook({ title: 'D', kind: 'flashcards', pages, cards: [{ front: 'a', back: 'c' }] }));
+    const h3 = JSON.stringify(S.hashableBook({ title: 'D', kind: 'notebook', pages }));
+    assert.notEqual(h1, h2);
+    assert.notEqual(h1, h3);
   });
 });
 

@@ -6,6 +6,11 @@
  * - Notizen: lokales Buch <-> Row in Tabelle `notes`
  *   (id, userId, title, content, contentFileId, folderId,
  *    createdAt, updatedAt, deletedAt).
+ *   content ist ein v1/v2-Envelope: Notebooks `{v:1, pages}`, Decks
+ *   `{v:2, pages, kind, cards, deckOptions, reviewLog}` (bookEnvelope/
+ *    parseEnvelope; der Hash (hashableBook) deckt Titel, Ordner, Seiten UND
+ *    Deckfelder ab, damit Kartenänderungen syncen. Nach dem Update auf die
+ *    v2-Hashbasis schiebt der erste Sync jedes Buch einmal hoch (einmalig).
  * - Ordner: Tabelle `folders` <-> lokaler Spiegel (Bücher tragen folderId).
  * - Notizen: vollständiger paginierter Bestand für sichere Lösch-Erkennung;
  *   lokal via Content-Hash.
@@ -96,7 +101,7 @@
     return { pages: out, missing: [...new Set(missing)] };
   }
   function bookContentJson(book) {
-    return JSON.stringify({ v: 1, pages: book.pages || [] });
+    return JSON.stringify(bookEnvelope(book));
   }
   function parseContentJson(json) {
     try {
@@ -104,6 +109,103 @@
       if (p && Array.isArray(p.pages)) return p.pages;
     } catch { /* ignore */ }
     return null;
+  }
+  // Karteikarten-Deck im Sync (v2-Envelope, wie MCP/mcpserver/content.js):
+  // Notebooks reisen weiter als schlankes v1 ({v:1, pages}), Decks als
+  // {v:2, pages, kind, cards, deckOptions, reviewLog}. Alte Clients lesen v2
+  // (Seiten laden, Deckfelder ignorieren), schreiben sie aber ohne Deckfelder
+  // zurück – gemischte Client-Stände können Karten verlieren, daher Clients
+  // möglichst gemeinsam aktualisieren. Heilt tolerant (fremde Keys bleiben).
+  const REVIEW_LOG_MAX = 1000;
+  function isDeckBook(b) {
+    return !!(b && (b.kind === 'flashcards' || b.kind === 'deck'));
+  }
+  function num(v, fb) {
+    const n = Number(v);
+    return isFinite(n) ? n : fb;
+  }
+  function normDeckCards(cards) {
+    if (!Array.isArray(cards)) return [];
+    const out = [];
+    for (const c of cards) {
+      if (!c || typeof c !== 'object') continue;
+      out.push(Object.assign({}, c, {
+        id: typeof c.id === 'string' && c.id ? c.id : undefined,
+        front: typeof c.front === 'string' ? c.front : String(c.front == null ? '' : c.front),
+        back: typeof c.back === 'string' ? c.back : String(c.back == null ? '' : c.back),
+      }));
+    }
+    return out;
+  }
+  function normDeckOptions(o) {
+    o = (o && typeof o === 'object') ? o : {};
+    return {
+      newPerDay: Math.max(1, Math.min(500, Math.round(num(o.newPerDay, 20)))),
+      maxReviewsPerDay: Math.max(1, Math.min(2000, Math.round(num(o.maxReviewsPerDay, 100)))),
+    };
+  }
+  function normReviewLog(log) {
+    if (!Array.isArray(log)) return [];
+    const grades = { again: 1, hard: 1, good: 1, easy: 1 };
+    const out = [];
+    for (const e of log) {
+      if (!e || typeof e !== 'object') continue;
+      const t = Number(e.t);
+      if (!isFinite(t) || !grades[e.g]) continue;
+      out.push({ t: Math.round(t), g: e.g, id: typeof e.id === 'string' ? e.id : '' });
+    }
+    return out.length > REVIEW_LOG_MAX ? out.slice(out.length - REVIEW_LOG_MAX) : out;
+  }
+  // Envelope eines Buchs (pages optional überschrieben, z. B. nach Ref-Rewrite).
+  function bookEnvelope(b, pages) {
+    const pg = pages !== undefined ? pages : ((b && b.pages) || []);
+    const bb = b || {};
+    const hasDeckData = (Array.isArray(bb.cards) && bb.cards.length > 0)
+      || (bb.deckOptions && typeof bb.deckOptions === 'object')
+      || (Array.isArray(bb.reviewLog) && bb.reviewLog.length > 0);
+    if (!isDeckBook(bb) && !hasDeckData) return { v: 1, pages: pg };
+    return {
+      v: 2, pages: pg, kind: 'flashcards',
+      cards: normDeckCards(bb.cards),
+      deckOptions: normDeckOptions(bb.deckOptions),
+      reviewLog: normReviewLog(bb.reviewLog),
+    };
+  }
+  // Tolerant: v1/v2/Altbestand/Müll -> {pages|null, kind, cards, deckOptions, reviewLog}.
+  function parseEnvelope(json) {
+    const out = { pages: null, kind: 'notebook', cards: [], deckOptions: null, reviewLog: [] };
+    let p = null;
+    try { p = JSON.parse(json || ''); } catch { return out; }
+    if (!p || typeof p !== 'object') return out;
+    if (Array.isArray(p.pages)) out.pages = p.pages;
+    else return out;
+    if (p.kind === 'flashcards' || p.kind === 'deck') out.kind = 'flashcards';
+    if (Array.isArray(p.cards)) out.cards = p.cards;
+    if (p.deckOptions && typeof p.deckOptions === 'object') out.deckOptions = p.deckOptions;
+    if (Array.isArray(p.reviewLog)) out.reviewLog = p.reviewLog;
+    return out;
+  }
+  // Übernimmt Remote-Envelope ins lokale Buch (kind immer, Deckfelder nur bei
+  // Decks – ein Notebook-Envelope löscht lokale Karten nie stillschweigend).
+  function applyEnvelopeToBook(b, env) {
+    b.kind = env && env.kind === 'flashcards' ? 'flashcards' : 'notebook';
+    if (b.kind === 'flashcards' && env) {
+      b.cards = normDeckCards(env.cards);
+      b.deckOptions = normDeckOptions(env.deckOptions);
+      b.reviewLog = normReviewLog(env.reviewLog);
+    }
+    return b;
+  }
+  // Hash-Basis für Änderungserkennung (Titel + Ordner + Seiten + Deckfelder).
+  function hashableBook(b) {
+    const deck = isDeckBook(b);
+    return {
+      v: 2, title: b.title || '', folderId: b.folderId || null, pages: b.pages || [],
+      kind: deck ? 'flashcards' : 'notebook',
+      cards: deck ? normDeckCards(b.cards) : [],
+      deckOptions: deck ? normDeckOptions(b.deckOptions) : null,
+      reviewLog: deck ? normReviewLog(b.reviewLog) : [],
+    };
   }
   function folderHash(f) {
     return JSON.stringify([f.name || '', f.parentId || null, f.deleted ? 1 : 0]);
@@ -365,7 +467,7 @@
     const map = {};
     for (const ref of Object.keys(hashedByRef)) map[ref] = hashedByRef[ref].hash;
     const { pages } = rewriteRefs(book.pages, map, 'push');
-    const json = JSON.stringify({ v: 1, pages });
+    const json = JSON.stringify(bookEnvelope(book, pages));
     const bytes = new TextEncoder().encode(json);
     if (bytes.length > OFFLOAD_BYTES) {
       const hash = await F.sha256Hex(bytes);
@@ -374,7 +476,7 @@
     }
     return { content: json, contentFileId: null };
   }
-  async function payloadToPages(F, cfg, store, row) {
+  async function payloadToEnvelope(F, cfg, store, row) {
     let json = row.content || '';
     if (!json && row.contentFileId) {
       try {
@@ -382,24 +484,31 @@
         json = new TextDecoder().decode(dl.bytes);
       } catch { return null; }
     }
-    const pages = parseContentJson(json);
-    if (!pages) return null;
+    const env = parseEnvelope(json);
+    if (!env.pages) return null;
     // awfile-Refs einsammeln + materialisieren
     const need = new Set();
     const scan = (v) => { const h = hashFromAwRef(v); if (h) need.add(h); };
-    for (const p of pages) {
+    for (const p of env.pages) {
       if (Array.isArray(p.images)) for (const im of p.images) if (im) scan(im.src);
       if (typeof p.bg === 'string') scan(p.bg);
     }
     const refByHash = await materializeRefs(F, cfg, store, [...need]);
-    const { pages: out } = rewriteRefs(pages, refByHash, 'pull');
-    return out;
+    const { pages: out } = rewriteRefs(env.pages, refByHash, 'pull');
+    env.pages = out;
+    return env;
+  }
+  async function payloadToPages(F, cfg, store, row) {
+    const env = await payloadToEnvelope(F, cfg, store, row);
+    return env ? env.pages : null;
   }
 
   const Sync = {
     ROWMAP_KEY, LASTPULL_KEY, FOLDERS_KEY, OFFLOAD_BYTES, Q,
     msToIso, isoToMs, rowIdForBook, isAwFileRef, hashFromAwRef,
     rewriteRefs, bookContentJson, parseContentJson, folderHash,
+    isDeckBook, bookEnvelope, parseEnvelope, applyEnvelopeToBook, hashableBook,
+    normDeckCards, normDeckOptions, normReviewLog,
     planRows, makeConflictTitle, rowToNoteMeta,
     loadRowMap, saveRowMap, loadLastPull, saveLastPull,
     loadFolders, saveFolders, loadFolderMeta, saveFolderMeta,
@@ -459,9 +568,7 @@
         const rmap = {};
         for (const ref of Object.keys(hashed)) rmap[ref] = hashed[ref].hash;
         const { pages } = rewriteRefs(b.pages, rmap, 'push');
-        return F2.sha256Hex(new TextEncoder().encode(JSON.stringify({
-          v: 2, title: b.title || '', folderId: b.folderId || null, pages,
-        })));
+        return F2.sha256Hex(new TextEncoder().encode(JSON.stringify(hashableBook(Object.assign({}, b, { pages })))));
       };
       // Content-Hash aller lokalen Bücher (Buchzahl klein, Hash schnell).
       for (const b of books) {
@@ -492,10 +599,12 @@
       for (const { id } of plan.adopt) {
         const r = remote[id].row;
         try {
-          const pages = await payloadToPages(F, cfg, store, r);
-          const rh = pages ? await F.sha256Hex(new TextEncoder().encode(JSON.stringify({
-            v: 2, title: remote[id].title || '', folderId: remote[id].row.folderId || null, pages,
-          }))) : 'unlesbar';
+          const env = await payloadToEnvelope(F, cfg, store, r);
+          const rh = env ? await F.sha256Hex(new TextEncoder().encode(JSON.stringify(hashableBook({
+            title: remote[id].title || '', folderId: remote[id].row.folderId || null,
+            pages: env.pages, kind: env.kind, cards: env.cards,
+            deckOptions: env.deckOptions, reviewLog: env.reviewLog,
+          })))) : 'unlesbar';
           if (rh === localClean[id].hash) {
             touchMeta(id, { rowId: r.$id, hash: rh, remoteUpdatedAtMs: remote[id].updatedAtMs });
           } else {
@@ -507,12 +616,13 @@
       for (const { id } of plan.pull) {
         const r = remote[id].row;
         try {
-          const pages = await payloadToPages(F, cfg, store, r);
-          if (!pages) throw new Error('Inhalt unlesbar');
+          const env = await payloadToEnvelope(F, cfg, store, r);
+          if (!env) throw new Error('Inhalt unlesbar');
           const b = byId[id];
           b.title = r.title || b.title;
           b.folderId = r.folderId || null;
-          b.pages = pages;
+          b.pages = env.pages;
+          applyEnvelopeToBook(b, env);
           b.updatedAt = remote[id].updatedAtMs;
           if (store && store.extractBook) await store.extractBook(b).catch(() => {});
           touchMeta(id, { rowId: r.$id, hash: localClean[id] ? await contentHashOf(b) : undefined, remoteUpdatedAtMs: remote[id].updatedAtMs });
@@ -523,8 +633,8 @@
       for (const { id } of plan.conflict) {
         const r = remote[id].row;
         try {
-          const pages = await payloadToPages(F, cfg, store, r);
-          if (!pages) throw new Error('Inhalt unlesbar');
+          const env = await payloadToEnvelope(F, cfg, store, r);
+          if (!env) throw new Error('Inhalt unlesbar');
           const b = byId[id];
           const copy = JSON.parse(JSON.stringify(b));
           copy.id = 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -535,7 +645,8 @@
           map[copy.id] = { rowId: rowIdForBook(copy.id), hash: undefined, remoteUpdatedAtMs: 0 };
           b.title = r.title || b.title;
           b.folderId = r.folderId || null;
-          b.pages = pages;
+          b.pages = env.pages;
+          applyEnvelopeToBook(b, env);
           b.updatedAt = remote[id].updatedAtMs;
           if (store && store.extractBook) await store.extractBook(b).catch(() => {});
           touchMeta(id, { rowId: r.$id, remoteUpdatedAtMs: remote[id].updatedAtMs });
@@ -548,14 +659,15 @@
       for (const { id } of plan.download) {
         const r = remote[id].row;
         try {
-          const pages = await payloadToPages(F, cfg, store, r);
-          if (!pages) throw new Error('Inhalt unlesbar');
+          const env = await payloadToEnvelope(F, cfg, store, r);
+          if (!env) throw new Error('Inhalt unlesbar');
           const nb = {
             id: r.$id && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/.test(r.$id) ? r.$id : rowIdForBook(id),
             title: r.title || 'Importiert', paper: 'grid', updatedAt: remote[id].updatedAtMs,
-            folderId: r.folderId || null, pages,
+            folderId: r.folderId || null, pages: env.pages,
             cloudRowId: r.$id,
           };
+          applyEnvelopeToBook(nb, env);
           if (store && store.extractBook) await store.extractBook(nb).catch(() => {});
           books.unshift(nb);
           byId[nb.id] = nb;

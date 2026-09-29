@@ -13,8 +13,9 @@ if (!fs.existsSync(distDir)) {
   fs.mkdirSync(distDir, { recursive: true });
 }
 
-// Ensure mcpserver.js is mirrored inside mcp for self-contained deployment
+// Ensure mcpserver files are mirrored inside mcp for self-contained deployment
 fs.copyFileSync(path.join(mcpserverDir, 'index.js'), path.join(mcpDir, 'mcpserver.js'));
+fs.copyFileSync(path.join(mcpserverDir, 'content.js'), path.join(mcpDir, 'content.js'));
 
 const tarPath = path.join(distDir, 'mcp-function.tar.gz');
 execSync(`tar -czf "${tarPath}" -C "${mcpDir}" .`, { stdio: 'inherit' });
