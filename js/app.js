@@ -736,14 +736,27 @@ function syncStageViewport() {
     root.style.setProperty('--stage-h', Math.max(200, Math.round(avail)) + 'px');
   } catch { /* Viewport-Berechnung optional */ }
 }
-/* Hoehe der Seiten-Vorschau, wenn sie aufgeklappt ist (sonst 0). */
+/* Hoehe, die die aufgeklappte Seiten-Vorschau der Buehne wegnimmt.
+ * Nur wenn sie wirklich UEBER der Buehne steht: einspaltig (Handy) belegt
+ * sie Fluss-Hoehe. Zweispaltig (Desktop) ist sie eine Seitenspalte und
+ * kostet keine Hoehe – sie wurde dort faelschlich abgezogen und die Seite
+ * fiel auf den Notwert von 200px (gemessen: 182px breite Seite bei
+ * 298px Rail). Geometrisch geprueft statt ueber den Breakpoint, damit beide
+ * Faelle stimmen. */
 function railHeight() {
   try {
     const i = activePaneIdx();
     const rail = $(eid('pageRail', i));
     if (!rail || rail.classList.contains('is-collapsed')) return 0;
-    const h = Math.round(rail.getBoundingClientRect().height);
-    return h > 0 && h < vhSafe() * 0.6 ? h : 0; // Unsinnswerte (versteckt) ignorieren
+    const rr = rail.getBoundingClientRect();
+    const h = Math.round(rr.height);
+    if (!(h > 0) || h >= vhSafe() * 0.6) return 0; // versteckt / Unsinnswert
+    const st = scrollerFor(i);
+    if (st) {
+      const sr = st.getBoundingClientRect();
+      if (rr.bottom > sr.top) return 0; // steht neben der Buehne, nicht darueber
+    }
+    return h;
   } catch { /* Vorschau optional */ return 0; }
 }
 function vhSafe() { try { return window.innerHeight || 0; } catch { return 0; } }
