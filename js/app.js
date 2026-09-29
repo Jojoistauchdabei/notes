@@ -729,10 +729,24 @@ function syncStageViewport() {
     // 24px Reserve fuer Rahmen/Luechten, 26px fuer die Statuszeile.
     const reserve = 24 + satTop;
     const statusH = 26;
-    const avail = vh - toolbarBottom - barH - statusH - reserve;
+    // Eine offene Seiten-Vorschau nimmt Platz zwischen Pane-Bar und Buehne –
+    // sie muss mitgerechnet werden, sonst schiebt sie die Seite aus dem
+    // Fenster, sobald man sie aufklappt.
+    const avail = vh - toolbarBottom - barH - railHeight() - statusH - reserve;
     root.style.setProperty('--stage-h', Math.max(200, Math.round(avail)) + 'px');
   } catch { /* Viewport-Berechnung optional */ }
 }
+/* Hoehe der Seiten-Vorschau, wenn sie aufgeklappt ist (sonst 0). */
+function railHeight() {
+  try {
+    const i = activePaneIdx();
+    const rail = $(eid('pageRail', i));
+    if (!rail || rail.classList.contains('is-collapsed')) return 0;
+    const h = Math.round(rail.getBoundingClientRect().height);
+    return h > 0 && h < vhSafe() * 0.6 ? h : 0; // Unsinnswerte (versteckt) ignorieren
+  } catch { /* Vorschau optional */ return 0; }
+}
+function vhSafe() { try { return window.innerHeight || 0; } catch { return 0; } }
 /* Hoehe der Pane-Bar des aktiven Pane (Buchtitel/Vorlage/+ Seite). */
 function paneBarHeight() {
   try {
@@ -758,7 +772,7 @@ function alignBookViewWindow() {
     const tb = parseFloat(cs.getPropertyValue('--toolbar-bottom')) || 0;
     const barH = paneBarHeight();
     const docTop = sc.getBoundingClientRect().top + (window.scrollY || 0);
-    const want = Math.max(0, Math.round(docTop - (tb + barH)));
+    const want = Math.max(0, Math.round(docTop - (tb + barH + railHeight())));
     const max = Math.max(0, document.scrollingElement.scrollHeight - window.innerHeight);
     if (want > 0) window.scrollTo(0, Math.min(want, max));
   } catch { /* Ausrichtung optional */ }
@@ -809,6 +823,87 @@ function repaintPage(pageId, bookId) {
       renderTextInto(stagePartOf(el, 'textLayer'), pg, isActive && act ? selectedBox : (isActive ? (ui.selBox || null) : null), i);
       renderImgInto(stagePartOf(el, 'imgLayer'), pg, isActive && act ? selectedImg : (isActive ? (ui.selImg || null) : null), i);
     } catch { /* Render optional */ }
+  });
+}
+
+/* ---------- Seiten-Vorschau ein-/ausklappen (pro Pane) ----------
+ * Der Knopf steht in der Statuszeile direkt unter der Seite. Eingeklappt
+ * gibt die Rail keinen Platz mehr ans Dokument: auf dem Handy ist das der
+ * Unterschied zwischen ~350px und ~600px Seitenhoehe.
+ *
+ * Default: breite Fenster = offen, schmale (Phone/Tablet quer) = zu. Der
+ * Nutzerentscheid wird persistiert und gewinnt danach gegen den Default,
+ * damit die Seite nicht bei jedem Rotate neu zureckfaellt. */
+const RAIL_LS_PREFIX = 'federwerkRailOpen';
+const paneRailOpen = { 0: null, 1: null }; // null = noch nicht entschieden
+function railStorageKey(i) { return RAIL_LS_PREFIX + (i === 1 ? '1' : '0'); }
+function railDefaultOpen() {
+  try { return !(window.matchMedia && window.matchMedia('(max-width: 860px)').matches); }
+  catch { return true; }
+}
+function railOpenState(i) {
+  const key = i === 1 ? 1 : 0;
+  let stored = null;
+  try {
+    if (typeof localStorage !== 'undefined') stored = localStorage.getItem(railStorageKey(key));
+  } catch { /* Speicher optional */ }
+  if (stored != null) return !(stored === '0' || stored === 'false');
+  return railDefaultOpen();
+}
+function setRailOpen(i, open) {
+  const key = i === 1 ? 1 : 0;
+  paneRailOpen[key] = !!open;
+  const rail = $(eid('pageRail', key));
+  if (rail) rail.classList.toggle('is-collapsed', !open);
+  const btn = $(eid('railToggle', key));
+  if (btn) {
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.title = open ? 'Seiten-Vorschau ausblenden' : 'Seiten-Vorschau einblenden';
+  }
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(railStorageKey(key), open ? '1' : '0');
+  } catch { /* Speicher optional */ }
+  // Die Rail nimmt Platz aus dem Sichtbereich, deshalb neu vermessen – sonst
+  // steht die Statuszeile unter dem Rand (Rail waere horizontal, hoeher) bzw.
+  // bleibt die Seite schmaler als die neu frei gewordene Hoehe.
+  // Die Breite folgt bewusst der Hoehe (Seite passt komplett auf den
+  // Sichtbereich); frei werdende Desktop-Breite ist einfach Schreibtisch-
+  // Flaeche und vergroessert die Seite nicht. Das Canvas-Backing muss nicht
+  // neu gebaut werden – es haengt an den Seiten-Einheiten, nicht an der
+  // CSS-Groesse.
+  try { syncStageViewport(); } catch { /* Viewport-Berechnung optional */ }
+  try {
+    [0, 1].forEach(k => {
+      if (k === 1 && !splitEnabled()) return;
+      measureFlow(k);
+      syncMountFor(k);
+    });
+  } catch { /* Neuvermessen optional */ }
+  return !!open;
+}
+function toggleRail(i, ev) {
+  if (ev) { try { ev.stopPropagation(); } catch { /* ignore */ } }
+  const key = i === 1 ? 1 : 0;
+  if (paneRailOpen[key] == null) paneRailOpen[key] = railDefaultOpen();
+  return setRailOpen(key, !paneRailOpen[key]);
+}
+function applyRailState() {
+  [0, 1].forEach(i => {
+    const key = i === 1 ? 1 : 0;
+    paneRailOpen[key] = railOpenState(key);
+    const rail = $(eid('pageRail', key));
+    if (rail) rail.classList.toggle('is-collapsed', !paneRailOpen[key]);
+    const btn = $(eid('railToggle', key));
+    if (btn) btn.setAttribute('aria-expanded', paneRailOpen[key] ? 'true' : 'false');
+  });
+}
+function bindRailToggle() {
+  [0, 1].forEach(i => {
+    const key = i === 1 ? 1 : 0;
+    const btn = $(eid('railToggle', key));
+    if (!btn || btn._railBound) return;
+    btn._railBound = true;
+    btn.addEventListener('click', (ev) => { try { toggleRail(key, ev); } catch { /* ignore */ } });
   });
 }
 
@@ -2662,10 +2757,22 @@ function syncToolbar() {
   const fd = $('fingerDrawToggle');
   if (fd) {
     fd.classList.toggle('picked', !!inputPrefs.fingerDraw);
-    fd.textContent = inputPrefs.fingerDraw ? '✍ Schreiben: an' : '✍ Schreiben: aus';
+    // Auf schmalen Geraeten bricht "✍ Schreiben: aus" in vier Zeilen um und
+    // reisst die ganze Werkzeugleiste auf 83px hoch. Kurzform in die
+    // Fusszeile, vollstaendiger Text bleibt im Tooltip.
+    const schmal = (typeof window.innerWidth === 'number' && window.innerWidth <= 860);
+    const lang = inputPrefs.fingerDraw ? '✍ Schreiben: an' : '✍ Schreiben: aus';
+    const kurz = inputPrefs.fingerDraw ? '✍ an' : '✍ aus';
+    fd.textContent = schmal ? kurz : lang;
+    // Der Hinweis ist wichtig: bei "an" ist der Finger-Scroll absichtlich
+    // gesperrt (touch-action: none). Wer dann auf der Seite wischen will,
+    // muss den Grund hier finden und nicht in der App suchen.
     fd.title = inputPrefs.fingerDraw
-      ? 'Finger und Maus schreiben (an). Ausschalten: Finger und Maus scrollen.'
-      : 'Finger und Maus scrollen. Einschalten, um mit Finger oder Maus zu schreiben.';
+      ? 'Finger/Maus SCHREIBEN – zum Scrollen mit dem Finger ausschalten'
+      : 'Finger/Maus SCROLLEN – zum Schreiben mit dem Finger einschalten';
+    fd.setAttribute('aria-label', inputPrefs.fingerDraw
+      ? 'Finger- und Maus-Schreiben ist an – ausschalten, um mit dem Finger zu scrollen'
+      : 'Finger- und Maus-Schreiben ist aus – einschalten, um mit dem Finger zu schreiben');
   }
   const st0 = $('statusTool');
   if (st0) {
@@ -4402,12 +4509,31 @@ function onViewportResize() {
       syncMountFor(i);
     });
     alignBookViewWindow();
+    // Der Finger-Knopf hat auf dem Handy eine Kurzform: beim Drehen nachziehen.
+    try { syncToolbar(); } catch { /* Toolbar optional */ }
   };
   flowResizeRaf = (typeof requestAnimationFrame === 'function') ? requestAnimationFrame(run) : 0;
   if (!flowResizeRaf) run();
 }
+/* Etwas ueber dem Dokument aendert seine Hoehe (Update-Banner, Font-Laden
+ * der Webfonts) und schiebt die Buehne nach unten. --stage-h ist dann
+ * veraltet und die Seite verliert genau die Hoehe, die sie eingeräumt
+ * bekommen hat. Deshalb bei jeder solchen Meldung neu vermessen – nicht
+ * geraten und nicht per Polling. */
+try {
+  window.addEventListener('federwerk:chrome-height', () => { onViewportResize(); });
+} catch { /* addEventListener ist ueberall da; der catch ist Formsache */ }
+
 window.addEventListener('resize', onViewportResize);
-window.addEventListener('orientationchange', onViewportResize);
+window.addEventListener('orientationchange', () => {
+  // Beim Drehen wechselt der Default (breit = offen, schmal = zu). Ohne
+  // gespeicherten Nutzerentscheid der Aufruf, sonst springt die Seite beim
+  // Rotate zwischen zwei Hoehen hin und her.
+  let stored = null;
+  try { if (typeof localStorage !== 'undefined') stored = localStorage.getItem(railStorageKey(0)); } catch { /* optional */ }
+  if (stored == null) applyRailState();
+  onViewportResize();
+});
 /* Druck: der Scroller verliert seine Hoehenbegrenzung (siehe @media print),
  * also muessen vorher ALLE Seiten gemountet werden – sonst kommen leere
  * Seiten mit raus. */
@@ -4419,6 +4545,8 @@ bindStage();
 bindTapGestures();
 bindFlow();
 bindSplitDivider();
+bindRailToggle();
+applyRailState();
 if (typeof GrimoireStore !== 'undefined') {
   // Blob-URLs trudeln asynchron ein -> sichtbare Ebenen nachrendern
   GrimoireStore.subscribe(() => {
@@ -4486,6 +4614,7 @@ document.addEventListener('keydown', e => {
   renderLibrary();
   restoreSplitFromState();
   bindStage(); bindTapGestures(); bindFlow(); bindSplitDivider();
+  try { bindRailToggle(); applyRailState(); } catch { /* Rail-Knopf optional */ }
   try { applyStageTouchAction(); } catch { /* Eingabe-Prefs optional */ }
   if (state.openBookId && state.books.some(b => b.id === state.openBookId)) openBookView(state.openBookId, state.openPageId, 0);
   else if (state.books.length) openBookView(state.books[0].id, state.books[0].pages[0] && state.books[0].pages[0].id, 0);

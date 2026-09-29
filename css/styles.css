@@ -351,8 +351,28 @@ select { cursor: pointer; }
 .move-row select { font-size: 13px; padding: 5px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--field-bg); }
 
 /* ===== Arbeitsbereich ===== */
-.work-layout { display: grid; grid-template-columns: 172px minmax(0, 1fr); gap: 12px; align-items: start; }
-.page-rail { display: flex; flex-direction: column; gap: 8px; max-height: 78vh; overflow-y: auto; padding-right: 2px; position: sticky; top: 150px; top: calc(150px + var(--sat)); }
+/* Die Sidebar-Spalte wird per `auto` aus der Rail selbst bestimmt, nicht als
+   feste Grid-Spalte. Eine feste Spur (172px/132px) bleibt auch dann stehen,
+   wenn die Rail per display:none ausgeblendet ist – und dann rueckt die Seite
+   bei der Auto-Platzierung in genau diese schmale Spur (132px statt 1065px).
+   Mit `auto` faellt die Spur zusammen, wenn die Rail weg ist. */
+.work-layout { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
+.page-rail { width: 172px; display: flex; flex-direction: column; gap: 8px; max-height: 78vh; overflow-y: auto; padding-right: 2px; position: sticky; top: 150px; top: calc(150px + var(--sat)); }
+/* Seiten-Vorschau einklappbar: der Knopf steht in der Statuszeile direkt
+   unter der Seite. Eingeklappt gibt die Rail keinen Platz mehr ans Dokument –
+   auf dem Handy ist das der Unterschied zwischen ~350px und ~600px
+   Seitenhoehe. Das Label bleibt auch schmal sichtbar: ein nacktes Icon
+   versteht niemand auf den ersten Blick. */
+.page-rail.is-collapsed { display: none; }
+.rail-toggle {
+  flex: 0 0 auto; align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 0; padding: 3px 9px; font-size: 12px; line-height: 1.2;
+  border-width: 2px;
+}
+.rail-toggle .rail-toggle-icon { font-size: 13px; }
+.rail-toggle[aria-expanded="true"] { background: var(--accent); color: var(--button-text); border-color: var(--accent-dark); }
+.rail-toggle[aria-expanded="false"] { background: transparent; }
 .page-thumb { border: 2px solid var(--border); background: var(--surface-strong); cursor: pointer; padding: 6px; text-align: center; font-size: 11px; border-radius: 10px; }
 .page-thumb.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .page-thumb canvas { width: 100%; height: auto; display: block; background: #fffdf6; border: 1px solid var(--border-light); border-radius: 4px; }
@@ -378,7 +398,12 @@ select { cursor: pointer; }
 .tool-group--actions { flex: 0 0 auto; }
 .tool-group input[type="color"] { width: 38px; }
 .tool-group input[type="range"] { width: 90px; accent-color: var(--accent); }
-.pane-bar { border-radius: var(--radius-sm); }
+/* Grundlayout der Pane-Bar stand vorher als Inline-Style im HTML – dann
+   konnte das Media-Query die Umbruch-Regel nicht ueberschreiben. */
+.pane-bar {
+  border-radius: var(--radius-sm);
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+}
 
 /* ===== Stage: Continuous Scroll =====
  * Der Seiten-Stack ist EIN Scroll-Container (.stage-scroll). Jede Seite ist
@@ -506,7 +531,12 @@ select { cursor: pointer; }
 .split-divider-grip { font-size: 14px; color: var(--accent); letter-spacing: 1px; }
 .pane-badge { font-size: 11px; opacity: 0; }
 .split-pane.active .pane-badge { opacity: 0.85; color: var(--accent); }
-.split-container .work-layout { grid-template-columns: 132px minmax(0, 1fr); }
+/* Rail-Spalte nur, wenn wirklich Platz neben der Seite ist. Ohne den
+   min-width-Guard hat diese Regel (0,2,0) mehr Gewicht als die
+   Mobile-Regel `.work-layout { grid-template-columns: 1fr }` (0,1,0) –
+   auf dem Handy blieb die Rail eine 132px-Spalte NEBEN der Seite und die
+   Seite selbst nur ~226px breit. */
+@media (min-width: 861px) { .split-container .work-layout { grid-template-columns: auto minmax(0, 1fr); } .split-container .page-rail { width: 132px; } }
 .split-container .work-layout > * { min-width: 0; }
 .split-pane .stage-wrap { min-width: 0; max-width: 100%; }
 .split-pane .stage { max-width: 100%; }
@@ -639,6 +669,97 @@ select { cursor: pointer; }
   .editor-modal { max-height: 94dvh; border-radius: 10px; }
   .editor-body { font-size: 17px; }
   .box { padding: 12px; }
+
+  /* ===== Handy: Chrome zusammenstauen =====
+     Gemessen bei 412x860: 155px Header + 67px Navigationszeile + 95px
+     Werkzeugleiste + 145px Pane-Bar = 462px ueber der Seite, die Seite
+     bekam 355px. Jeder Block wird hier kleiner, damit das Papier die
+     Mehrheit des Bildschirms hat. */
+  .header { padding: 6px 8px; gap: 6px; }
+  .header h1 { font-size: 17px; }
+  .brand-logo { width: 32px; height: 32px; }
+  .brand-tagline { display: none; } /* spart eine Zeile ~18px */
+  /* Kopfleisten-Knoepfe in EINE scrollende Zeile statt zwei umgebrochene:
+     74px -> ~40px. Alles bleibt erreichbar, nichts wird versteckt. */
+  /* Versionszeile ist auf dem Handy Rauschen ueber der eigentlichen
+     Arbeitsflaeche – sie steht ohnehin im About-Bereich der Bibliothek. */
+  .version-tag { display: none; }
+  .header-buttons { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 6px; width: 100%; }
+  .header-buttons::-webkit-scrollbar { display: none; }
+  .header-buttons > *, .header-group { flex: 0 0 auto; }
+  .header-buttons button { padding: 6px 9px; font-size: 11px; min-height: 34px; }
+  .header .box { padding: 6px 8px; margin-bottom: 6px; }
+  /* Navigationszeile (← Bibliothek / ⇉ Split): 67px -> ~46px */
+  .book-nav { padding: 6px 8px; margin-bottom: 6px; }
+  .book-nav button { padding: 6px 10px; font-size: 11px; min-height: 34px; }
+  /* Pane-Bar (Buchtitel/Vorlage/+ Seite/PNG …) in EINE scrollende Zeile:
+     3 umgebrochene Reihen (139px) -> ~44px. Die Inline-max-widths aus dem
+     HTML werden hier ueberschrieben, sonst schneidet der Browser die
+     Selects ab ("Mein e…", "Mein ers…"). */
+  .pane-bar { padding: 8px; gap: 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .pane-bar::-webkit-scrollbar { display: none; }
+  /* !important ist hier noetig: die Pane-Bar-Steuerelemente tragen ihre
+     Flex-Angaben als Inline-Style im HTML (style="…flex:1…"). Ohne das
+     schrumpfen Buchtitel- und Dokument-Auswahl in der scrollenden Zeile auf
+     16px statt sie mit lesbarer Breite zu zeigen. */
+  .pane-bar > select, .pane-bar > input[type="text"] {
+    flex: 0 0 auto !important; min-width: 104px; max-width: 150px !important;
+  }
+  .pane-bar > button { flex: 0 0 auto; padding: 6px 9px; font-size: 11px; min-height: 34px; }
+  /* Update-Hinweis: er ist sticky und verschiebt auf dem Handy die ganze
+     Oberflaeche um ~90px. Inline-Styles in js/updater.js, darum !important. */
+  #fw-update-banner {
+    font-size: 12px !important; padding: 5px 8px !important; gap: 6px !important;
+  }
+  #fw-update-banner a { font-size: 12px !important; }
+  /* Werkzeugleiste: eine Zeile, scrollbar. Die Werkzeuggruppen duerfen
+     nicht selbst umbrechen, sonst wird die Leiste zweizeilig. */
+  .toolbar { padding-top: 6px; padding-bottom: 6px; gap: 6px; }
+  /* Scrollleisten auf Touch ausblenden: der Wisch ist die Affordanz, der
+     Balken frisst sonst ~14px Hoehe aus der knappen Werkzeugleiste. */
+  .toolbar, .page-rail { scrollbar-width: none; }
+  .toolbar::-webkit-scrollbar, .page-rail::-webkit-scrollbar { display: none; }
+  /* Scroll-Schatten: zeigt an, dass in der Zeile noch etwas kommt.
+     Das sechste Werkzeug, die Aktionsknoepfe und die Miniaturen sind
+     sonst kommentarlos abgeschnitten – man haelt die Zeile fuer voll.
+     Zwei Verlaeufe pro Zeile: die "local"-haften decken den Anfang/Ende ab
+     und verschwinden am Anschlag, die "scroll"-haften wandern mit und
+     markieren dadurch genau die Kante, hinter der noch etwas liegt. Kein JS. */
+  .toolbar, .pane-bar, .header-buttons, .page-rail {
+    background-image:
+      linear-gradient(to right, var(--toolbar-bg, var(--surface)) 40%, transparent),
+      linear-gradient(to left, var(--toolbar-bg, var(--surface)) 40%, transparent),
+      linear-gradient(to right, var(--toolbar-edge, rgba(0, 0, 0, .34)), transparent 16px),
+      linear-gradient(to left, var(--toolbar-edge, rgba(0, 0, 0, .34)), transparent 16px);
+    background-position: 0 0, 100% 0, 0 0, 100% 0;
+    background-repeat: no-repeat;
+    background-size: 36px 100%, 36px 100%, 14px 100%, 14px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+  .toolbar .mini-button { padding: 6px 9px; min-height: 36px; }
+  .toolbar button { min-height: 36px; }
+  /* Knöpfe behalten ihre Breite und die Leiste scrollt – schrumpfende Flex-
+     Items brechen stattdessen den Text um ("⌫ Radierer" -> zwei Zeilen,
+     47px statt 36px). */
+  .toolbar .mini-button, .toolbar button, .toolbar select, .toolbar label { white-space: nowrap; flex: 0 0 auto; }
+  .toolbar .tool-group { flex: 0 0 auto; }
+  .tool-group { gap: 5px; }
+  .tool-group input[type="range"] { width: 88px; }
+  /* Statuszeile kompakter, der Rail-Knopf sitzt hier drin */
+  .status-line { font-size: 12px; gap: 6px; }
+  /* Wenn "Finger schreiben" AN ist, ist Scrollen mit dem Finger absichtlich
+     gesperrt (touch-action: none). Das muss am Knopf sichtbar sein, sonst
+     sucht man den Scroll-Fehler in der App statt im Schalter. */
+  #fingerDrawToggle.picked { box-shadow: 0 0 0 2px var(--accent); }
+  /* Seiten-Vorschau als kompakter Filmstreifen statt 184px hohe Reihe.
+     Feste Breite noetig: min-width liess die Thumbnails auf ihre
+     Canvas-Intrinsik-Breite (140px) anwachsen -> 228px hoher Streifen. */
+  .page-rail { width: auto; padding-bottom: 4px; gap: 6px; scroll-snap-type: x proximity; }
+  .page-rail .page-thumb { flex: 0 0 74px; width: 74px; min-width: 74px; padding: 4px; font-size: 10px; }
+  .page-rail .page-thumb canvas { max-height: 96px; object-fit: contain; }
+  .page-thumb .thumb-label { font-size: 8px; margin-top: 2px; }
+  .page-thumb--template { min-height: 62px; padding: 6px 4px; }
+  .page-thumb--template .thumb-label { font-size: 7px; }
 }
 @media (max-width: 560px) {
   :root { --header-h: 158px; --toolbar-top: 176px; }

@@ -104,7 +104,7 @@
 
     <!-- ARBEITSBEREICH (Split-Screen: 2 Dokumente in einem Fenster) -->
     <div class="view" id="viewBook">
-      <div class="box no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div class="box no-print book-nav" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="inactive" onclick="showLibrary()" aria-label="Zurück zur Bibliothek">← Bibliothek</button>
         <span style="flex:1"></span>
         <button class="mini-button" id="splitToggle" onclick="toggleSplit()" aria-label="Split-Screen umschalten" title="Zweites Dokument daneben öffnen">⇉ Split</button>
@@ -166,7 +166,7 @@
 
       <div class="split-container" id="splitContainer">
         <div class="split-pane" id="pane0" data-pane="0" onclick="setActivePane(0)">
-          <div class="box no-print pane-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <div class="box no-print pane-bar">
             <select id="bookSelect" onchange="openBookInPane(this.value, 0)" style="max-width:220px;flex:1" aria-label="Dokument im linken Bereich wählen"></select>
             <input type="text" id="bookTitle" onchange="renameBook(this.value)" style="max-width:200px;flex:1" placeholder="Buchtitel" aria-label="Buchtitel">
             <select id="paperSelect" onchange="setPaper(this.value)" style="max-width:170px;flex:0 0 auto" aria-label="Papiervorlage wählen">
@@ -218,6 +218,7 @@
                 </div>
               </div>
               <div class="status-line no-print">
+                <button type="button" class="rail-toggle" id="railToggle" aria-expanded="true" aria-controls="pageRail" title="Seiten-Vorschau ein-/ausblenden"><span class="rail-toggle-icon" aria-hidden="true">🗎</span><span class="rail-toggle-label">Seiten</span></button>
                 <span id="statusPage" aria-live="polite">Seite 1/1</span>
                 <span id="statusTool">✒ Stift</span>
                 <span id="statusSave">💾 gespeichert</span>
@@ -230,7 +231,7 @@
           <div class="split-divider-grip" aria-hidden="true">⋮</div>
         </div>
         <div class="split-pane" id="pane1" data-pane="1" onclick="setActivePane(1)" style="display:none">
-          <div class="box no-print pane-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <div class="box no-print pane-bar">
             <select id="bookSelectB" onchange="openBookInPane(this.value, 1)" style="max-width:220px;flex:1" aria-label="Dokument im rechten Bereich wählen"></select>
             <input type="text" id="bookTitleB" onchange="renameBookInPane(this.value, 1)" style="max-width:200px;flex:1" placeholder="Buchtitel" aria-label="Buchtitel rechter Bereich">
             <select id="paperSelectB" onchange="setPaperInPane(this.value, 1)" style="max-width:170px;flex:0 0 auto" aria-label="Papiervorlage wählen rechter Bereich">
@@ -283,6 +284,7 @@
                 </div>
               </div>
               <div class="status-line no-print">
+                <button type="button" class="rail-toggle" id="railToggleB" aria-expanded="true" aria-controls="pageRailB" title="Seiten-Vorschau ein-/ausblenden"><span class="rail-toggle-icon" aria-hidden="true">🗎</span><span class="rail-toggle-label">Seiten</span></button>
                 <span id="statusPageB" aria-live="polite">Seite 1/1</span>
                 <span id="statusToolB">✒ Stift</span>
                 <span class="pane-badge" id="paneBadge1">● aktiv</span>

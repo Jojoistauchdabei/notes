@@ -101,9 +101,21 @@
     close.style.cssText =
       'background:transparent;border:1px solid #faf6ee;color:#faf6ee;' +
       'border-radius:6px;padding:2px 8px;cursor:pointer;';
-    close.onclick = function () { bar.remove(); };
+    // Der Hinweis ist sticky und belegt damit Fluss-Hoehe: er schiebt die
+    // ganze Oberflaeche nach unten. Ohne Nachricht an den Seiten-Stack
+    // bleibt --stage-h auf dem alten Wert stehen und die Seite verliert die
+    // eingeraumte Hoehe (gemessen: 464px reserviert, 281px tatsaechlich
+    // vorhanden). Wir melden es statt es zu raten – weder Breite noch Hoehe
+    // aendern sich hier, nur die Position drumherum.
+    close.onclick = function () { bar.remove(); notifyChromeChanged(); };
     bar.appendChild(close);
     document.body.insertBefore(bar, document.body.firstChild);
+    notifyChromeChanged();
+  }
+
+  /* Layout-Verschiebung ueber dem Dokument melden (siehe showBanner). */
+  function notifyChromeChanged() {
+    try { window.dispatchEvent(new CustomEvent('federwerk:chrome-height')); } catch (e) { /* alter Browser */ }
   }
 
   function bannerFor(release, latest, current) {
