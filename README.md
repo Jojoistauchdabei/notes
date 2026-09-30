@@ -67,11 +67,17 @@ Live: https://notes.ponnet.org
 
 ## MCP (KI-Zugang: lesen + schreiben)
 
-Federwerk hat einen echten MCP-Server (JSON-RPC 2.0, 21 Tools): Notizen
+Federwerk hat einen echten MCP-Server (JSON-RPC 2.0, 24 Tools): Notizen
 anlegen/bearbeiten/löschen, Ordner verwalten, Karteikarten-Decks inkl.
 SM-2-Bewertung, Query-Suche und Wikilink-Graph – für Claude Desktop, Cursor,
 Opencode u. a. Lokal per `node mcpserver/cli.js` (stdio), in der Cloud als
-Appwrite Function (`mcp/`). Vollständige Doku: [`docs/mcp.md`](docs/mcp.md).
+Appwrite Function (`mcp/`).
+
+- `/agent` – Anleitungsseite für Nutzer (auch aus der App verlinkt)
+- `/mcp` – Markdown-Anleitung für KI-Modelle (Installation + Nutzung)
+
+Vollständige Doku: [`docs/mcp.md`](docs/mcp.md), KI-Version:
+[`MCP_AI.md`](MCP_AI.md).
 Dekodierlogik portiert aus [parser-for-goodnotes](https://github.com/Kaih1825/parser-for-goodnotes) von Kaih1825 (MIT License, © 2025 Document Parser for GoodNotes contributors).
 
 Dekodierlogik portiert aus [parser-for-goodnotes](https://github.com/Kaih1825/parser-for-goodnotes) von Kaih1825 (MIT License, © 2025 Document Parser for GoodNotes contributors).

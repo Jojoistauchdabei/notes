@@ -24,8 +24,27 @@ const root = process.env.BUILD_ROOT || process.cwd();
 const dist = process.env.DIST_DIR || path.join(root, 'dist');
 const esbuildBin = 'esbuild@0.25.10';
 
+/* Optionales Verzeichnis? Dann ist sein Fehlen kein Fehler – sonst bricht der
+ * Build, sobald jemand in einem Checkout oder Test-Fixture ohne z.B. docs/
+ * baut (das hat tests/build-dist.test.js mit einem Minimal-Fixture erwischt).
+ * Pflichtdateien wie index.html bleiben hart: fehlen sie, muss der Build
+ * abbrechen, statt still ein halbes dist/ zu erzeugen. */
 function copy(relativePath, options = undefined) {
-  fs.cpSync(path.join(root, relativePath), path.join(dist, relativePath), options);
+  const src = path.join(root, relativePath);
+  let missing = false;
+  try { missing = !fs.existsSync(src); }
+  catch { missing = true; }
+  if (missing) {
+    let isDir = false;
+    try { isDir = fs.statSync(src).isDirectory(); } catch { /* existiert nicht */ }
+    if (isDir || options) {
+      if (isDir) return;
+      // Datei mit Optionen bzw. unbekannt: nur stillschweigend ueberspringen,
+      // wenn es ein Verzeichnis sein sollte.
+      if (options) return;
+    }
+  }
+  fs.cpSync(src, path.join(dist, relativePath), options);
 }
 
 function hash10(content) {
@@ -72,7 +91,13 @@ fs.mkdirSync(path.join(dist, 'assets'), { recursive: true });
 for (const file of ['index.html', 'agent.html', 'manifest.webmanifest', 'sw.js', 'llms.txt', 'FEDERWERK_FORMAT.md', 'MCP_AI.md', 'federwerk.schema.json']) {
   copy(file);
 }
-for (const dir of ['icons', 'screenshots']) {
+for (const dir of ['icons', 'screenshots', 'docs']) {
+  // docs/ ist optional (Nutzer-Doku) – ein fehlender Ordner darf den Build
+  // nicht abbrechen.
+  if (!fs.existsSync(path.join(root, dir))) {
+    console.warn(`build: Verzeichnis ${dir}/ fehlt – wird übersprungen.`);
+    continue;
+  }
   copy(dir, { recursive: true });
 }
 
@@ -189,6 +214,7 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js']) {
   const headers = [
     ...immutable.map((route) => `${route}\n  Cache-Control: public, max-age=31536000, immutable`),
     '/screenshots/*\n  Cache-Control: public, max-age=604800',
+    '/docs/*\n  Cache-Control: public, max-age=0, must-revalidate',
     '/index.html\n  Cache-Control: public, max-age=0, must-revalidate',
     '/agent.html\n  Cache-Control: public, max-age=0, must-revalidate',
     '/MCP_AI.md\n  Cache-Control: public, max-age=0, must-revalidate',

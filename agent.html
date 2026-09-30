@@ -80,14 +80,15 @@
         <span class="tag">ohne API-Key</span>
       </p>
       <div class="btn-row">
-        <a class="btn primary" href="/mcp" id="mcpDocLink">📄 Anleitung fürs KI-Modell</a>
+        <a class="btn primary" href="MCP_AI.md" id="mcpDocLink">📄 Anleitung fürs KI-Modell</a>
         <a class="btn" href="docs/mcp.md">📚 Doku für Techniker</a>
       </div>
       <p style="font-size:13.5px;opacity:.75">
-        <b>/mcp</b> liefert eine Markdown-Datei, die jedem KI-Modell erklärt, wie es den
-        MCP installiert, anmeldet und benutzt. Du kannst die Adresse einfach in deinen
-        Chat kopieren: <code>Bitte lies <span id="originMcp">/mcp</span> und richte den
-        Federwerk-MCP ein.</code>
+        Online liegt dieselbe Datei auch unter <b><span id="originMcp">/mcp</span></b>
+        (<code>text/markdown</code>). Du kannst die Adresse einfach in deinen Chat
+        kopieren: <code id="mcpPromptHint">Bitte lies /mcp und richte den Federwerk-MCP ein.</code>
+        <button type="button" class="mini-button" id="mcpCopy" style="margin-left:6px"
+          aria-label="Adresse der KI-Anleitung kopieren">Adresse kopieren</button>
       </p>
     </div>
 
@@ -188,5 +189,33 @@ node mcpserver/login.js --email deine@adresse.de --save</code></pre>
 
     <p class="foot">Federwerk · offline-first Handschrift-Notizbuch</p>
   </div>
+  <script>
+    // Absolute Online-Adresse anzeigen/kopierbar machen (macht auch lokal
+    // Sinn: dann sieht man, wie die Datei online erreichbar ist).
+    (function () {
+      try {
+        var online = location.protocol === 'http:' || location.protocol === 'https:';
+        var url = (online ? location.origin : '') + '/mcp';
+        var a = document.getElementById('originMcp');
+        var hint = document.getElementById('mcpPromptHint');
+        var link = document.getElementById('mcpDocLink');
+        if (a) a.textContent = url;
+        if (hint) hint.textContent = 'Bitte lies ' + url + ' und richte den Federwerk-MCP ein.';
+        if (link && online) link.setAttribute('href', '/mcp');
+        var btn = document.getElementById('mcpCopy');
+        if (btn) btn.addEventListener('click', function () {
+          var done = function () {
+            btn.textContent = 'Kopiert ✓';
+            setTimeout(function () { btn.textContent = 'Adresse kopieren'; }, 1800);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(done, function () { window.prompt('Adresse kopieren:', url); });
+          } else {
+            window.prompt('Adresse kopieren:', url);
+          }
+        });
+      } catch (e) { /* Anzeige bleibt auf /mcp */ }
+    })();
+  </script>
 </body>
 </html>

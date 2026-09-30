@@ -4,6 +4,8 @@
 > Federwerk-MCP-Server zu installieren, anzumelden und zu benutzen. Sie wird
 > unter `/mcp` als `text/markdown` ausgeliefert. Nutzer-facing Doku (deutsch)
 > steht unter `/agent` bzw. `docs/mcp.md`.
+>
+> Nutzer-Anleitung (deutsch, klickbar): `https://notes.ponnet.org/agent`
 
 Federwerk ist eine offline-first Handschrift-Notizbuch-App. Der MCP-Server
 liest **und schreibt** in den Notizen des angemeldeten Benutzers: Notizen,

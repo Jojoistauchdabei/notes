@@ -44,6 +44,7 @@ function makeFixture(eol) {
   write('FEDERWERK_FORMAT.md', 'x');
   write('MCP_AI.md', '# MCP fuer KI');
   write('federwerk.schema.json', '{}');
+  write('docs/mcp.md', '# Doku');
   write('altes_Papier.webp', Buffer.from([0x52, 0x49, 0x46, 0x46]));
   write('altes_Papier.jpg', Buffer.from([0xff, 0xd8, 0xff]));
   write('css/styles.css', ':root{--bg-image:url(\'../altes_Papier.jpg\')}' + eol + 'body{background-image:var(--bg-image)}');
@@ -110,6 +111,7 @@ function assertBuilt(dist, eol) {
   // /agent und /mcp: Quell-Dateien müssen im dist liegen
   assert.ok(fs.existsSync(path.join(dist, 'agent.html')), 'agent.html im dist (/agent)');
   assert.ok(fs.existsSync(path.join(dist, 'MCP_AI.md')), 'MCP_AI.md im dist (/mcp)');
+  assert.ok(fs.existsSync(path.join(dist, 'docs', 'mcp.md')), 'docs/mcp.md im dist');
   assert.ok(sw.includes('agent.html'), 'SW precacht agent.html (offline nutzbar)');
 
   const headers = fs.readFileSync(path.join(dist, '_headers'), 'utf8');

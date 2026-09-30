@@ -4,6 +4,20 @@ Diese Seite dokumentiert beide MCP-Zugänge der Federwerk-Notiz-App:
 den **echten MCP-Server (JSON-RPC 2.0, 24 Tools)** für KI-Clients und das
 ältere **curl-API (`/mcp/*`, lesend)** auf Worker/lokalem Server.
 
+## 0. Web-Routen
+
+| Route | Inhalt | Für wen |
+|---|---|---|
+| `/agent` | `agent.html` – Einrichtung in drei Schritten, Beispiele, Warnungen | Nutzer (in der App verlinkt: ⚙ Appwrite-Cloud) |
+| `/mcp` | `MCP_AI.md` als `text/markdown` – Installations- und Nutzungsanleitung | KI-Modelle (Adresse in den Chat kopierbar) |
+| `/mcp/tools`, `/mcp/login`, `/mcp/search`, `/mcp/read`, `/mcp/prompt`, `/mcp/health` | Legacy-API | Skripte/curl |
+
+Hinweis: `/mcp` war früher ein Alias der Tool-Liste; die Doku belegt ihn jetzt,
+die Tool-Liste liegt unter `/mcp/tools`. Die Doku-Routen kommen im Worker
+**vor** der API (`serveDocs` in `worker.js`); Quell-Dateien sind `agent.html`
+und `MCP_AI.md`, werden von `scripts/build-dist.js` nach `dist/` kopiert und
+sind über `tests/doc-routes.test.js` abgesichert.
+
 ## 1. Welcher Zugang wofür?
 
 | Zugang | Protokoll | Tools | Wofür |
