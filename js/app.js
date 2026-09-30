@@ -4,6 +4,26 @@
 const LS_KEY = 'grimoire-dnd-v1';
 const CANVAS_W = 1000, CANVAS_H = 1414;
 
+/* Strich-Renderer: sitzt in js/inkdraw.js, weil die Praesentations-Seite
+ * (present.html) dieselbe Tinte ohne die ganze App zeichnen soll – ein Renderer,
+ * eine Wahrheit. Hier nur noch die Weiterleitung fuer die fuenf Aufrufer in
+ * dieser Datei (Vorschau, Buehne, Overlay-Vorschau, Rail, PNG-Export). */
+const drawStroke = (typeof FederwerkInk !== 'undefined' && FederwerkInk.drawStroke)
+  ? FederwerkInk.drawStroke
+  /* Notfallpfad, falls js/inkdraw.js nicht geladen wurde (z.B. fremder Host):
+   * einfache Polylinie ohne Druckbreite – Tinte verschwindet nicht stumm. */
+  : function (c, s) {
+    if (!s || !s.points || !s.points.length) return;
+    c.save();
+    c.strokeStyle = s.color; c.lineWidth = s.size;
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    c.beginPath();
+    c.moveTo(s.points[0].x, s.points[0].y);
+    for (let i = 1; i < s.points.length; i++) c.lineTo(s.points[i].x, s.points[i].y);
+    c.stroke();
+    c.restore();
+  };
+
 /* Effektive Seitenmaße (immer gültig): `page.size` gewinnt (eigene Formate
  * wie Bild/PDF/Quer/Quadrat), sonst Buch-Papiervorlage, sonst A4-Default.
  * Nutzt FederwerkPaper.effectiveDims wenn verfügbar (Buch-Template-System),
@@ -2429,6 +2449,10 @@ function setActivePageId(pid) {
   else split.panes[i] = { bookId: bid, pageId: pid };
   if (i === 0) state.openPageId = pid;
   syncSplitToState();
+  // Praesentationsmodus (SPEC-38): die Hauptansicht steuert die Show. Wer hier
+  // blättert, blättert auch auf dem zweiten Schirm – ohne dass sich die
+  // Haupt-UI im geringsten veraendert.
+  try { if (typeof window !== 'undefined' && window.FederwerkPresent) window.FederwerkPresent.onPage(pid); } catch { /* Praesentation optional */ }
 }
 function historyState(allPages = false, pageId) {
   const b = openBook(); if (!b) return null;
@@ -2840,113 +2864,6 @@ function stagePosFor(ev, idx, st) {
   return { x: (ev.clientX - r.left) / r.width * d.w, y: (ev.clientY - r.top) / r.height * d.h, nx: (ev.clientX - r.left) / r.width, ny: (ev.clientY - r.top) / r.height, p };
 }
 function stagePos(ev) { return stagePosFor(ev, activePaneIdx()); }
-function drawStroke(c, s) {
-  if (!s.points.length) return;
-  c.save();
-  c.strokeStyle = s.color;
-  c.lineWidth = s.size;
-  c.lineCap = 'round'; c.lineJoin = 'round';
-  if (s.tool === 'marker') { c.globalAlpha = 0.35; c.globalCompositeOperation = 'multiply'; }
-  if (s.alpha != null && s.alpha < 1) c.globalAlpha *= s.alpha;
-  if (s.dash && s.dash.length) { try { c.setLineDash(s.dash); } catch { /* ignore */ } }
-  // Cleaner-Look: Punkte vor dem Rendern leicht glätten (Chaikin, 1x),
-  // aber Altbestand/Shapes unverfälscht lassen bei closed/fill/dash.
-  let pts = s.points;
-  const closed = !!s.closed || (!!s.fill && pts.length > 2);
-  const canSmooth = !closed && !(s.dash && s.dash.length) && pts.length >= 3
-    && typeof GrimoirePencil !== 'undefined' && GrimoirePencil.chaikinSmooth;
-  if (canSmooth) {
-    try { pts = GrimoirePencil.chaikinSmooth(pts, 1); } catch { pts = s.points; }
-  }
-  // Pressure-Stift: Punkte mit p -> segweise variable Breite (round caps),
-  // gerendert als Midpoint-Quadratics statt LineTo-Polygon (cleaner, ruhiger);
-  // Punkte ohne p (Altbestand, Shapes, Fills, Dashes) -> single size wie bisher.
-  const usePressure = !closed && !(s.dash && s.dash.length) && pts.some(q => q && typeof q.p === 'number');
-  if (usePressure) {
-    const wOf = q => {
-      let pp = 0.5;
-      try {
-        pp = (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.normalizePressure)
-          ? GrimoirePencil.normalizePressure(q.p)
-          : ((typeof q.p === 'number' && q.p > 0) ? Math.min(1, q.p) : 0.5);
-      } catch { pp = 0.5; }
-      try {
-        if (typeof GrimoirePencil !== 'undefined' && GrimoirePencil.pressureWidth) return GrimoirePencil.pressureWidth(s.size, pp);
-      } catch { /* Fallback unten */ }
-      return Math.min(s.size * 3, Math.max(s.size * 0.5, s.size * (0.35 + 0.9 * pp)));
-    };
-    if (pts.length === 1) {
-      c.fillStyle = s.color;
-      c.beginPath(); c.arc(pts[0].x, pts[0].y, wOf(pts[0]) / 2, 0, 7); c.fill();
-      c.restore();
-      return;
-    }
-    if (pts.length === 2) {
-      c.lineWidth = (wOf(pts[0]) + wOf(pts[1])) / 2;
-      c.beginPath();
-      c.moveTo(pts[0].x, pts[0].y);
-      c.lineTo(pts[1].x, pts[1].y);
-      c.stroke();
-      c.restore();
-      return;
-    }
-    // Midpoint-Quadratics mit variabler Breite: pro Segment ein Pfad,
-    // Breite = Mittel der Endpunkt-Breiten (weich, ohne Stufen).
-    let prevMx = (pts[0].x + pts[1].x) / 2, prevMy = (pts[0].y + pts[1].y) / 2;
-    c.lineWidth = (wOf(pts[0]) + wOf(pts[1])) / 2;
-    c.beginPath();
-    c.moveTo(pts[0].x, pts[0].y);
-    c.lineTo(prevMx, prevMy);
-    c.stroke();
-    for (let i = 1; i < pts.length - 1; i++) {
-      const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
-      c.lineWidth = (wOf(pts[i]) + wOf(pts[i + 1])) / 2;
-      c.beginPath();
-      c.moveTo(prevMx, prevMy);
-      c.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-      c.stroke();
-      prevMx = mx; prevMy = my;
-    }
-    c.restore();
-    return;
-  }
-  // Ohne Pressure: ebenfalls Midpoint-Quadratics (sichtbar runder als LineTo).
-  if (!closed && !(s.dash && s.dash.length) && pts.length > 2) {
-    c.beginPath();
-    c.moveTo(pts[0].x, pts[0].y);
-    c.lineTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
-    for (let i = 1; i < pts.length - 1; i++) {
-      c.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i + 1].x) / 2, (pts[i].y + pts[i + 1].y) / 2);
-    }
-    c.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-    if (pts.length === 1) {
-      c.fillStyle = s.color;
-      c.beginPath(); c.arc(pts[0].x, pts[0].y, s.size / 2, 0, 7); c.fill();
-    } else {
-      c.stroke();
-    }
-    c.restore();
-    return;
-  }
-  c.beginPath();
-  c.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].x, pts[i].y);
-  if (pts.length === 1) {
-    c.fillStyle = s.color;
-    c.beginPath(); c.arc(pts[0].x, pts[0].y, s.size / 2, 0, 7); c.fill();
-  } else {
-    if (closed) c.closePath();
-    if (s.fill) {
-      c.fillStyle = s.fill;
-      const ga = c.globalAlpha;
-      c.globalAlpha = ga * (s.fillAlpha == null ? 1 : s.fillAlpha);
-      c.fill();
-      c.globalAlpha = ga;
-    }
-    c.stroke();
-  }
-  c.restore();
-}
 function renderPageCanvas(st, page, d) {
   if (!st || !page) return;
   fitCanvasIn(st, d);
@@ -2957,7 +2874,15 @@ function renderPageCanvas(st, page, d) {
   page.strokes.forEach(s => drawStroke(g, s));
 }
 function renderCanvasFor(idx) { renderPageCanvas($(eid('stage', idx)), panePage(idx), paneDims(idx)); }
-function renderCanvas() { renderCanvasFor(activePaneIdx()); }
+function renderCanvas() {
+  renderCanvasFor(activePaneIdx());
+  // SPEC-38: einziger Sammelpunkt fuer inhaltliche Aenderungen der aktiven
+  // Seite (Strich, Radierer, Undo, Import, Live-Uebernahme). Wer waehrend einer
+  // Praesentation im Hauptfenster etwas ergaenzt, traegt es damit sofort auf den
+  // zweiten Schirm. `renderPageCanvas` (Resize/Nachbarseiten) ruft das bewusst
+  // NICHT auf – sonst wuerde ein Fenstergroessenwechsel die Show neu senden.
+  try { if (typeof window !== 'undefined' && window.FederwerkPresent) window.FederwerkPresent.onCanvas(); } catch { /* Praesentation optional */ }
+}
 /* Overlay der Buehne, auf der gerade gezeichnet wird. Ohne `st` die aktive
  * Seite – im Continuous-Scroll-Modus kann der Zeiger aber auch auf einer
  * Nachbarseite stehen, dann zaehlt deren eigenes Overlay. */
@@ -3064,6 +2989,9 @@ function laserPushFor(idx, pos) {
   if (L) laserTrail = L.push(laserTrail, { x: pos.x, y: pos.y, t: Date.now() });
   else { laserTrail.push({ x: pos.x, y: pos.y, t: Date.now() }); while (laserTrail.length > 24) laserTrail.shift(); }
   scheduleLaserFrame();
+  // SPEC-38: denselben Punkt an den zweiten Schirm weiterreichen. Das
+  // Hauptfenster zeigt den Laser weiterhin lokal – nur die Show sieht ihn mit.
+  try { if (typeof window !== 'undefined' && window.FederwerkPresent) window.FederwerkPresent.onLaser(idx, pos); } catch { /* Praesentation optional */ }
 }
 function stopLaser() {
   laserTrail = []; laserDown = false;

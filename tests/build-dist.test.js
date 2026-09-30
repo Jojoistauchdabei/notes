@@ -18,7 +18,12 @@ function write(file, content) {
 }
 
 // Mini-Fixture: alles, was scripts/build-dist.js erwartet.
-function makeFixture(eol) {
+function makeFixture(eol, withPresent) {
+  // tmp.src wird über die Fälle hinweg wiederverwendet -> vorher leeren, sonst
+  // bleibt eine present.html aus dem vorigen Fall liegen und der Testfall
+  // "ohne present.html" prüft ins Leere.
+  fs.rmSync(tmp.src, { recursive: true, force: true });
+  fs.mkdirSync(tmp.src, { recursive: true });
   const scripts = ['js/pencil.js', 'js/editor.js', 'js/app.js'];
   const html = [
     '<!DOCTYPE html>',
@@ -37,6 +42,26 @@ function makeFixture(eol) {
     '',
   ].join(eol);
   write('index.html', html);
+  if (withPresent) {
+    // Empfängerseite des Präsentationsmodus (SPEC-38): eigenes, schlankes
+    // Skript, KEIN app.js.
+    const present = [
+      '<!DOCTYPE html>',
+      '<html lang="de">',
+      '<head>',
+      '<link href="css/styles.css" rel="stylesheet">',
+      '</head>',
+      '<body>',
+      '<div id="presentRoot"></div>',
+      '<script src="js/pencil.js"></script>',
+      '<script src="js/present-view.js"></script>',
+      '</body>',
+      '</html>',
+      '',
+    ].join(eol);
+    write('present.html', present);
+    write('js/present-view.js', '/* js/present-view.js */' + eol + 'window.X_present_view = 1;');
+  }
   write('agent.html', '<!DOCTYPE html><title>Agent</title>');
   write('manifest.webmanifest', '{"name":"f","version":"1.2.3"}');
   write('sw.js', "const CACHE = 'federwerk-v1.2.3';\nconst ASSETS = ['.', 'index.html', 'agent.html'];\n");
@@ -130,12 +155,53 @@ describe('scripts/build-dist.js', () => {
   after(() => { if (tmp) fs.rmSync(tmp.root, { recursive: true, force: true }); });
 
   it('baut mit LF-Zeilenenden (Linux/macOS)', () => {
-    makeFixture('\n');
+    makeFixture('\n', false);
     assertBuilt(runBuild(), '\n');
   });
 
   it('baut mit CRLF-Zeilenenden (Windows-Checkout) – Regression', () => {
-    makeFixture('\r\n');
+    makeFixture('\r\n', false);
     assertBuilt(runBuild(), '\r\n');
+  });
+
+  it('bündelt present.html mit eigenem Bundle (SPEC-38) – ohne den Build zu brechen', () => {
+    makeFixture('\n', true);
+    const dist = runBuild();
+
+    const html = fs.readFileSync(path.join(dist, 'present.html'), 'utf8');
+    const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+    assert.equal(scripts.length, 1, 'genau ein Script-Tag auf der Empfängerseite');
+    assert.match(scripts[0], /^js\/present\.bundle\.[0-9a-f]{10}\.js$/, 'eigenes Bundle, nicht das der App');
+    assert.match(html, /href="css\/styles\.[0-9a-f]{10}\.css"/, 'gehashtes Stylesheet');
+    assert.ok(!html.includes('css/styles.css'), 'CSS umgehängt');
+    assert.ok(!html.includes('js/present-view.js'), 'keine Einzel-Skripte mehr');
+
+    const bundle = fs.readFileSync(path.join(dist, scripts[0]), 'utf8');
+    assert.ok(bundle.includes('X_present_view'), 'Empfänger-Logik im Bundle');
+    assert.ok(!bundle.includes('X_app'), 'die Empfängerseite zieht nicht das ganze App-Bundle');
+
+    // Die App selbst bleibt unberührt: eigenes Bundle, kein Fremd-Inhalt.
+    const appHtml = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
+    const appScripts = [...appHtml.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+    assert.match(appScripts[0], /^js\/app\.bundle\.[0-9a-f]{10}\.js$/);
+    assert.ok(!appScripts[0].includes('present'), 'index.html lädt weiterhin nur das App-Bundle');
+
+    const sw = fs.readFileSync(path.join(dist, 'sw.js'), 'utf8');
+    assert.ok(sw.includes('present.html'), 'SW precacht present.html (offline präsentierbar)');
+    assert.ok(sw.includes(scripts[0]), 'SW precacht das Empfänger-Bundle');
+
+    const headers = fs.readFileSync(path.join(dist, '_headers'), 'utf8');
+    assert.ok(headers.includes('/' + scripts[0]), 'immutable für das Empfänger-Bundle');
+    assert.match(headers, /present\.html\n {2}Cache-Control: public, max-age=0, must-revalidate/,
+      'present.html revalidiert – sonst kämen neue Releases nicht an');
+  });
+
+  it('ohne present.html läuft der Build weiter (alter Checkout, unvollständige Fixture)', () => {
+    makeFixture('\n', false);
+    const dist = runBuild();
+    assert.ok(fs.existsSync(path.join(dist, 'index.html')));
+    assert.ok(!fs.existsSync(path.join(dist, 'present.html')));
+    const headers = fs.readFileSync(path.join(dist, '_headers'), 'utf8');
+    assert.ok(!headers.includes('present.html'));
   });
 });

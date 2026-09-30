@@ -88,9 +88,12 @@ fs.mkdirSync(path.join(dist, 'assets'), { recursive: true });
 
 // 1) Unveränderte Dateien (Papier-PNG bewusst ausgelassen: 2,5 MB)
 // agent.html = /agent (KI-Agent-Seite), MCP_AI.md = /mcp (Anleitung fuer KI-Modelle)
+// present.html = Empfängerseite des Präsentationsmodus (SPEC-38), wird unten
+// wie index.html gebündelt – fehlt sie (alte Checkout/Fixture), kein Fehler.
 for (const file of ['index.html', 'agent.html', 'manifest.webmanifest', 'sw.js', 'llms.txt', 'FEDERWERK_FORMAT.md', 'MCP_AI.md', 'federwerk.schema.json']) {
   copy(file);
 }
+if (fs.existsSync(path.join(root, 'present.html'))) copy('present.html');
 for (const dir of ['icons', 'screenshots', 'docs']) {
   // docs/ ist optional (Nutzer-Doku) – ein fehlender Ordner darf den Build
   // nicht abbrechen.
@@ -118,26 +121,76 @@ const cssMin = minify('css', cssSource, 'styles');
 const cssName = `styles.${hash10(cssMin)}.css`;
 fs.writeFileSync(path.join(dist, 'css', cssName), cssMin);
 
-// 4) Skripte aus index.html in Reihenfolge laden -> ein Bundle
-const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-const scriptSrcs = [...html.matchAll(/<script\s+src="(js\/[^"]+\.js)"><\/script>/g)].map((m) => m[1]);
-if (!scriptSrcs.length) {
-  console.error('build: Keine <script src="js/..."> in index.html gefunden.');
-  process.exit(1);
-}
-const bundleSource = scriptSrcs
-  .map((rel) => {
-    const p = path.join(root, rel);
-    if (!fs.existsSync(p)) {
-      console.error(`build: Skript fehlt: ${rel}`);
+// 4+6) HTML-Seiten: Skripte in Reihenfolge laden -> je ein Bundle, dann ein
+//      Stylesheet und genau ein Bundle mit defer pro Seite verlinken.
+//      Zeilenumbruch-agnostisch: Windows-Checkouts (core.autocrlf) liefern CRLF,
+//      darum wird nie auf einen exakten \n-Block gepatcht.
+//      `required=false` -> fehlende Seite (oder Seite ohne Skripte) wird
+//      übersprungen, statt den Build abzubrechen.
+function bundlePage(htmlRel, prefix, required) {
+  const p = path.join(dist, htmlRel);
+  if (!fs.existsSync(p)) {
+    if (required) {
+      console.error(`build: ${htmlRel} fehlt im dist.`);
       process.exit(1);
     }
-    return fs.readFileSync(p, 'utf8');
-  })
-  .join('\n;\n');
-const bundle = minify('js', bundleSource, 'bundle');
-const bundleName = `app.bundle.${hash10(bundle)}.js`;
-fs.writeFileSync(path.join(dist, 'js', bundleName), bundle);
+    return null;
+  }
+  let h = fs.readFileSync(p, 'utf8');
+  const scriptSrcs = [...h.matchAll(/<script\s+src="(js\/[^"]+\.js)"><\/script>/g)].map((m) => m[1]);
+  if (!scriptSrcs.length) {
+    if (required) {
+      console.error(`build: Keine <script src="js/..."> in ${htmlRel} gefunden.`);
+      process.exit(1);
+    }
+    return null;
+  }
+  const bundleSource = scriptSrcs
+    .map((rel) => {
+      const f = path.join(root, rel);
+      if (!fs.existsSync(f)) {
+        console.error(`build: Skript fehlt: ${rel}`);
+        process.exit(1);
+      }
+      return fs.readFileSync(f, 'utf8');
+    })
+    .join('\n;\n');
+  const bundle = minify('js', bundleSource, prefix);
+  const bundleName = `${prefix}.${hash10(bundle)}.js`;
+  fs.writeFileSync(path.join(dist, 'js', bundleName), bundle);
+
+  const eol = h.includes('\r\n') ? '\r\n' : '\n';
+  h = h.replace(/<link\b[^>]*href="css\/styles\.css"[^>]*>/, `<link rel="stylesheet" href="css/${cssName}">`);
+  const scriptTag = /[ \t]*<script src="js\/[^"]+\.js"><\/script>[ \t]*\r?\n?/g;
+  const found = (h.match(scriptTag) || []).length;
+  if (found !== scriptSrcs.length) {
+    console.error(`build: Skript-Block in ${htmlRel} unvollständig (${found}/${scriptSrcs.length} gefunden).`);
+    process.exit(1);
+  }
+  h = h.replace(scriptTag, '');
+  const bundleTag = `  <script src="js/${bundleName}" defer></script>`;
+  h = /<\/body>/i.test(h)
+    ? h.replace(/[ \t]*<\/body>/i, `${bundleTag}${eol}</body>`)
+    : `${h.replace(/\s*$/, '')}${eol}${bundleTag}${eol}`;
+  // Auf das <link>-Tag pruefen, nicht auf den blossen Substring: present.html
+  // erwaehnt "css/styles.css" in einem Kommentar ("damit Schirm und Notizbuch
+  // gleich aussehen"), und der Substring-Check hat den Build daran
+  // abgebrochen – die Seite blieb unausgepackt und im Release waere sie
+  // komplett funktionsunfaehig gewesen (Skripte und CSS existieren dort
+  // nicht einzeln, nur als Bundle).
+  if (/<link\b[^>]*href="css\/styles\.css"/.test(h)) {
+    console.error(`build: CSS-Referenz in ${htmlRel} nicht gefunden.`);
+    process.exit(1);
+  }
+  fs.writeFileSync(p, h);
+  return { bundleName, count: scriptSrcs.length };
+}
+
+const appPage = bundlePage('index.html', 'app.bundle', true);
+// Empfängerseite der Präsentation (SPEC-38). Eigenes, schlankes Bundle: sie
+// braucht weder app.js noch die Cloud-Sync-Skripte – nur Renderer, Bleistift,
+// Laser und die Präsentationslogik.
+const presentPage = bundlePage('present.html', 'present.bundle', false);
 
 // 5) Eigenständig geladene Dateien behalten ihre Namen
 //    gnpdf-worker.js: new Worker('js/gnpdf-worker.js', { type: 'module' })
@@ -149,31 +202,7 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js']) {
   fs.writeFileSync(path.join(dist, rel), minify('js', fs.readFileSync(p, 'utf8'), path.basename(rel, '.js')));
 }
 
-// 6) index.html: ein Stylesheet, ein Bundle mit defer
-// Zeilenumbruch-agnostisch: Windows-Checkouts (core.autocrlf) liefern CRLF,
-// darum wird nie auf einen exakten \n-Block gepatcht.
-{
-  const p = path.join(dist, 'index.html');
-  let h = fs.readFileSync(p, 'utf8');
-  const eol = h.includes('\r\n') ? '\r\n' : '\n';
-  h = h.replace(/<link\b[^>]*href="css\/styles\.css"[^>]*>/, `<link rel="stylesheet" href="css/${cssName}">`);
-  const scriptTag = /[ \t]*<script src="js\/[^"]+\.js"><\/script>[ \t]*\r?\n?/g;
-  const found = (h.match(scriptTag) || []).length;
-  if (found !== scriptSrcs.length) {
-    console.error(`build: Skript-Block in index.html unvollständig (${found}/${scriptSrcs.length} gefunden).`);
-    process.exit(1);
-  }
-  h = h.replace(scriptTag, '');
-  const bundleTag = `  <script src="js/${bundleName}" defer></script>`;
-  h = /<\/body>/i.test(h)
-    ? h.replace(/[ \t]*<\/body>/i, `${bundleTag}${eol}</body>`)
-    : `${h.replace(/\s*$/, '')}${eol}${bundleTag}${eol}`;
-  if (h.includes('css/styles.css')) {
-    console.error('build: CSS-Referenz in index.html nicht gefunden.');
-    process.exit(1);
-  }
-  fs.writeFileSync(p, h);
-}
+// 6) Eigenständig geladene Dateien behalten ihre Namen (siehe 5)
 
 // 7) sw.js: nur App-Shell precachen, kein Screenshot-/Doku-Ballast
 {
@@ -184,7 +213,7 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js']) {
     'index.html',
     'agent.html',
     `css/${cssName}`,
-    `js/${bundleName}`,
+    `js/${appPage.bundleName}`,
     'js/gnpdf-worker.js',
     'manifest.webmanifest',
     paperFiles.webp,
@@ -193,6 +222,12 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js']) {
     'icons/icon-192.png',
     'icons/icon-512.png',
   ];
+  // Die Empfängerseite gehört zur Shell: eine Präsentation muss auch ohne Netz
+  // starten können, sonst ist ausgerechnet beim Zeigen alles weg.
+  if (presentPage) {
+    shell.splice(3, 0, 'present.html');
+    shell.splice(5, 0, `js/${presentPage.bundleName}`);
+  }
   const arr = `const ASSETS = ${JSON.stringify(shell).replace(/","/g, '", "')};`;
   if (!/const ASSETS = \[[^\]]*\];/.test(s)) {
     console.error('build: ASSETS-Liste in sw.js nicht gefunden.');
@@ -205,21 +240,28 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js']) {
 // 8) _headers: lange Cache-TTL für gehashte/unveränderte Dateien
 {
   const immutable = [
-    `/js/${bundleName}`,
+    `/js/${appPage.bundleName}`,
     `/css/${cssName}`,
     `/${paperFiles.webp}`,
     `/${paperFiles.jpg}`,
     '/icons/*',
   ];
+  const revalidate = [
+    '/index.html',
+    '/agent.html',
+    '/MCP_AI.md',
+    '/sw.js',
+    '/manifest.webmanifest',
+  ];
+  if (presentPage) {
+    immutable.push(`/js/${presentPage.bundleName}`);
+    revalidate.push('/present.html');
+  }
   const headers = [
     ...immutable.map((route) => `${route}\n  Cache-Control: public, max-age=31536000, immutable`),
     '/screenshots/*\n  Cache-Control: public, max-age=604800',
     '/docs/*\n  Cache-Control: public, max-age=0, must-revalidate',
-    '/index.html\n  Cache-Control: public, max-age=0, must-revalidate',
-    '/agent.html\n  Cache-Control: public, max-age=0, must-revalidate',
-    '/MCP_AI.md\n  Cache-Control: public, max-age=0, must-revalidate',
-    '/sw.js\n  Cache-Control: public, max-age=0, must-revalidate',
-    '/manifest.webmanifest\n  Cache-Control: public, max-age=0, must-revalidate',
+    ...revalidate.map((route) => `${route}\n  Cache-Control: public, max-age=0, must-revalidate`),
     '/*\n  X-Content-Type-Options: nosniff\n  X-Frame-Options: DENY\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()\n  Content-Security-Policy: frame-ancestors \'none\'',
   ].join('\n\n') + '\n';
   fs.writeFileSync(path.join(dist, '_headers'), headers);

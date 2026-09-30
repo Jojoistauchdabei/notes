@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#8b5a2b">
+  <link rel="icon" type="image/svg+xml" href="icons/logo.svg">
+  <title>Federwerk – Präsentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* Nur diese Seite – inline, damit sie ohne App-Bundle auskommt. Die
+       Papier-Optik (Klassen .stage.paper-* und .text-box) kommt bewusst aus
+       css/styles.css, damit Schirm und Notizbuch garantiert gleich aussehen. */
+    html, body { height: 100%; margin: 0; background: #0d0a08; overflow: hidden; }
+    body { color: #f2e8d8; font-family: 'Crimson Text', Georgia, serif; }
+  </style>
+</head>
+<body>
+  <!-- Bühne: dunkel, die Seite mittig und eingepasst. -->
+  <div class="present-root" id="presentRoot">
+    <div class="present-fit" id="presentFit">
+      <div class="stage present-page" id="presentPage" data-part="stage">
+        <div class="present-bg" data-part="bgLayer"></div>
+        <canvas class="present-canvas" data-part="drawCanvas"></canvas>
+        <div class="present-layer" data-part="imgLayer"></div>
+        <div class="present-layer" data-part="textLayer"></div>
+        <canvas class="present-laser" id="presentLaser"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wartetext, solange das Hauptfenster noch nichts geschickt hat. -->
+  <div class="present-wait" id="presentWait">
+    <div class="present-wait-card">
+      <div class="present-wait-title">⏳ Warte auf das Dokument</div>
+      <p>Diese Ansicht gehört zu einem Federwerk-Fenster. Im Hauptfenster
+        <strong>▶ Präsentieren</strong> drücken – das Dokument erscheint dann hier.</p>
+      <p class="present-wait-hint">F = Vollbild · ←/→ blättern</p>
+    </div>
+  </div>
+
+  <!-- Bedienleiste: blendet nach 3 s Ruhe selbst aus, wie bei einer Show. -->
+  <div class="present-bar" id="presentBar" hidden>
+    <button class="present-btn" id="presentPrevBtn" type="button" title="Zurück (←)" aria-label="Vorherige Seite">‹</button>
+    <span class="present-count" id="presentCount">– / –</span>
+    <button class="present-btn" id="presentNextBtn" type="button" title="Weiter (→)" aria-label="Nächste Seite">›</button>
+    <span class="present-sep"></span>
+    <button class="present-btn" id="presentBlackBtn" type="button" title="Schwarzbild (B)" aria-label="Schwarzbild umschalten">■</button>
+    <button class="present-btn" id="presentLaserBtn" type="button" title="Laserpointer auf dem Schirm (L)" aria-label="Laserpointer umschalten">🔦</button>
+    <span class="present-sep"></span>
+    <button class="present-btn" id="presentFullBtn" type="button" title="Vollbild (F)" aria-label="Vollbild">⛶</button>
+    <button class="present-btn" id="presentExitBtn" type="button" title="Beenden (Esc)" aria-label="Präsentation beenden">✕</button>
+  </div>
+
+  <div class="present-title" id="presentTitle"></div>
+
+  <!-- Reihenfolge ist Ladefolge: Stift-Helfer und Renderer zuerst, ganz am
+       Ende der Controller. present-view.js steht hier und NICHT in index.html –
+       sonst läge es im App-Bundle und würde die Meldungen des Hauptfensters
+       abfangen. -->
+  <script src="js/sanitize.js"></script>
+  <script src="js/pencil.js"></script>
+  <script src="js/inkdraw.js"></script>
+  <script src="js/laser.js"></script>
+  <script src="js/presentflow.js"></script>
+  <script src="js/present-view.js"></script>
+</body>
+</html>

@@ -16,11 +16,20 @@ describe('SPEC-25 marker-konstanten', () => {
     assert.equal(E.MARKER_COMPOSITE, 'multiply');
   });
 
-  it('app.js drawStroke nutzt multiply + alpha 0.35 für marker', () => {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  it('drawStroke (js/inkdraw.js) nutzt multiply + alpha 0.35 für marker', () => {
+    // SPEC-38: der Renderer wurde nach js/inkdraw.js ausgelagert, weil die
+    // Präsentations-Seite (present.html) dieselbe Tinte ohne die ganze App
+    // zeichnen soll. app.js leitet nur noch weiter.
+    const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'inkdraw.js'), 'utf8');
     assert.match(src, /tool\s*===\s*['"]marker['"]/);
     assert.match(src, /globalCompositeOperation\s*=\s*['"]multiply['"]/);
     assert.match(src, /globalAlpha\s*=\s*0\.35/);
+  });
+
+  it('app.js zeichnet über denselben Renderer (ein Renderer, eine Wahrheit)', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+    assert.match(src, /const drawStroke = \(typeof FederwerkInk !== ['"]undefined['"]/);
+    assert.ok(!/^function drawStroke\(/m.test(src), 'keine zweite Kopie in app.js');
   });
 });
 
