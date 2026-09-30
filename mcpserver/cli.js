@@ -15,6 +15,8 @@ const C = require('./content');
 function createDemoHandler() {
   const docs = new Map(); // id -> {id,title,folderId,pages,kind,cards,deckOptions,reviewLog,updatedAt,deleted}
   const folders = new Map(); // id -> {id,name,parentId}
+  const session = { authenticated: false, ownedByMcp: false, userId: '', email: '', expiresAt: null };
+  const info = (extra) => ({ ...session, ...(extra || {}) });
 
   const seed = {
     id: 'demo-1', title: 'Willkommen bei Federwerk', folderId: null,
@@ -54,6 +56,21 @@ function createDemoHandler() {
   const fullDocs = () => live().map((d) => ({ ...toDoc(d), markdown: C.pagesToMarkdown(d.pages) }));
 
   return createMcpHandler({
+    sessionInfo: async () => info(),
+    login: async () => {
+      session.authenticated = true;
+      session.ownedByMcp = true;
+      session.email = 'demo@federwerk.local';
+      session.userId = 'demo-user';
+      session.expiresAt = new Date(Date.now() + 3600e3).toISOString();
+      return info();
+    },
+    logout: async () => {
+      if (!session.authenticated) return info({ loggedOut: false, note: 'Keine Session aktiv' });
+      const owned = session.ownedByMcp;
+      Object.assign(session, { authenticated: false, ownedByMcp: false, userId: '', email: '', expiresAt: '' });
+      return info({ loggedOut: owned });
+    },
     listDocuments: async (limit = 100, folderId = null, opts = {}) => {
       const max = Math.min(Math.max(Number(limit) || 100, 1), 100);
       const target = folderId || (opts && opts.folderId);
@@ -260,13 +277,19 @@ async function getHandler() {
     return createDemoHandler();
   }
   const config = M.getConfig();
-  if (!config.apiKey && !config.session) {
-    process.stderr.write('Federwerk MCP: weder APPWRITE_API_KEY noch APPWRITE_SESSION – Demo-Backend (flüchtig).\n');
+  if (!config.apiKey && !config.session && !M.canLoginFromStore(config)) {
+    process.stderr.write('Federwerk MCP: keine Anmeldedaten – Demo-Backend (flüchtig).\n'
+      + '  Für die echten Notizen: node mcpserver/login.js --email <adresse> --save\n');
     return createDemoHandler();
   }
-  // Wirft bei ungültiger/abgelaufener Session (kein stiller Demo-Fallback!).
+  // Meldet sich mit den hinterlegten Daten selbst an; wirft bei falschen
+  // Credentials (kein stiller Demo-Fallback, sonst schreibt man blind ins Nichts).
+  const token = await M.ensureSession(config);
   const userId = await M.resolveUserId(config);
-  process.stderr.write(`Federwerk MCP: Cloud-Backend als Nutzer ${userId} (${config.apiKey ? 'API-Key' : 'Session'}).\n`);
+  process.stderr.write(
+    'Federwerk MCP: Cloud-Backend als Nutzer ' + userId
+    + ' (' + (config.apiKey ? 'API-Key' : (config.session && !token ? 'Session' : 'angemeldet')) + ').\n',
+  );
   return M.createAppwriteHandler(M.withUser(config, userId));
 }
 

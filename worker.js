@@ -2,6 +2,8 @@
  *
  * Routen (öffentlich): GET /mcp/health, GET /mcp/tools, POST /mcp/login
  * Routen (Bearer): POST /mcp/prompt, POST /mcp/search, POST /mcp/read
+ * Doku (öffentlich, vor der API): GET /agent -> agent.html,
+ *   GET /mcp -> MCP_AI.md (text/markdown, Anleitung für KI-Modelle)
  * Alles andere -> Static Assets (dist/, siehe wrangler.toml).
  *
  * Secrets (wrangler secret put): MCP_USER, MCP_PASS, MCP_TOKEN.
@@ -298,10 +300,43 @@ async function handleMcp(request, env) {
   return json({ error: 'Unbekannte MCP-Route', tools: TOOLS }, 404, env);
 }
 
+// --- Doku-/Agent-Routen -----------------------------------------------------
+// GET /agent -> agent.html (Nutzerseite "KI-Agent & MCP")
+// GET /mcp   -> MCP_AI.md als text/markdown (Anleitung für KI-Modelle)
+// bewusst VOR der /mcp-API: /mcp ist die Doku-Route, die API liegt unter
+// /mcp/login|search|read|prompt|health|tools.
+async function serveDocs(pathname, request, env) {
+  const method = request.method.toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD') return null;
+  const base = (env && env.ASSETS && typeof env.ASSETS.fetch === 'function') ? env.ASSETS : null;
+  if (!base) return null;
+  if (pathname === '/agent' || pathname === '/agent/') {
+    return base.fetch(new Request(new URL('/agent.html', request.url), request));
+  }
+  if (pathname === '/mcp') {
+    const res = await base.fetch(new Request(new URL('/MCP_AI.md', request.url), request));
+    if (!res || !res.ok) return res;
+    // Als Markdown ausliefern, nicht als Download – Modelle lesen Text direkt.
+    const body = await res.text();
+    return new Response(method === 'HEAD' ? null : body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/markdown; charset=utf-8',
+        'Cache-Control': 'public, max-age=0, must-revalidate',
+        'X-Content-Type-Options': 'nosniff',
+        'Vary': 'Accept',
+      },
+    });
+  }
+  return null;
+}
+
 export default {
   async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
+      const docs = await serveDocs(url.pathname, request, env);
+      if (docs) return docs;
       if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) {
         return handleMcp(request, env);
       }

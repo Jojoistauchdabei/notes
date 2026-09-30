@@ -37,10 +37,12 @@ function makeFixture(eol) {
     '',
   ].join(eol);
   write('index.html', html);
+  write('agent.html', '<!DOCTYPE html><title>Agent</title>');
   write('manifest.webmanifest', '{"name":"f","version":"1.2.3"}');
-  write('sw.js', "const CACHE = 'federwerk-v1.2.3';\nconst ASSETS = ['.', 'index.html'];\n");
+  write('sw.js', "const CACHE = 'federwerk-v1.2.3';\nconst ASSETS = ['.', 'index.html', 'agent.html'];\n");
   write('llms.txt', 'x');
   write('FEDERWERK_FORMAT.md', 'x');
+  write('MCP_AI.md', '# MCP fuer KI');
   write('federwerk.schema.json', '{}');
   write('altes_Papier.webp', Buffer.from([0x52, 0x49, 0x46, 0x46]));
   write('altes_Papier.jpg', Buffer.from([0xff, 0xd8, 0xff]));
@@ -104,6 +106,11 @@ function assertBuilt(dist, eol) {
   assert.ok(!sw.includes("'index.html', 'css/styles.css'"), 'SW nutzt gehashtes CSS');
   assert.ok(!sw.includes('screenshots/'), 'SW ohne Screenshots');
   assert.ok(!fs.existsSync(path.join(dist, 'altes_Papier.png')), 'kein 2,5-MB-PNG im dist');
+
+  // /agent und /mcp: Quell-Dateien müssen im dist liegen
+  assert.ok(fs.existsSync(path.join(dist, 'agent.html')), 'agent.html im dist (/agent)');
+  assert.ok(fs.existsSync(path.join(dist, 'MCP_AI.md')), 'MCP_AI.md im dist (/mcp)');
+  assert.ok(sw.includes('agent.html'), 'SW precacht agent.html (offline nutzbar)');
 
   const headers = fs.readFileSync(path.join(dist, '_headers'), 'utf8');
   assert.ok(headers.includes('/' + scripts[0]), 'immutable für Bundle');

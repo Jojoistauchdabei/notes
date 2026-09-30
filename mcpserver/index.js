@@ -45,6 +45,21 @@ function createMcpHandler(deps) {
 
   const tools = [
     {
+      name: 'session_info',
+      description: 'Show the current Appwrite login: signed in as (email, userId), whether the session belongs to this MCP (ownedByMcp) and when it expires. Never returns passwords.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'login',
+      description: 'Sign in with the configured Appwrite credentials (E-Mail/Passwort from env or the credential store) and create a session. Use after a session error or to switch users.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'logout',
+      description: 'Sign out: ends the session this MCP created. Refuses to delete sessions it does not own (e.g. a browser session passed in as APPWRITE_SESSION) so the app stays logged in.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
       name: 'list_documents',
       description: 'List Federwerk documents for the authenticated user. Optional kind filter (notebook|flashcards).',
       inputSchema: {
@@ -311,6 +326,18 @@ function createMcpHandler(deps) {
   async function callTool(name, args) {
     const input = args && typeof args === 'object' ? args : {};
     const call = async (dep, ...a) => need(dep)(...a);
+    if (name === 'session_info') {
+      const rows = await call('sessionInfo');
+      return toolResult(JSON.stringify(rows), rows);
+    }
+    if (name === 'login') {
+      const rows = await call('login');
+      return toolResult(JSON.stringify(rows), rows);
+    }
+    if (name === 'logout') {
+      const rows = await call('logout');
+      return toolResult(JSON.stringify(rows), rows);
+    }
     if (name === 'list_documents') {
       const rows = await call('listDocuments', input.limit, input.folderId, input);
       return toolResult(JSON.stringify(rows), rows);

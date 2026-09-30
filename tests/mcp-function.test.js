@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const mcpFunction = require('../mcp/index');
@@ -97,13 +100,83 @@ describe('mcp/appwrite-function', () => {
     assert.match(res.body.error.message, /APPWRITE_SESSION/);
   });
 
-  it('akzeptiert Session statt API-Key (Header-Auswahl)', () => {
-    const withKey = mcpFunction.authHeaders({ projectId: 'p', apiKey: 'k', session: 's' });
+  it('akzeptiert Session statt API-Key (Header-Auswahl)', async () => {
+    const withKey = await mcpFunction.authHeaders({ projectId: 'p', apiKey: 'k', session: 's' });
     assert.equal(withKey['X-Appwrite-Key'], 'k');
     assert.equal(withKey['X-Appwrite-Session'], undefined);
-    const withSession = mcpFunction.authHeaders({ projectId: 'p', session: 's' });
+    const withSession = await mcpFunction.authHeaders({ projectId: 'p', session: 's' });
     assert.equal(withSession['X-Appwrite-Session'], 's');
     assert.equal(withSession['X-Appwrite-Key'], undefined);
+  });
+
+  it('meldet sich mit hinterlegten Credentials selbst an', async () => {
+    mcpFunction._resetSession();
+    const realFetch = global.fetch;
+    const calls = [];
+    global.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), headers: init.headers || {} });
+      if (String(url).includes('/account/sessions/email')) {
+        const body = JSON.stringify({ $id: 's1', secret: '', userId: 'u9' });
+        return {
+          ok: true,
+          status: 201,
+          headers: { getSetCookie: () => ['a_session_proj=sess-token; HttpOnly'] },
+          text: async () => body,
+          json: async () => JSON.parse(body),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: {},
+        text: async () => JSON.stringify({ $id: 'u9', email: 'a@b.de' }),
+        json: async () => ({ $id: 'u9', email: 'a@b.de' }),
+      };
+    };
+    const credFile = path.join(os.tmpdir(), `fw-cred-${process.pid}.json`);
+    fs.writeFileSync(credFile, JSON.stringify({ email: 'a@b.de', password: 'geheim' }));
+    const prevFile = process.env.MCP_CREDENTIALS_FILE;
+    process.env.MCP_CREDENTIALS_FILE = credFile;
+    try {
+      const cfg = { endpoint: 'https://x/v1', projectId: 'proj', databaseId: 'db' };
+      assert.equal(mcpFunction.canLoginFromStore(cfg), true);
+      await mcpFunction.ensureSession(cfg);
+      const info = mcpFunction.sessionInfo();
+      assert.equal(info.authenticated, true);
+      assert.equal(info.ownedByMcp, true, 'Session gehört dem MCP');
+      assert.equal(info.userId, 'u9');
+      assert.equal(await mcpFunction.resolveUserId(cfg), 'u9');
+      // Anmeldung nur einmal, nicht bei jedem Request
+      const logins = calls.filter((c) => c.url.includes('/account/sessions/email')).length;
+      assert.equal(logins, 1);
+    } finally {
+      global.fetch = realFetch;
+      if (prevFile === undefined) delete process.env.MCP_CREDENTIALS_FILE;
+      else process.env.MCP_CREDENTIALS_FILE = prevFile;
+      try { fs.unlinkSync(credFile); } catch { /* ignore */ }
+      mcpFunction._resetSession();
+    }
+  });
+
+  it('meldet fehlende Credentials klar', async () => {
+    const prevFile = process.env.MCP_CREDENTIALS_FILE;
+    const prevMail = process.env.APPWRITE_EMAIL;
+    const prevPass = process.env.APPWRITE_PASSWORD;
+    process.env.MCP_CREDENTIALS_FILE = path.join(os.tmpdir(), `fw-missing-${process.pid}.json`);
+    delete process.env.APPWRITE_EMAIL;
+    delete process.env.APPWRITE_PASSWORD;
+    try {
+      const cfg = { endpoint: 'https://x/v1', projectId: 'proj', databaseId: 'db' };
+      assert.equal(mcpFunction.canLoginFromStore(cfg), false);
+      assert.throws(() => mcpFunction.requireConfig(cfg, {}), /Anmeldedaten erforderlich/);
+      await assert.rejects(mcpFunction.ensureSession(cfg), /Keine Anmeldedaten/);
+    } finally {
+      if (prevFile === undefined) delete process.env.MCP_CREDENTIALS_FILE;
+      else process.env.MCP_CREDENTIALS_FILE = prevFile;
+      if (prevMail === undefined) delete process.env.APPWRITE_EMAIL; else process.env.APPWRITE_EMAIL = prevMail;
+      if (prevPass === undefined) delete process.env.APPWRITE_PASSWORD; else process.env.APPWRITE_PASSWORD = prevPass;
+      mcpFunction._resetSession();
+    }
   });
 
   it('löst die User-ID aus der Session auf (einmalig, dann Cache)', async () => {

@@ -148,6 +148,36 @@ describe('mcp demo-backend: Graph', () => {
   });
 });
 
+describe('mcp demo-backend: Login-Werkzeuge', () => {
+  it('session_info meldt angemeldet, login meldet an, logout meldet ab', async () => {
+    const handler = createDemoHandler();
+    const before = await call(handler, 'session_info');
+    assert.equal(before.authenticated, false);
+
+    const after = await call(handler, 'login');
+    assert.equal(after.authenticated, true);
+    assert.equal(after.ownedByMcp, true);
+    assert.ok(after.email);
+    assert.ok(after.expiresAt);
+
+    const info = await call(handler, 'session_info');
+    assert.equal(info.authenticated, true);
+
+    const out = await call(handler, 'logout');
+    assert.equal(out.loggedOut, true);
+    assert.equal(out.authenticated, false);
+    // Tool funktioniert danach weiter (Notizen bleiben nutzbar)
+    const docs = await call(handler, 'list_documents', {});
+    assert.ok(Array.isArray(docs));
+  });
+
+  it('logout ohne Session meldet nichts zu löschen', async () => {
+    const handler = createDemoHandler();
+    const out = await call(handler, 'logout');
+    assert.equal(out.loggedOut, false);
+  });
+});
+
 describe('mcpserver/content', () => {
   it('Envelope v1/v2 Roundtrip', () => {
     const pages = C.contentToPages('# Hallo', 'markdown');
@@ -184,5 +214,50 @@ describe('mcpserver/content', () => {
     assert.throws(() => C.checkTitle('x'.repeat(201)), /zu lang/);
     assert.throws(() => C.checkCards([], true), /leer/);
     assert.throws(() => C.checkCards(new Array(101).fill({ front: 'a', back: 'b' }), true), /max 100/);
+  });
+
+  // Regressionen aus dem Live-Test gegen echte Appwrite-Daten (2026-09):
+  it('Notebooks bleiben v1 – deckOptions allein machen kein Deck daraus', () => {
+    // Live-Bug: create_document rief saveDocParts mit Default-DeckOptionen auf,
+    // wodurch jedes Notizbuch als flashcards (v2) gespeichert wurde.
+    const v1 = JSON.parse(C.encodeContent({
+      pages: C.contentToPages('normal', 'markdown'),
+      kind: 'notebook', cards: [], deckOptions: C.normalizeDeckOptions(null), reviewLog: [],
+    }));
+    assert.equal(v1.v, 1);
+    assert.equal(v1.kind, undefined);
+    assert.equal(C.decodeContent(JSON.stringify(v1)).kind, 'notebook');
+    // Echtes Deck bleibt v2, auch mit 0 Karten (Typ ist ausschlaggebend).
+    const v2 = JSON.parse(C.encodeContent({
+      pages: [], kind: 'flashcards', cards: [], deckOptions: null, reviewLog: [],
+    }));
+    assert.equal(v2.v, 2);
+    assert.equal(v2.kind, 'flashcards');
+  });
+
+  it('deckOptions-Bounds entsprechen der App und fallen nach v1 weg', () => {
+    assert.deepEqual(C.normalizeDeckOptions({ newPerDay: 0, maxReviewsPerDay: 1e6 }),
+      { newPerDay: 1, maxReviewsPerDay: 2000 });
+    // Deck mit Unsinn-Optionen bleibt trotzdem ein Deck.
+    const v2 = JSON.parse(C.encodeContent({ pages: [], kind: 'flashcards', deckOptions: { newPerDay: -5 } }));
+    assert.equal(v2.deckOptions.newPerDay, 1);
+  });
+});
+
+describe('mcpserver/login', () => {
+  const { sessionTokenFrom } = require('../mcpserver/login');
+
+  it('nutzt das secret-Feld, wenn Appwrite es liefert', () => {
+    assert.equal(sessionTokenFrom({ secret: 'abc' }, { getSetCookie: () => [] }, 'proj'), 'abc');
+  });
+
+  it('liest das Token aus dem Cookie (Appwrite 2.x liefert secret leer)', () => {
+    const cookies = { getSetCookie: () => ['a_session_proj_legacy=q; path=/', 'a_session_proj=eyJpZCI6e30%3D; HttpOnly'] };
+    assert.equal(sessionTokenFrom({ secret: '' }, cookies, 'proj'), 'eyJpZCI6e30=');
+  });
+
+  it('greift auf generisches a_session zurück und liefert sonst nichts', () => {
+    assert.equal(sessionTokenFrom({}, { get: () => 'a_session_6ab0_tok=abc; HttpOnly' }, 'proj'), 'abc');
+    assert.equal(sessionTokenFrom({ secret: '' }, {}, 'proj'), '');
   });
 });

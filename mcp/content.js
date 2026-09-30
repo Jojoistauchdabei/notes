@@ -24,6 +24,11 @@
  */
 
 var OFFLOAD_BYTES = 40000;
+// Live gemessen (Appwrite 2.3, Tabelle `notes`): `content` akzeptiert 60 KB
+// inline, ab 64 KB lehnt Appwrite die Row ab. Der Bucket `attachments`
+// erlaubt je nach Config nur Bild-/PDF-Endungen – deshalb dieser Wert als
+// Notfallgrenze, wenn der Offload am Dateityp scheitert.
+var INLINE_ROW_MAX = 60000;
 var INLINE_MARKDOWN_MAX = 8000;
 var CONTENT_MAX_BYTES = 200000;
 var TITLE_MAX = 200;
@@ -195,16 +200,21 @@ function pageText(p) {
 function encodeContent(opts) {
   var o = opts || {};
   var pages = Array.isArray(o.pages) ? o.pages : [];
-  var kind = (o.kind === 'flashcards' || o.kind === 'deck') ? 'flashcards' : undefined;
-  var hasDeck = kind || (Array.isArray(o.cards) && o.cards.length) || o.deckOptions || o.reviewLog;
+  var isDeck = o.kind === 'flashcards' || o.kind === 'deck';
+  // Deck-Marker: Typ, Karten oder Verlauf. deckOptions allein macht KEIN Deck
+  // aus (sonst würde jedes Notizbuch durchgereichter Default-Optionen zum
+  // Deck) – deckOptions zählen nur, wenn das Buch ohnehin Deck ist.
+  var hasDeck = isDeck
+    || (Array.isArray(o.cards) && o.cards.length > 0)
+    || (Array.isArray(o.reviewLog) && o.reviewLog.length > 0);
   if (!hasDeck) return JSON.stringify({ v: 1, pages: pages });
   return JSON.stringify({
     v: 2,
     pages: pages,
     kind: 'flashcards',
-    cards: Array.isArray(o.cards) ? o.cards : [],
-    deckOptions: o.deckOptions || { newPerDay: 20, maxReviewsPerDay: 100 },
-    reviewLog: Array.isArray(o.reviewLog) ? o.reviewLog.slice(-1000) : [],
+    cards: Array.isArray(o.cards) ? o.cards.map(function (c) { return normalizeCard(c); }) : [],
+    deckOptions: normalizeDeckOptions(o.deckOptions),
+    reviewLog: normalizeReviewLog(o.reviewLog),
   });
 }
 
@@ -683,7 +693,8 @@ function checkCards(cards, required) {
 }
 
 module.exports = {
-  OFFLOAD_BYTES: OFFLOAD_BYTES, INLINE_MARKDOWN_MAX: INLINE_MARKDOWN_MAX,
+  OFFLOAD_BYTES: OFFLOAD_BYTES, INLINE_ROW_MAX: INLINE_ROW_MAX,
+  INLINE_MARKDOWN_MAX: INLINE_MARKDOWN_MAX,
   TITLE_MAX: TITLE_MAX, BULK_CARDS_MAX: BULK_CARDS_MAX,
   nowMs: nowMs, nowIso: nowIso, newId: newId, rowIdFor: rowIdFor, normTitle: normTitle,
   escHtml: escHtml, mdToHtmlLite: mdToHtmlLite, htmlToMdLite: htmlToMdLite,

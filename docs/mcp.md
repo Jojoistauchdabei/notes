@@ -1,14 +1,14 @@
 # Federwerk MCP – Setup, Tools & Speicherformat
 
 Diese Seite dokumentiert beide MCP-Zugänge der Federwerk-Notiz-App:
-den **echten MCP-Server (JSON-RPC 2.0, 21 Tools)** für KI-Clients und das
+den **echten MCP-Server (JSON-RPC 2.0, 24 Tools)** für KI-Clients und das
 ältere **curl-API (`/mcp/*`, lesend)** auf Worker/lokalem Server.
 
 ## 1. Welcher Zugang wofür?
 
 | Zugang | Protokoll | Tools | Wofür |
 |---|---|---|---|
-| `mcpserver/` + `mcp/` | MCP (JSON-RPC 2.0, stdio/HTTP) | 21 (lesen **+ schreiben**) | **Empfohlen**: Claude Desktop, Cursor, Opencode – KI arbeitet wie ein Mensch (Notizen, Ordner, Karteikarten, Suche, Graph) |
+| `mcpserver/` + `mcp/` | MCP (JSON-RPC 2.0, stdio/HTTP) | 24 (Anmeldung, lesen **+ schreiben**) | **Empfohlen**: Claude Desktop, Cursor, Opencode – KI arbeitet wie ein Mensch (Notizen, Ordner, Karteikarten, Suche, Graph) |
 | `worker.js` (`/mcp/*`) | REST per curl + Bearer | search/read/prompt (lesend) | Cloud-Suche ohne MCP-Client, Prompt-Beantwortung aus Appwrite |
 | `mcp-server.js` | REST per curl + Login | search/read/prompt (lesend) | Lokale Suche über Export-JSON (`--file`), ohne Cloud |
 
@@ -32,24 +32,42 @@ laufen lassen (Duplikat-Sync + Paket).
 
 ## 3. Setup
 
-**Empfohlen (ohne API-Key):** Der Server loggt sich als dein Appwrite-Benutzer
-per Session ein – kein Key aus der Console nötig, und fremde Notizen sind
-prinzipbedingt unerreichbar (sicherer als Admin-Key + Filter). Einmalig:
+**So funktioniert es:** Der MCP bekommt die Login-Daten (E-Mail + Passwort)
+und **erstellt die Appwrite-Session (Cookie) selbst** – beim ersten Zugriff,
+bei Bedarf erneut (z. B. nach Ablauf, automatisch bei 401). Ohne Anmeldedaten
+läuft er als flüchtiges Demo-Backend.
+
+Einmalig einrichten:
 
 ```bash
-node mcpserver/login.js --email DU@BEISPIEL.DE
-# fragt das Passwort interaktiv (weder History noch `ps`), gibt aus:
-#   APPWRITE_SESSION=<secret>
-#   APPWRITE_USER_ID=<id>
+node mcpserver/login.js --email DU@BEISPIEL.DE --save
+# Passwort wird interaktiv gefragt (weder History noch `ps`) und in
+# ~/.config/federwerk/mcp-credentials.json (chmod 600, außerhalb des Repos)
+# abgelegt. Ab jetzt genügt: node mcpserver/cli.js
 ```
 
-`APPWRITE_SESSION` in die MCP-Umgebung übernehmen (`APPWRITE_USER_ID` ist
-optional – wird aus der Session abgeleitet). Logout:
-`node mcpserver/login.js --logout` (oder Console → Auth → Users → Sessions).
-Läuft die Session ab, einfach erneut einloggen.
+Alternativ ohne Datei: `APPWRITE_EMAIL` + `APPWRITE_PASSWORD` als Env setzen.
+Der Nutzer wird automatisch ermittelt, `APPWRITE_USER_ID` ist nicht nötig.
 
-Alternative (Server-Admins): `APPWRITE_API_KEY` + Pflicht-Scope
-`APPWRITE_USER_ID` – dann handelt der Server mit Admin-Rechten.
+Passwort niemals als Tool-Argument übergeben – `login`/`logout` lesen nur aus
+dem Store, damit es nicht im LLM-Kontext landet.
+
+| Betriebsart | Env | Notes |
+|---|---|---|
+| **Anmeldung (empfohlen)** | `APPWRITE_EMAIL`+`APPWRITE_PASSWORD` oder Credential-Datei | MCP meldet sich selbst an, Re-Auth bei 401 |
+| Fertige Session | `APPWRITE_SESSION=<token>` | Token z. B. aus `login.js`; fremde Session → `logout` löscht sie **nicht** |
+| Server-Admin | `APPWRITE_API_KEY` + `APPWRITE_USER_ID` | Key-Modus, handelt mit Admin-Rechten |
+
+Logout: `node mcpserver/login.js --logout --session <token>` oder das
+`logout`-Tool (widerruft nur die Session, die der MCP selbst erzeugt hat).
+
+> **Wichtig – Session-Limit:** Appwrite erlaubt pro Benutzer nur eine
+> begrenzte Zahl Sessions und verdrängt dabei die **ältesten** (live
+> beobachtet: die Browser-Sessions der App wurden dadurch abgemeldet). Der
+> MCP schließt seine eigene alte Session vor dem Neuanmelden und erzeugt
+> keine Leichen. Trotzdem: Viele parallele Logins (mehrere MCP-Instanzen,
+> Geräte) können die App-Sessions verdrängen – Notizen bleiben erhalten,
+> man muss sich in der App nur neu anmelden.
 
 ### 3.1 Lokal per stdio (Claude Desktop / Cursor / Opencode)
 
@@ -104,10 +122,14 @@ Alternative HTTP: `node mcpserver/cli.js --http 3000` (POST JSON-RPC).
 - Runtime: Node.js 20/22, Entrypoint `mcp/index.js` (Verzeichnis-Deploy:
   `mcp/` + `mcpserver/` gemeinsam, oder `npm run build:mcp` und
   `dist/mcp-function.tar.gz` hochladen).
-- Env-Vars: `APPWRITE_*`-Basis wie 3.1 plus **entweder** `APPWRITE_SESSION`
-  (empfohlen, `APPWRITE_USER_ID` optional) **oder** `APPWRITE_API_KEY` +
-  Pflicht-`APPWRITE_USER_ID`; `MCP_TOKEN` empfohlen. Ohne `MCP_TOKEN` ist die
+- Env-Vars: `APPWRITE_*`-Basis wie 3.1 plus **entweder** E-Mail/Passwort
+  (`APPWRITE_EMAIL` + `APPWRITE_PASSWORD`, Function meldet sich selbst an)
+  **oder** `APPWRITE_SESSION` **oder** `APPWRITE_API_KEY` + Pflicht-
+  `APPWRITE_USER_ID`; `MCP_TOKEN` empfohlen. Ohne `MCP_TOKEN` ist die
   Function offen lesbar!
+- Bei Credentials in der Function: Passwort als Secret hinterlegen, nicht
+  in den Code – die Function erzeugt die Session selbst (gleicher Code-Pfad
+  wie lokal).
 - Session-Modus: Die Function serviert **nur** den eingeloggten Nutzer.
   Key-Modus: `APPWRITE_USER_ID` ist Pflicht-Scope – ohne ihn liest jeder
   Token-Inhaber alle Notizen (nur für Single-User-Deployments ok).
@@ -140,7 +162,11 @@ curl -s -X POST http://127.0.0.1:8787/mcp/prompt \
 
 Ohne `--file`: leere Trefferliste (kein Fehler). Ohne `--pass`: Login-503.
 
-## 4. Tool-Referenz (MCP, 21 Tools)
+## 4. Tool-Referenz (MCP, 24 Tools)
+
+Anmeldung: `session_info` (wer angemeldet, `ownedByMcp`, Ablauf – **ohne**
+Passwort), `login` (mit den hinterlegten Daten neu anmelden), `logout`
+(widerruft nur die eigene Session; fremde Sessions bleiben unangetastet).
 
 Lesen: `list_documents` (`limit`, `folderId`, `kind: notebook|flashcards`),
 `get_document` (`id` → Markdown + bei Decks Karten), `list_folders`,
@@ -192,11 +218,20 @@ Unbekannte `folderId` werden beim Schreiben abgelehnt (nichts wird
 - **v1 (Notebooks, Bestand):** `{v:1, pages}` – unverändert kompakt.
 - **v2 (Decks, MCP + App-Sync):** `{v:2, pages, kind:"flashcards", cards,
   deckOptions, reviewLog}`.
-- **Offload:** Content > 40 KB liegt als JSON-Datei im Bucket
+- **Offload:** Content > 40 KB soll als JSON-Datei in den Bucket
   (`content=""`, `contentFileId="fw<sha256>"`, Dedupe per Datei-ID).
-- **Limits:** Titel max 200 Zeichen, ein Schreibvorgang max ~200 KB,
-  max 100 Karten/Aufruf, `get_document` kürzt Markdown (~8,5 KB,
-  `truncated:true`) und Karten (max 200, `cardsTruncated:true`).
+  **Live gemessen:** Der Bucket `attachments` erlaubt standardmäßig nur
+  `jpg/png/webp/pdf` – JSON wird mit `storage_file_type_unsupported`
+  abgelehnt. Dann legt der MCP den Content inline ab, solange er in die
+  Zeile passt; ab ~60 KB kommt ein klarer Fehler mit Lösungshinweis.
+  Abhilfe: In der Console **Storage → attachments → erlaubte Endungen um
+  `json` erweitern** (dann greift der Offload wieder).
+- **Zeilenlimit:** `notes.content` akzeptiert live 60 KB inline, ab 64 KB
+  lehnt Appwrite die Row ab (Tabelle/Attribut-Limit).
+- **Limits:** Titel max 200 Zeichen, ein Schreibvorgang max ~200 KB
+  (praktisch durch das Zeilenlimit begrenzt), max 100 Karten/Aufruf,
+  `get_document` kürzt Markdown (~8,5 KB, `truncated:true`) und Karten
+  (max 200, `cardsTruncated:true`).
 - **Gelöscht:** Tombstone (`title:"(gelöscht)"`, `deletedAt` gesetzt) –
   taucht in keiner Liste/Suche mehr auf; `permanent:true` entfernt die Row.
 - **Sync-Hinweis:** Der App-Sync (`js/appwrite-sync.js`) persistiert v2
@@ -208,8 +243,12 @@ Unbekannte `folderId` werden beim Schreiben abgelehnt (nichts wird
 
 ## 6. Sicherheit
 
-- `APPWRITE_SESSION`, `APPWRITE_API_KEY` + `MCP_TOKEN` sind Secrets
-  (nie committen, nie loggen; Passwort nur interaktiv in `login.js` tippen).
+- `APPWRITE_EMAIL`/`APPWRITE_PASSWORD`, `APPWRITE_SESSION`,
+  `APPWRITE_API_KEY` + `MCP_TOKEN` sind Secrets (nie committen, nie loggen;
+  Passwort nur interaktiv in `login.js` tippen). Die Credential-Datei
+  (`~/.config/federwerk/mcp-credentials.json`) gehört **nicht** ins Repo.
+- Passwörter nie als Tool-Argument übergeben – sonst landen sie im
+  LLM-Kontext (Prompt-Logs, History). `login` nutzt den Store.
 - Session läuft ggf. ab → erneut `node mcpserver/login.js`; bei Verlust per
   `--logout` oder in der Console (Auth → Users → Sessions) entziehen.
 - Login-Rate-Limit: max 8 Versuche / 10 Min (Worker + lokaler Server).
@@ -223,14 +262,18 @@ Unbekannte `folderId` werden beim Schreiben abgelehnt (nichts wird
 
 | Symptom | Ursache / Fix |
 |---|---|
-| Nur Demo-Notiz sichtbar | Weder Key noch Session gesetzt → Demo-Backend aktiv (Startmeldung auf stderr beachten); `node mcpserver/login.js` + Env setzen |
+| Nur Demo-Notiz sichtbar | Keine Anmeldedaten → Demo-Backend (Startmeldung auf stderr beachten); `node mcpserver/login.js --email … --save` |
 | `Unauthorized` (401) | `MCP_TOKEN` falsch/fehlend; Header `Authorization: Bearer …` prüfen |
-| `APPWRITE_API_KEY oder APPWRITE_SESSION erforderlich` (500) | Function-/Server-Env unvollständig |
-| `Session ungültig oder abgelaufen` | Erneut `node mcpserver/login.js` |
+| `Anmeldedaten erforderlich` (500) | Weder Session/Key noch E-Mail+Passwort (Env oder Credential-Datei) vorhanden |
+| `Keine Anmeldedaten` | `login.js --save` ausführen oder `APPWRITE_EMAIL`/`APPWRITE_PASSWORD` setzen |
+| `Login fehlgeschlagen` | E-Mail/Passwort falsch oder Appwrite-Login gedrosselt (Rate-Limit) |
+| `Session ungültig oder abgelaufen` | Erneut `node mcpserver/login.js`; bei Credentials-Modus meldet sich der MCP selbst neu an |
 | Leere Suche am lokalen Server | `--file` fehlt oder Pfad falsch (Log: "nicht lesbar") |
 | 503 am Worker | Secrets (`MCP_USER/MCP_PASS/MCP_TOKEN`) oder Appwrite-Config fehlen |
 | Karten nach Sync weg | Alter Client ohne v2-Support hat zurückgeschrieben → Clients aktualisieren (Kap. 5) |
 | `Document is not a deck` | Karten-Tool auf Notebook aufgerufen; `kind`-Filter in `list_documents` nutzen |
+| `File extension not allowed` / `storage_file_type_unsupported` | Bucket `attachments` erlaubt kein `json` → Endung in der Console freigeben (Kap. 5); MCP legt sonst inline ab, solange ≤ ~60 KB |
+| `Appwrite 400: Missing required attribute "userId"` | Sollte nicht mehr vorkommen (Teildaten-Updates werden gemerged); bei Auftreten Bucket/Tabelle prüfen |
 
 ## 8. Weiterentwickeln
 
@@ -239,3 +282,7 @@ Unbekannte `folderId` werden beim Schreiben abgelehnt (nichts wird
   `mcpserver/cli.js`), Tests in `tests/mcp-write.test.js`,
   dann `npm run build:mcp` + `npm test`.
 - Tests: `npm test` (gesamt), `npm run test:mcp` (MCP-Kern + Function).
+- Live-Test gegen die Cloud (schreibend, räumt selbst auf): `create_folder` →
+  `create_document` → `create_deck` + `review_card` → Suche/Graph →
+  alles `permanent: true` löschen. Nach dem Test prüfen, dass keine Zeilen
+  mit dem Test-Präfix übrig sind, und die Session per `--logout` löschen.

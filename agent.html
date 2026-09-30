@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#8b5a2b">
+  <link rel="icon" type="image/svg+xml" href="icons/logo.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>Federwerk – KI-Agent &amp; MCP</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* Nur diese Seite – bewusst inline, damit sie ohne App-Bundle auskommt. */
+    body { padding: 18px 16px 64px; }
+    .doc { max-width: 860px; margin: 0 auto; }
+    .doc-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+    .doc-head h1 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 26px; }
+    .doc-sub { opacity: .75; font-size: 15px; margin: 2px 0 20px; }
+    .card { background: rgba(255, 252, 244, .82); border: 1px solid rgba(120, 85, 45, .28);
+      border-radius: 12px; padding: 16px 18px; margin: 0 0 16px;
+      box-shadow: 0 2px 8px rgba(90, 60, 30, .08); }
+    .card h2 { margin: 0 0 10px; font-size: 19px; color: #6b4423; display: flex; align-items: center; gap: 8px; }
+    .card h3 { margin: 14px 0 6px; font-size: 16px; color: #6b4423; }
+    .card p, .card li { font-size: 15px; line-height: 1.62; }
+    .card ol, .card ul { margin: 6px 0; padding-left: 22px; }
+    .card code { background: rgba(120, 85, 45, .12); padding: 1px 5px; border-radius: 4px; font-size: 13.5px; }
+    pre { background: #2f261c; color: #f2e8d8; padding: 12px 14px; border-radius: 8px;
+      overflow-x: auto; font-size: 13px; line-height: 1.5; margin: 8px 0; }
+    pre code { background: none; color: inherit; padding: 0; }
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; }
+    .btn { display: inline-block; padding: 9px 16px; border-radius: 8px; text-decoration: none;
+      border: 1px solid rgba(120, 85, 45, .4); background: rgba(255, 252, 244, .9);
+      color: #5c3a1c; font-size: 14.5px; font-family: inherit; cursor: pointer; }
+    .btn:hover { background: #fff; }
+    .btn.primary { background: #8b5a2b; color: #fff9ef; border-color: #6b4423; }
+    .btn.primary:hover { background: #7a4e25; }
+    .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+    .tag { display: inline-block; background: rgba(139, 90, 43, .16); color: #5c3a1c;
+      border-radius: 999px; padding: 2px 10px; font-size: 13px; margin: 0 6px 6px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+    th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid rgba(120, 85, 45, .2); vertical-align: top; }
+    th { color: #6b4423; font-size: 13.5px; text-transform: uppercase; letter-spacing: .03em; }
+    td code { white-space: nowrap; }
+    .warn { border-left: 4px solid #b4552a; background: rgba(180, 85, 42, .08); }
+    .ok { border-left: 4px solid #3f7a3f; background: rgba(63, 122, 63, .07); }
+    .step { counter-reset: s; list-style: none; padding-left: 0; }
+    .step > li { counter-increment: s; margin: 0 0 10px; padding-left: 34px; position: relative; }
+    .step > li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 22px; height: 22px;
+      border-radius: 50%; background: #8b5a2b; color: #fff; font-size: 12.5px; display: grid; place-items: center; }
+    .back { font-size: 14px; }
+    .foot { font-size: 13.5px; opacity: .7; text-align: center; margin-top: 26px; }
+  </style>
+</head>
+<body>
+  <div class="doc">
+    <div class="doc-head">
+      <h1><img src="icons/logo.svg" alt="" width="40" height="40"> KI-Agent &amp; MCP</h1>
+      <span class="back"><a class="btn" href="./" aria-label="Zurück zur App">← Zur App</a></span>
+    </div>
+    <p class="doc-sub">Lass eine KI in deinen Notizen arbeiten – wie eine zusätzliche Hand, die tippt, sortiert und lernt.</p>
+
+    <div class="card">
+      <h2>Was steckt dahinter</h2>
+      <p>
+        Federwerk spricht das <b>Model Context Protocol (MCP)</b>. Damit kann eine KI
+        (Claude, Cursor, Opencode, …) deine Notizen lesen <i>und</i> schreiben: Notizen
+        anlegen und bearbeiten, Ordner verwalten, Karteikarten-Decks anlegen und
+        bewerten, Volltext- und Tag-Suche, Wikilink-Graph.
+      </p>
+      <p>
+        <span class="tag">24 Werkzeuge</span>
+        <span class="tag">Notizen</span>
+        <span class="tag">Ordner</span>
+        <span class="tag">Karteikarten (SM-2)</span>
+        <span class="tag">Suche</span>
+        <span class="tag">Graph</span>
+        <span class="tag">ohne API-Key</span>
+      </p>
+      <div class="btn-row">
+        <a class="btn primary" href="/mcp" id="mcpDocLink">📄 Anleitung fürs KI-Modell</a>
+        <a class="btn" href="docs/mcp.md">📚 Doku für Techniker</a>
+      </div>
+      <p style="font-size:13.5px;opacity:.75">
+        <b>/mcp</b> liefert eine Markdown-Datei, die jedem KI-Modell erklärt, wie es den
+        MCP installiert, anmeldet und benutzt. Du kannst die Adresse einfach in deinen
+        Chat kopieren: <code>Bitte lies <span id="originMcp">/mcp</span> und richte den
+        Federwerk-MCP ein.</code>
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>① Einloggen (einmalig)</h2>
+      <p>Der Server meldet sich mit <b>deinen</b> Zugangsdaten selbst an – du brauchst
+        keinen API-Key. Der Ordner liegt im Home-Verzeichnis und ist nur für dich lesbar.</p>
+      <pre><code>cd /pfad/zu/notes
+node mcpserver/login.js --email deine@adresse.de --save</code></pre>
+      <p>Das Passwort wird <b>interaktiv abgefragt</b> (nicht in der Terminal-History
+        gespeichert) und nach <code>~/.config/federwerk/mcp-credentials.json</code>
+        (chmod 600) geschrieben. Abmelden: <code>node mcpserver/login.js --logout</code>.</p>
+    </div>
+
+    <div class="card">
+      <h2>② Mit deiner KI verbinden</h2>
+      <p>Trage den Server in deinen KI-Client ein (Claude Desktop, Cursor, Opencode …):</p>
+      <pre><code>{
+  "mcpServers": {
+    "federwerk": {
+      "command": "node",
+      "args": ["/pfad/zu/notes/mcpserver/cli.js"]
+    }
+  }
+}</code></pre>
+      <p>Danach den Client neu starten. Beim Start meldet der Server auf stderr, ob er
+        wirklich mit deiner Cloud verbunden ist:</p>
+      <pre><code>Federwerk MCP: Cloud-Backend als Nutzer &lt;deine-ID&gt; (angemeldet).</code></pre>
+      <p class="ok" style="margin:8px 0 0">
+        Steht dort <b>„Demo-Backend (flüchtig)"</b>, fehlen die Anmeldedaten – Schritt ①
+        wiederholen. Sonst arbeitet die KI nur in einer flüchtigen Demo, nicht in deinen Notizen.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>③ Was die KI für dich tun kann</h2>
+      <div class="grid">
+        <div>
+          <h3>📝 Notizen</h3>
+          <p>Anlegen, Text anhängen statt überschreiben, umbenennen, kopieren,
+            in Ordner verschieben, löschen (mit Sicherheitsstufe).</p>
+        </div>
+        <div>
+          <h3>🗂 Ordner</h3>
+          <p>Anlegen, umbenennen, löschen – enthaltene Notizen werden nicht
+            verloren, sondern wandern mit.</p>
+        </div>
+        <div>
+          <h3>🎴 Karteikarten</h3>
+          <p>Decks aus Notizen bauen, Karten pflegen und nach dem
+            <b>SM-2</b>-System bewerten – exakt wie in der App.</p>
+        </div>
+        <div>
+          <h3>🔍 Suche &amp; Graph</h3>
+          <p>Wortsuche, Tag-/Aufgaben-Suche (<code>tag:reise</code>,
+            <code>task-todo:steuer</code>) und Wikilink-Netz aus
+            <code>[[…]]</code>-Verweisen.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Beispiele – so kannst du es anfragen</h2>
+      <ul>
+        <li>„Leg eine Notiz <i>Steuer 2027</i> an mit einer Checkliste: Anmeldung bis 31.03., Erste Rate, Reisekosten."</li>
+        <li>„Mach aus meinen Deutsch-Vokabeln ein Karteikarten-Deck."</li>
+        <li>„Zeig mir alle offenen Aufgaben in meinen Notizen."</li>
+        <li>„Fasse die Notizen zu <i>Berlin</i> in einem neuen Dokument zusammen und verlinke sie mit <code>[[Hauptprojekt]]</code>."</li>
+        <li>„Verschiebe alle Notizen mit <code>#reise</code> in den Ordner <i>Reisen</i>."</li>
+      </ul>
+    </div>
+
+    <div class="card warn">
+      <h2>⚠️ Wichtig</h2>
+      <ul>
+        <li>Die KI sieht <b>genau deine Notizen</b> – behandle sie wie einen Gesprächspartner mit Zugriff auf dein Tagebuch. Teile keine Zugangsdaten im Chat.</li>
+        <li>Passwörter gehören <b>nicht</b> in Tool-Aufrufe. Bitte deine KI, das <code>login</code>-Werkzeug zu nutzen – es liest die Daten aus dem geschützten Speicher.</li>
+        <li>Appwrite erlaubt pro Konto nur eine begrenzte Zahl Sitzungen und meldet dabei die ältesten ab. Viele gleichzeitig laufende KI-Instanzen können deine App abmelden – die Notizen bleiben aber erhalten, du meldest dich einfach neu an.</li>
+        <li>Gelöscht wird zweistufig: erst „in den Papierkorb" (bleibt für den Sync nachvollziehbar), endgültig nur auf ausdrücklichen Wunsch.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Wenn etwas klemmt</h2>
+      <table>
+        <thead><tr><th>Beobachtung</th><th>Was tun</th></tr></thead>
+        <tbody>
+          <tr><td>„Demo-Backend (flüchtig)"</td><td>Anmeldedaten fehlen → <code>login.js --save</code></td></tr>
+          <tr><td>KI sieht nur die Demo-Notiz</td><td>Client neu starten, falschen Pfad in <code>args</code> prüfen</td></tr>
+          <tr><td><code>401 Unauthorized</code></td><td>Session abgelaufen → <code>login</code>-Werkzeug aufrufen</td></tr>
+          <tr><td>Sehr große Notiz schlägt fehl</td><td>Inhalt teilen;alternativ in der Appwrite-Console <code>json</code> im Bucket <i>attachments</i> erlauben</td></tr>
+          <tr><td>Karten verschwinden nach dem Sync</td><td>Alle Geräte/Clients aktualisieren (siehe Doku, Kap. „Speicherformat")</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-bottom:0"><a href="docs/mcp.md">Vollständige Doku öffnen</a> ·
+        <a href="/mcp">Rohtext für KI-Modelle</a></p>
+    </div>
+
+    <p class="foot">Federwerk · offline-first Handschrift-Notizbuch</p>
+  </div>
+</body>
+</html>

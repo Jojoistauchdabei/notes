@@ -63,20 +63,119 @@ function authValue(headers) {
 }
 
 function requireConfig(config, headers) {
-  if (!config.apiKey && !config.session) {
-    throw new Error('APPWRITE_API_KEY oder APPWRITE_SESSION erforderlich (Session via `node mcpserver/login.js`, siehe docs/mcp.md)');
+  if (!config.apiKey && !config.session && !canLoginFromStore(config)) {
+    throw new Error('Anmeldedaten erforderlich: APPWRITE_SESSION, APPWRITE_API_KEY oder E-Mail/Passwort (Env APPWRITE_EMAIL/APPWRITE_PASSWORD bzw. `node mcpserver/login.js --save`, siehe docs/mcp.md)');
   }
   if (config.token && authValue(headers) !== config.token) {
     throw new Error('Unauthorized');
   }
 }
 
+// Credential-Store (mcpserver/login.js) – der MCP darf die Notizen nur
+// steuern, wenn die Datei existiert und lesbar ist.
+function loginStore() {
+  try {
+    const L = require('../mcpserver/login');
+    return L;
+  } catch {
+    try {
+      return require('./login');
+    } catch {
+      return require('@federwerk/mcpserver/login');
+    }
+  }
+}
+function canLoginFromStore(config) {
+  if (config.apiKey || config.session) return true;
+  try {
+    const c = loginStore().loadCredentials();
+    return !!(c && c.email && c.password);
+  } catch { return false; }
+}
+
+// --- Session-Verwaltung -----------------------------------------------------
+// Der MCP bekommt die Login-Daten und erzeugt die Appwrite-Session (Cookie)
+// selbst. Reihenfolge: API-Key > gesetztes APPWRITE_SESSION (fremder Token,
+// z. B. aus dem Browser) > Credentials aus Env/Datei (selbst angemeldet).
+// `owned` merkt sich, ob die Session uns gehört – nur dann darf logout sie
+// löschen, damit die Browser-Sessions der App unangetastet bleiben.
+const sessionState = { token: '', owned: false, sessionId: '', userId: '', email: '', expire: null };
+
+function resetSession() {
+  sessionState.token = '';
+  sessionState.owned = false;
+  sessionState.sessionId = '';
+  sessionState.userId = '';
+  sessionState.email = '';
+  sessionState.expire = null;
+  cachedSessionUser = null;
+}
+
+// Erzeugt bei Bedarf eine Session (Credentials) und liefert das Token.
+async function ensureSession(config, opts = {}) {
+  if (config.apiKey) return null; // Key-Modus: keine Session nötig
+  if (config.session) {
+    if (sessionState.token !== config.session) {
+      sessionState.token = config.session;
+      sessionState.owned = false;
+      sessionState.sessionId = '';
+      cachedSessionUser = null;
+    }
+    return sessionState.token;
+  }
+  if (sessionState.token && !opts.force) return sessionState.token;
+  const L = loginStore();
+  const c = L.loadCredentials();
+  if (!c.email || !c.password) {
+    throw new Error('Keine Anmeldedaten: APPWRITE_EMAIL/APPWRITE_PASSWORD setzen oder `node mcpserver/login.js --save` ausführen');
+  }
+  // Vor dem Neuanmelden die eigene alte Session schließen: Appwrite hat ein
+  // Session-Limit pro Benutzer und verdrängt dabei die ältesten Sessions –
+  // auch die der App im Browser. So erzeugt der MCP nie Sitzungsleichen.
+  if (opts.force && sessionState.owned && sessionState.token) {
+    await L.deleteSession({
+      endpoint: config.endpoint,
+      projectId: config.projectId,
+      token: sessionState.token,
+      sessionId: sessionState.sessionId,
+    }).catch(() => { /* alte Session ist schon weg */ });
+  }
+  const s = await L.createSession({
+    endpoint: c.endpoint || config.endpoint,
+    projectId: c.projectId || config.projectId,
+    email: c.email,
+    password: c.password,
+  });
+  sessionState.token = s.token;
+  sessionState.owned = true;
+  sessionState.sessionId = s.sessionId;
+  sessionState.userId = s.userId;
+  sessionState.email = s.email;
+  sessionState.expire = s.expire;
+  cachedSessionUser = null;
+  return sessionState.token;
+}
+
+function sessionInfo() {
+  return {
+    authenticated: !!sessionState.token,
+    ownedByMcp: sessionState.owned,
+    userId: sessionState.userId || '',
+    email: sessionState.email || '',
+    expiresAt: sessionState.expire || null,
+  };
+}
+
 // Auth-Header Richtung Appwrite: Admin-Key bevorzugt, sonst Benutzer-Session
 // (X-Appwrite-Session – wie die App selbst in js/appwrite-files.js).
-function authHeaders(config) {
+async function authHeaders(config) {
   const h = { 'X-Appwrite-Project': config.projectId };
-  if (config.apiKey) h['X-Appwrite-Key'] = config.apiKey;
-  else if (config.session) h['X-Appwrite-Session'] = config.session;
+  if (config.apiKey) {
+    h['X-Appwrite-Key'] = config.apiKey;
+    return h;
+  }
+  const token = sessionState.token || config.session || await ensureSession(config);
+  if (token) h['X-Appwrite-Session'] = token;
   return h;
 }
 
@@ -85,14 +184,19 @@ function authHeaders(config) {
 let cachedSessionUser = null;
 async function resolveUserId(config) {
   if (config.userId) return config.userId;
-  if (!config.session) {
+  if (config.apiKey) {
     throw new Error('APPWRITE_USER_ID erforderlich (nur im Session-Modus automatisch)');
   }
-  if (cachedSessionUser && cachedSessionUser.session === config.session) {
+  if (!sessionState.token && !config.session) await ensureSession(config);
+  const token = sessionState.token || config.session;
+  if (!token) {
+    throw new Error('APPWRITE_USER_ID erforderlich (nur im Session-Modus automatisch)');
+  }
+  if (cachedSessionUser && cachedSessionUser.session === token) {
     return cachedSessionUser.userId;
   }
   const res = await fetch(`${config.endpoint.replace(/\/$/, '')}/account`, {
-    headers: { ...authHeaders(config), 'X-Appwrite-Response-Format': '2.0.0' },
+    headers: { ...(await authHeaders(config)), 'X-Appwrite-Response-Format': '2.0.0' },
   });
   if (!res.ok) {
     const err = new Error('Session ungültig oder abgelaufen – bitte neu einloggen (`node mcpserver/login.js`)');
@@ -101,7 +205,7 @@ async function resolveUserId(config) {
   }
   const me = await res.json().catch(() => ({}));
   if (!me || !me.$id) throw new Error('Session ungültig – bitte neu einloggen (`node mcpserver/login.js`)');
-  cachedSessionUser = { session: config.session, userId: me.$id };
+  cachedSessionUser = { session: token, userId: me.$id };
   return me.$id;
 }
 
@@ -117,25 +221,37 @@ function query(method, values, attribute) {
   });
 }
 
-async function appwriteRequest(config, path, queries = [], method = 'GET', bodyData = null) {
+async function appwriteRequest(config, path, queries = [], method = 'GET', bodyData = null, opts = {}) {
   const url = new URL(config.endpoint.replace(/\/$/, '') + path);
   queries.forEach((value, index) => url.searchParams.set(`queries[${index}]`, value));
-  const headers = {
-    ...authHeaders(config),
-    'X-Appwrite-Response-Format': '2.0.0',
-    'Content-Type': 'application/json',
+  const options = { method, body: bodyData === null || bodyData === undefined ? undefined : (typeof bodyData === 'string' ? bodyData : JSON.stringify(bodyData)) };
+  const send = async () => {
+    const response = await fetch(url, {
+      method: options.method,
+      headers: {
+        ...(await authHeaders(config)),
+        'X-Appwrite-Response-Format': '2.0.0',
+        'Content-Type': 'application/json',
+      },
+      body: options.body,
+    });
+    const bodyText = await response.text();
+    let data;
+    try {
+      data = bodyText ? JSON.parse(bodyText) : null;
+    } catch {
+      data = { message: bodyText };
+    }
+    return { response, data };
   };
-  const options = { method, headers };
-  if (bodyData !== null && bodyData !== undefined) {
-    options.body = typeof bodyData === 'string' ? bodyData : JSON.stringify(bodyData);
-  }
-  const response = await fetch(url, options);
-  const bodyText = await response.text();
-  let data;
-  try {
-    data = bodyText ? JSON.parse(bodyText) : null;
-  } catch {
-    data = { message: bodyText };
+  let { response, data } = await send();
+  // Abgelaufene eigene Session: einmal neu anmelden und denselben Aufruf
+  // wiederholen (Credentials müssen hinterlegt sein).
+  if (response.status === 401 && !opts._retried && !config.apiKey && !config.session) {
+    try {
+      await ensureSession(config, { force: true });
+      ({ response, data } = await send());
+    } catch { /* Originalfehler unten werfen */ }
   }
   if (!response.ok) {
     const err = new Error(`Appwrite ${response.status}: ${(data && data.message) || 'request failed'}`);
@@ -195,7 +311,7 @@ async function resolveNoteContent(config, row) {
       const bucketId = config.bucketId || 'attachments';
       const fileUrl = `${config.endpoint.replace(/\/$/, '')}/storage/buckets/${encodeURIComponent(bucketId)}/files/${encodeURIComponent(row.contentFileId)}/download`;
       const res = await fetch(fileUrl, {
-        headers: authHeaders(config),
+        headers: await authHeaders(config),
       });
       if (res.ok) {
         row.content = await res.text();
@@ -237,8 +353,23 @@ async function upsertRow(config, tableId, rowId, data) {
   }
 }
 
+// Teildaten-Update: Appwrites PUT (updateRow) ersetzt die Row komplett und
+// verlangt alle Pflicht-Attribute (sonst 400 "Missing required attribute").
+// Darum bestehende Werte laden und mergen – wie js/appwrite-sync.js, das
+// ebenfalls immer den vollen Datensatz schickt.
 async function patchRow(config, tableId, rowId, data) {
-  return await appwriteRequest(config, `${rowsPath(config, tableId)}/${encodeURIComponent(rowId)}`, [], 'PUT', { data });
+  const current = await fetchTableRow(config, tableId, rowId);
+  if (!current) throw new Error('Document not found');
+  const merged = {};
+  for (const key of Object.keys(current)) {
+    if (key.charAt(0) === '$') continue; // Systemfelder ($id, $createdAt, ...)
+    merged[key] = current[key];
+  }
+  for (const key of Object.keys(data || {})) {
+    if (data[key] === undefined) continue;
+    merged[key] = data[key];
+  }
+  return await appwriteRequest(config, `${rowsPath(config, tableId)}/${encodeURIComponent(rowId)}`, [], 'PUT', { data: merged });
 }
 
 async function deleteRow(config, tableId, rowId) {
@@ -255,30 +386,61 @@ async function sha256HexWeb(bytes) {
   return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Der Bucket erlaubt je nach Konfiguration nicht jede Endung (live getestet:
+// "json" war gesperrt). Datei-ID bleibt immer fw<hash>; nur der Dateiname
+// variiert – der Download läuft über die ID, nicht den Namen.
+const OFFLOAD_NAMES = [
+  { ext: 'json', mime: 'application/json' },
+  { ext: 'txt', mime: 'text/plain' },
+  { ext: 'bin', mime: 'application/octet-stream' },
+];
+
 async function uploadOffloaded(config, jsonBytes) {
   const hash = await sha256HexWeb(jsonBytes);
   const fileId = 'fw' + hash.slice(0, 32);
-  const form = new FormData();
-  form.append('fileId', fileId);
-  form.append('file', new Blob([jsonBytes], { type: 'application/json' }), `${fileId}.json`);
   const url = `${config.endpoint.replace(/\/$/, '')}/storage/buckets/${encodeURIComponent(config.bucketId || 'attachments')}/files`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: authHeaders(config),
-    body: form,
-  });
-  if (!res.ok && res.status !== 409) {
+  let lastErr = null;
+  for (const cand of OFFLOAD_NAMES) {
+    const form = new FormData();
+    form.append('fileId', fileId);
+    form.append('file', new Blob([jsonBytes], { type: cand.mime }), `${fileId}.${cand.ext}`);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: await authHeaders(config),
+      body: form,
+    });
+    if (res.ok || res.status === 409) return fileId; // 409 = existiert schon (Dedupe)
     const t = await res.text().catch(() => '');
-    throw new Error(`Bucket-Upload ${res.status}: ${t.slice(0, 200)}`);
+    lastErr = `Bucket-Upload ${res.status}: ${t.slice(0, 200)}`;
+    if (res.status !== 400) break; // 400 = Endung nicht erlaubt -> nächste probieren
   }
-  return fileId;
+  throw new Error(lastErr || 'Bucket-Upload fehlgeschlagen');
 }
 
 async function splitContent(config, contentStr) {
   const bytes = new TextEncoder().encode(contentStr);
   if (bytes.length > C.OFFLOAD_BYTES) {
-    const fileId = await uploadOffloaded(config, bytes);
-    return { content: '', contentFileId: fileId };
+    try {
+      const fileId = await uploadOffloaded(config, bytes);
+      return { content: '', contentFileId: fileId };
+    } catch (err) {
+      // Bucket verweigert den Dateityp (live: erlaubt oft nur jpg/png/webp/pdf).
+      // Was noch inline passt, nehmen wir inline – sonst klarer, actionable
+      // Fehler statt "Invalid document structure".
+      if (bytes.length <= C.INLINE_ROW_MAX) {
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn(`MCP: Offload nicht möglich (${err.message}) – ${bytes.length} Bytes inline gespeichert.`);
+        }
+        return { content: contentStr, contentFileId: null };
+      }
+      const e = new Error(
+        `Inhalt zu groß: ${bytes.length} Bytes passen nicht in eine Zeile (max ~${C.INLINE_ROW_MAX}) `
+        + 'und der Bucket "attachments" lehnt den Dateityp ab. In der Appwrite-Console bei '
+        + 'Storage → attachments die Endung "json" erlauben, oder die Notiz teilen.',
+      );
+      e.status = 413;
+      throw e;
+    }
   }
   return { content: contentStr, contentFileId: null };
 }
@@ -372,6 +534,33 @@ function createAppwriteHandler(config) {
   }
 
   return createMcpHandler({
+    sessionInfo: async () => sessionInfo(),
+    login: async () => {
+      if (!config.apiKey && !canLoginFromStore(config)) {
+        throw new Error('Keine Anmeldedaten hinterlegt (APPWRITE_EMAIL/APPWRITE_PASSWORD oder `node mcpserver/login.js --save`)');
+      }
+      await ensureSession(config, { force: true });
+      return sessionInfo();
+    },
+    logout: async () => {
+      if (!sessionState.token) return { ...sessionInfo(), loggedOut: false, note: 'Keine Session aktiv' };
+      if (!sessionState.owned) {
+        return {
+          ...sessionInfo(),
+          loggedOut: false,
+          note: 'Session gehört nicht dem MCP (z. B. per APPWRITE_SESSION gesetzt) – nicht gelöscht, damit die App angemeldet bleibt.',
+        };
+      }
+      const L = loginStore();
+      await L.deleteSession({
+        endpoint: config.endpoint,
+        projectId: config.projectId,
+        token: sessionState.token,
+        sessionId: sessionState.sessionId,
+      });
+      resetSession();
+      return { authenticated: false, ownedByMcp: false, userId: '', email: '', expiresAt: null, loggedOut: true };
+    },
     listDocuments: async (limit = 100, folderId = null, opts = {}) => {
       const max = Math.min(Math.max(Number(limit) || 100, 1), 100);
       const targetFolder = folderId || (opts && opts.folderId);
@@ -726,8 +915,12 @@ main.getConfig = getConfig;
 main.createAppwriteHandler = createAppwriteHandler;
 main.requireConfig = requireConfig;
 main.authHeaders = authHeaders;
+main.ensureSession = ensureSession;
+main.sessionInfo = sessionInfo;
 main.resolveUserId = resolveUserId;
 main.withUser = withUser;
+main.canLoginFromStore = canLoginFromStore;
+main._resetSession = resetSession;
 main._resetSessionCache = () => { cachedSessionUser = null; };
 main.parseBody = parseBody;
 main.authValue = authValue;

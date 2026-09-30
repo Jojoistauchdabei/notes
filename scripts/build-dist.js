@@ -68,7 +68,8 @@ fs.mkdirSync(path.join(dist, 'js'), { recursive: true });
 fs.mkdirSync(path.join(dist, 'assets'), { recursive: true });
 
 // 1) Unveränderte Dateien (Papier-PNG bewusst ausgelassen: 2,5 MB)
-for (const file of ['index.html', 'manifest.webmanifest', 'sw.js', 'llms.txt', 'FEDERWERK_FORMAT.md', 'federwerk.schema.json']) {
+// agent.html = /agent (KI-Agent-Seite), MCP_AI.md = /mcp (Anleitung fuer KI-Modelle)
+for (const file of ['index.html', 'agent.html', 'manifest.webmanifest', 'sw.js', 'llms.txt', 'FEDERWERK_FORMAT.md', 'MCP_AI.md', 'federwerk.schema.json']) {
   copy(file);
 }
 for (const dir of ['icons', 'screenshots']) {
@@ -156,6 +157,7 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js']) {
   const shell = [
     './',
     'index.html',
+    'agent.html',
     `css/${cssName}`,
     `js/${bundleName}`,
     'js/gnpdf-worker.js',
@@ -188,6 +190,8 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js']) {
     ...immutable.map((route) => `${route}\n  Cache-Control: public, max-age=31536000, immutable`),
     '/screenshots/*\n  Cache-Control: public, max-age=604800',
     '/index.html\n  Cache-Control: public, max-age=0, must-revalidate',
+    '/agent.html\n  Cache-Control: public, max-age=0, must-revalidate',
+    '/MCP_AI.md\n  Cache-Control: public, max-age=0, must-revalidate',
     '/sw.js\n  Cache-Control: public, max-age=0, must-revalidate',
     '/manifest.webmanifest\n  Cache-Control: public, max-age=0, must-revalidate',
     '/*\n  X-Content-Type-Options: nosniff\n  X-Frame-Options: DENY\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()\n  Content-Security-Policy: frame-ancestors \'none\'',

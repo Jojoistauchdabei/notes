@@ -18,16 +18,20 @@ describe('mcpserver', () => {
     assert.ok(response.result.capabilities.tools);
   });
 
-  it('listet alle 21 Tools (lesen, schreiben, Ordner, Karten, Suche, Graph)', async () => {
+  it('listet alle 24 Tools (Login, Lesen, Schreiben, Ordner, Karten, Suche, Graph)', async () => {
     const list = await handler({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
     assert.deepEqual(list.result.tools.map(tool => tool.name), [
-      'list_documents', 'get_document', 'list_folders', 'search_documents',
+      'session_info', 'login', 'logout',
+      'list_documents', 'get_document',
+      'list_folders', 'search_documents',
       'advanced_search', 'get_graph',
-      'create_document', 'update_document', 'delete_document',
-      'duplicate_document', 'move_document',
-      'create_folder', 'rename_folder', 'delete_folder',
-      'create_deck', 'list_cards', 'add_cards', 'update_card', 'delete_card',
-      'review_card', 'deck_stats',
+      'create_document', 'update_document',
+      'delete_document', 'duplicate_document',
+      'move_document', 'create_folder',
+      'rename_folder', 'delete_folder',
+      'create_deck', 'list_cards', 'add_cards',
+      'update_card', 'delete_card', 'review_card',
+      'deck_stats',
     ]);
   });
 
