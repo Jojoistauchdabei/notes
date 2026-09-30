@@ -10,3 +10,7 @@ compatibility_date = "2026-09-11"
 [assets]
 directory = "dist"
 not_found_handling = "single-page-application"
+# Ohne das schneidet Cloudflare die Endung ab: /agent.html -> 307 -> /agent ->
+# nicht gefunden -> SPA-Fallback, also die App-Shell statt der Doku-Seite.
+# "none" holt die Datei wörtlich, ohne Umleitung.
+html_handling = "none"
