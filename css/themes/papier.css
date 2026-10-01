@@ -1,0 +1,73 @@
+/* Federwerk-Theme "Papier" – das Standard-Design der App.
+ *
+ * ERZEUGT von scripts/sync-paper-theme.js aus css/styles.css.
+ * Bitte nicht von Hand aendern: die Papier-Palette gehoert in styles.css,
+ * dieses Skript spiegelt sie nur. Nach jeder Aenderung an den :root-Tokens
+ * in styles.css laufen lassen:
+ *
+ *   npm run sync-paper-theme
+ *
+ * Warum es diese Datei ueberhaupt gibt: nur mit ihr befolgt das
+ * Standard-Design die Hell/Dunkel-Schaltung des Theme-Systems. Ohne sie
+ * wuerde styles.css allein das System-Prefers-Color-Schema bestimmen.
+ *
+ * Weitere Tokens stehen hier bewusst NICHT: fuer "papier" liefert
+ * styles.css Farben, Rahmen, Radien und die Papier-Textura bereits
+ * vollstaendig und hart verdrahtet. css/themes/_shared.css ist zudem auf
+ * Nicht-Papier-Themen eingeschraenkt – diese Datei kann das Standard-Design
+ * gar nicht veraendern, sie haelt nur dessen Palette fuer data-scheme
+ * bereit.
+ */
+:root[data-theme="papier"] {
+  --bg: #faf6ee;
+  --bg-image: url('../../altes_Papier.jpg');
+  --bg-image: image-set(url('../../altes_Papier.webp') type('image/webp') 1x, url('../../altes_Papier.jpg') type('image/jpeg') 1x);
+  --text: #2a1a0e;
+  --accent: #8b5a2b;
+  --accent-dark: #654321;
+  --accent-muted: #5c3a1e;
+  --border: #c9a87c;
+  --border-light: #e5d5c0;
+  --surface: rgba(250, 246, 238, 0.85);
+  --surface-strong: rgba(240, 232, 213, 0.9);
+  --field-bg: rgba(250, 246, 238, 0.65);
+  --disabled-bg: rgba(240, 232, 213, 0.7);
+  --button-bg: #8b5a2b;
+  --button-text: #faf6ee;
+  --button-inactive-bg: rgba(240, 232, 213, 0.8);
+  --button-inactive-text: #5c3a1e;
+  --mini-button-hover-bg: rgba(230, 214, 191, 0.8);
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow: 0 8px 28px rgba(90, 60, 30, 0.14);
+  --shadow-sm: 0 2px 10px rgba(90, 60, 30, 0.12);
+  --header-h: 64px;
+  --toolbar-top: 84px;
+  --sat: 0px;
+  --sab: 0px;
+  --sal: 0px;
+  --sar: 0px;
+}
+
+:root[data-theme="papier"][data-scheme="dark"] {
+  --bg: #1b1410;
+  --bg-image: linear-gradient(rgba(27, 20, 16, 0.82), rgba(27, 20, 16, 0.82)), url('../../altes_Papier.jpg');
+  --bg-image: linear-gradient(rgba(27, 20, 16, 0.82), rgba(27, 20, 16, 0.82)), image-set(url('../../altes_Papier.webp') type('image/webp') 1x, url('../../altes_Papier.jpg') type('image/jpeg') 1x);
+  --text: #f3e9db;
+  --accent: #d6a670;
+  --accent-dark: #b07b46;
+  --accent-muted: #d1b38f;
+  --border: #6a4a31;
+  --border-light: #3d2b1d;
+  --surface: rgba(34, 25, 19, 0.88);
+  --surface-strong: rgba(44, 32, 24, 0.9);
+  --field-bg: rgba(55, 41, 30, 0.6);
+  --disabled-bg: rgba(55, 41, 30, 0.45);
+  --button-bg: #7a5332;
+  --button-text: #f9f1e7;
+  --button-inactive-bg: rgba(60, 44, 32, 0.7);
+  --button-inactive-text: #d3b89a;
+  --mini-button-hover-bg: rgba(86, 61, 43, 0.7);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.35);
+}

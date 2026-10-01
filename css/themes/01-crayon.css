@@ -1,0 +1,72 @@
+/* Federwerk-Theme "Buntstift" (01-crayon)
+ * Kinderfest, dicke Konturen, schiefe Ecken
+ *
+ * Aktiv ueber <html data-theme="01-crayon"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="01-crayon"] {
+  --font-body:'Comic Sans MS','Chalkboard SE','Comic Neue',cursive;
+  --font-display:'Comic Sans MS','Chalkboard SE',cursive;
+  --bg:#ffeeba; --bg-2:#ffd98a;
+  --surface:#fffdf3; --surface-2:#fff7e0;
+  --text:#2f2a26; --text-dim:#7a6f63;
+  --accent:#e2574c; --accent-2:#1f5f80; --accent-contrast:#fffdf3;
+  --border:#2f2a26; --border-soft:#e3d3a8;
+  --field:#fffdf3;
+  --radius:20px; --radius-sm:14px;
+  --shadow:0 6px 0 #2f2a26; --shadow-sm:0 3px 0 #2f2a26;
+  --rule:#cfe4f5; --ink:#2f2a26; --page:#fffdf3; --page-edge:#2f2a26;
+  --tbox-bg:rgba(255,247,224,.8); --tbox-border:#2f2a26;
+  --ok:#2f7d4f; --warn:#c0392b;
+}
+
+:root[data-theme="01-crayon"][data-scheme="dark"] {
+  --font-body:'Comic Sans MS','Chalkboard SE','Comic Neue',cursive;
+  --font-display:'Comic Sans MS','Chalkboard SE',cursive;
+  --bg:#ffeeba; --bg-2:#ffd98a;
+  --surface:#fffdf3; --surface-2:#fff7e0;
+  --text:#2f2a26; --text-dim:#7a6f63;
+  --accent:#e2574c; --accent-2:#1f5f80; --accent-contrast:#fffdf3;
+  --border:#2f2a26; --border-soft:#e3d3a8;
+  --field:#fffdf3;
+  --radius:20px; --radius-sm:14px;
+  --shadow:0 6px 0 #2f2a26; --shadow-sm:0 3px 0 #2f2a26;
+  --rule:#cfe4f5; --ink:#2f2a26; --page:#fffdf3; --page-edge:#2f2a26;
+  --tbox-bg:rgba(255,247,224,.8); --tbox-border:#2f2a26;
+  --ok:#2f7d4f; --warn:#c0392b;
+  --bg:#2b2622; --bg-2:#3a332d;
+  --surface:#3d362f; --surface-2:#4a4239;
+  --text:#fff6e0; --text-dim:#c3b39c;
+  --accent:#ff8a7a; --accent-2:#7fc4e8; --accent-contrast:#2f2a26;
+  --border:#181410; --border-soft:#5a5048;
+  --field:#443c34;
+  --shadow:0 6px 0 #181410; --shadow-sm:0 3px 0 #181410;
+  --rule:#4d6b80; --ink:#fff6e0; --page:#4a4239; --page-edge:#181410;
+  --ok:#6fd08c; --warn:#ffb4a8;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="01-crayon"] {  .header { border-color: var(--text); border-width: 3px; }
+  .brand-name { letter-spacing: .5px; }
+  .header h1 { color: var(--accent-2); }
+  button { border-color: var(--text); border-width: 3px; box-shadow: var(--shadow-sm); }
+  button:hover { background: var(--accent); color: var(--accent-contrast); transform: translateY(-1px); }
+  .box { border-color: var(--text); border-width: 3px; border-radius: 20px 15px 22px 17px; }
+  .mini-button { border-color: var(--text); border-width: 2px; font-weight: 700; }
+  .notebook-cover { border-color: var(--text); border-width: 3px; border-radius: 16px 11px 18px 13px; }
+  .notebook-spine { background: linear-gradient(135deg, var(--accent), var(--accent-2)); height: 12px; }
+  .folder-sidebar { border-color: var(--text); border-width: 2px; border-radius: 16px; }
+  .folder-item.active { border-color: var(--text); border-radius: 14px; }
+  .stage { border-radius: 12px; border-width: 3px; }
+  .status-line { border-top: 3px dashed var(--border); padding-top: 6px; }
+  .editor-modal { border-color: var(--text); border-width: 3px; border-radius: 22px; }
+  .editor-header { border-bottom-color: var(--text); }
+}

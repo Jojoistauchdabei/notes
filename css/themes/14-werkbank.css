@@ -1,0 +1,91 @@
+/* Federwerk-Theme "Werkbank" (14-werkbank)
+ * Terminal als Werkbank: komplett dunkel, warm durchge
+ *
+ * Aktiv ueber <html data-theme="14-werkbank"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="14-werkbank"] {
+  --font-body:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --font-display:var(--font-body);
+  --font-read:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
+  --bg:#07120c; --bg-2:#0c1a12;
+  --surface:#0d1c13; --surface-2:#11251a;
+  --text:#dcefe0; --text-dim:#7fa68a;
+  --accent:#e8a15c; --accent-2:#c96f4a; --accent-contrast:#07120c;
+  --border:#33563f; --border-soft:#1e3a29;
+  --field:#0a1a11;
+  --radius:4px; --radius-sm:2px;
+  --shadow:none; --shadow-sm:0 0 0 1px rgba(232,161,92,.12);
+  --rule:rgba(143,185,138,.16); --ink:#8fb98a; --page:#0b1c12; --page-edge:#33563f;
+  --tbox-bg:rgba(232,161,92,.07); --tbox-border:#e8a15c;
+  --ok:#9fd48f; --warn:#e8a15c;
+  --bg:#f2efe2; --bg-2:#e8e4d2;
+  --surface:#fbf9ef; --surface-2:#f5f2e5;
+  --text:#22301f; --text-dim:#6c7a63;
+  --accent:#b5651f; --accent-2:#8c4a2c; --accent-contrast:#fbf9ef;
+  --border:#b9c4a8; --border-soft:#d5dcc7;
+  --field:#ffffff;
+  --rule:rgba(34,48,31,.14); --ink:#2f4f3a; --page:#fffdf3; --page-edge:#b9c4a8;
+  --tbox-bg:rgba(181,101,31,.07); --tbox-border:#b5651f;
+  --ok:#4a7a3f; --warn:#b5651f;
+}
+
+:root[data-theme="14-werkbank"][data-scheme="dark"] {
+  --font-body:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --font-display:var(--font-body);
+  --font-read:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
+  --bg:#07120c; --bg-2:#0c1a12;
+  --surface:#0d1c13; --surface-2:#11251a;
+  --text:#dcefe0; --text-dim:#7fa68a;
+  --accent:#e8a15c; --accent-2:#c96f4a; --accent-contrast:#07120c;
+  --border:#33563f; --border-soft:#1e3a29;
+  --field:#0a1a11;
+  --radius:4px; --radius-sm:2px;
+  --shadow:none; --shadow-sm:0 0 0 1px rgba(232,161,92,.12);
+  --rule:rgba(143,185,138,.16); --ink:#8fb98a; --page:#0b1c12; --page-edge:#33563f;
+  --tbox-bg:rgba(232,161,92,.07); --tbox-border:#e8a15c;
+  --ok:#9fd48f; --warn:#e8a15c;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="14-werkbank"] {  body {
+  background-image:
+  linear-gradient(var(--rule) 1px, transparent 1px),
+  linear-gradient(90deg, var(--rule) 1px, transparent 1px),
+  radial-gradient(80% 60% at 50% 0%, var(--surface-2), transparent 70%),
+  linear-gradient(var(--bg), var(--bg));
+  background-size: 30px 30px, 30px 30px, auto, auto;
+  }
+  body::after {
+  content: ""; position: fixed; inset: 0; z-index: 9998; pointer-events: none;
+  background: repeating-linear-gradient(rgba(0, 0, 0, 0) 0 2px, rgba(0, 0, 0, .26) 2px 4px);
+  }
+  .header { border-width: 1px; border-color: var(--border); border-radius: 3px; box-shadow: none; }
+  .header h1 { color: var(--accent); letter-spacing: .04em; }
+  .brand-name::after { content: "\25A0"; color: var(--accent); }
+  button, .mini-button { border-width: 2px; border-color: var(--border); border-radius: 2px; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.picked, .mini-button.picked { box-shadow: 0 0 16px var(--surface-2); }
+  .box { border-width: 1px; border-color: var(--border); border-radius: 3px; position: relative; }
+  .box::after, .folder-sidebar::after {
+  content: ""; position: absolute; right: 4px; bottom: 4px; width: 10px; height: 10px;
+  border-right: 1px solid var(--accent); border-bottom: 1px solid var(--accent); opacity: .7; pointer-events: none;
+  }
+  .folder-sidebar { border-width: 1px; border-color: var(--border); border-radius: 3px; position: relative; }
+  .section-title { color: var(--accent); }
+  .folder-item { border-radius: 2px; }
+  .folder-item.active { border-radius: 2px; border-left: 3px solid var(--accent); }
+  .notebook-cover { border-width: 1px; border-color: var(--border); border-radius: 3px; }
+  .notebook-title::before { content: "> "; color: var(--accent); }
+  .stage { border-radius: 2px; border-width: 1px; }
+  .editor-modal { border-width: 1px; border-color: var(--accent); border-radius: 3px; }
+  .status-line { border-top: 1px dashed var(--border); padding-top: 6px; }
+}

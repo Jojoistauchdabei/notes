@@ -1,0 +1,77 @@
+/* Federwerk-Theme "Phosphor-Terminal" (02-terminal)
+ * Schwarz, monospaced, Scanlines, Phosphorgrün
+ *
+ * Aktiv ueber <html data-theme="02-terminal"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="02-terminal"] {
+  --font-body:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --font-display:var(--font-body);
+  --bg:#05080a; --bg-2:#0a120e;
+  --surface:#08110d; --surface-2:#0c1811;
+  --text:#33ff99; --text-dim:#1f9e63;
+  --accent:#ffb000; --accent-2:#33ff99; --accent-contrast:#05080a;
+  --border:#1f5c3d; --border-soft:#123524;
+  --field:#0a1a11;
+  --radius:0px; --radius-sm:0px;
+  --shadow:none; --shadow-sm:0 0 0 1px rgba(51,255,153,.06);
+  --rule:rgba(51,255,153,.13); --ink:#33ff99; --page:#07130d; --page-edge:#1f5c3d;
+  --tbox-bg:rgba(51,255,153,.05); --tbox-border:#1f5c3d;
+  --ok:#33ff99; --warn:#ff5f5f;
+  --bg:#eef2ee; --bg-2:#e2e8e2;
+  --surface:#fbfdfb; --surface-2:#f2f6f2;
+  --text:#0d3a22; --text-dim:#3f7a58;
+  --accent:#a86400; --accent-2:#0d3a22; --accent-contrast:#eef2ee;
+  --border:#9fc4ad; --border-soft:#c6ddce;
+  --field:#ffffff;
+  --rule:rgba(13,58,34,.12); --ink:#0d3a22; --page:#ffffff; --page-edge:#9fc4ad;
+  --tbox-bg:rgba(13,58,34,.04); --tbox-border:#9fc4ad;
+  --ok:#0d3a22; --warn:#a83232;
+}
+
+:root[data-theme="02-terminal"][data-scheme="dark"] {
+  --font-body:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --font-display:var(--font-body);
+  --bg:#05080a; --bg-2:#0a120e;
+  --surface:#08110d; --surface-2:#0c1811;
+  --text:#33ff99; --text-dim:#1f9e63;
+  --accent:#ffb000; --accent-2:#33ff99; --accent-contrast:#05080a;
+  --border:#1f5c3d; --border-soft:#123524;
+  --field:#0a1a11;
+  --radius:0px; --radius-sm:0px;
+  --shadow:none; --shadow-sm:0 0 0 1px rgba(51,255,153,.06);
+  --rule:rgba(51,255,153,.13); --ink:#33ff99; --page:#07130d; --page-edge:#1f5c3d;
+  --tbox-bg:rgba(51,255,153,.05); --tbox-border:#1f5c3d;
+  --ok:#33ff99; --warn:#ff5f5f;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="02-terminal"] {  body { font-family: var(--font-mono); }
+  .header { border-color: var(--border); border-radius: 0; border-width: 1px; box-shadow: none; }
+  .header h1 { color: var(--text); }
+  .brand-name { text-transform: uppercase; letter-spacing: .18em; font-size: 20px; }
+  .version-tag { text-transform: uppercase; }
+  button, .mini-button { border-radius: 0; text-transform: uppercase; letter-spacing: .06em; }
+  button:hover { background: var(--text); color: var(--bg); border-color: var(--text); }
+  button:active { transform: none; }
+  .mini-button.picked { box-shadow: none; }
+  .box { border-color: var(--border); border-radius: 0; }
+  .section-title, label, .divider-title { letter-spacing: .16em; }
+  .folder-sidebar { border-radius: 0; background: var(--surface); box-shadow: none; }
+  .folder-item, .folder-row { border-radius: 0; }
+  .folder-item.active { border-left: 3px solid var(--accent); border-radius: 0; }
+  .notebook-cover { border-radius: 0; }
+  .notebook-title::before { content: "> "; color: var(--accent); }
+  .page-rail, .rail-toggle { border-radius: 0; }
+  .stage { border-radius: 0; border-width: 1px; }
+  .editor-modal, .editor-header, .editor-footer { border-radius: 0; }
+  .status-line { border-top: 1px dashed var(--border); padding-top: 6px; }
+}

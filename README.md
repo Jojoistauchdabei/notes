@@ -52,6 +52,46 @@ Minifiziert wird mit esbuild über `npx` (wie `wrangler@4` im Release-Workflow);
 ohne Netz baut `npm run build` ohne Minifizierung weiter, Bundle/Hash/Caching
 greifen trotzdem.
 
+## Design-Themes
+
+Die App bringt 16 Designs mit. Standard ist **Papier** (unverändert: warme
+Tinte, Ocker, Serifenschrift, Papier-Textur, folgt wie bisher dem System).
+Darueber 15 Design-Varianten – Buntstift, Terminal, Zen, Neo-Brutalismus,
+Editorial, Neon-Glas, Blueprint, Botanisch, Skeuomorph, Swiss sowie fuenf
+Mischungen. Umschalten ueber das **🎨-Feld in der Kopfzeile**; Helligkeit
+( Wie das System / Hell / Dunkel ) laesst sich pro Theme frei waehlen und
+wird gemerkt (`localStorage`: `fw-theme`, `fw-scheme`).
+
+Aufbau:
+
+- `js/themes.js` – Auswahl, Nachladen, Speichern. Laeuft **synchron im
+  `<head>`**, damit die Seite beim Start nicht kurz im Standard-Design
+  aufblitzt. Benoetigt ein Attribut (`data-boot`), damit `build-dist.js` es
+  nicht in das `defer`-Bundle zieht. Steht im `sw.js`-Precache, ist also
+  offline vorhanden; ohne die Datei gaebe es gar kein Theme-System.
+- `css/themes/_shared.css` – Adapter. Hebt die in `styles.css`
+  **hartkodierten** Werte (Web-Fonts, `.btn-export`-Farben, `.stage`-Papier,
+  `.text-box`-Tinte, Ordner-Baum-Brauntoene) auf Design-Tokens. Auf
+  Nicht-Papier-Themen eingeschraenkt: `styles.css` beschreibt das
+  Standard-Design bereits vollstaendig, und der Adapter darf es nicht
+  veraendern.
+- `css/themes/<design>.css` – je Design nur die Tokens (hell + dunkel) und
+  eine kurze Signatur mit dem, was es vom Adapter abweichend will.
+- `css/themes/papier.css` – **erzeugt**, nicht von Hand pflegen: spiegelt die
+  `:root`-Tokens aus `styles.css`, damit auch das Standard-Design die
+  Hell/Dunkel-Schaltung befolgt. Nach jeder Aenderung an den Tokens in
+  `styles.css`: `npm run sync-paper-theme`. Ein Test (`--check`) verhindert,
+  dass die beiden auseinanderlaufen.
+
+Reihenfolge im Dokument: `styles.css` -> `_shared.css` -> `<design>.css`.
+Geladen wird erst beim Auswaehlen; im Standard kommen nur 3 KB
+(`papier.css`) extra dazu, die 15 Designs liegen ungenutzt auf der Platte
+und werden vom Service Worker nach dem ersten Gebrauch gecacht.
+
+Direktaufruf zum Ansehen/Verlinken, ohne die eigene Auswahl zu aendern:
+`index.html?theme=12-herbarium&scheme=hell` (`scheme` = `hell|dunkel|auto`).
+Geprueft von `tests/themes.test.js` (12 Tests).
+
 ## Speicher (IndexedDB + Bild-Blobs)
 
 Der State (klein) liegt in IndexedDB (`grimoire-db`) plus localStorage-Backup; Bild-Bytes und PDF-Hintergründe liegen als Blobs separat in IndexedDB, im State steht nur eine kurze `blob:<id>`-Referenz. Das 5MB-localStorage-Limit greift damit nicht mehr. Beim ersten Start migriert die App bestehende Daten automatisch (Zähler in der Statuszeile). JSON-Export enthält weiter portable dataURLs (`inlineBook`/`extractBook` in `js/store.js`). Cloud-Sync läuft über Appwrite (Tabellen `notes`/`folders`, Storage-Bucket `attachments` mit SHA-256-Dedupe, `js/appwrite-files.js`, `js/appwrite-sync.js`). **Liveshare** (Share-Link mit Lesen/Edit + Ablauf, Live-Cursor, LWW pro Stroke) läuft ebenfalls über Appwrite – Tabellen `shares`/`share_events`, `js/liveshare.js`, Setup in `specs/36-liveshare.md`.

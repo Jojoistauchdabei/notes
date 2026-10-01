@@ -1,0 +1,76 @@
+/* Federwerk-Theme "Neon-Glas" (06-neonglass)
+ * Glasflaechen, Neonrand, dunkler Raum
+ *
+ * Aktiv ueber <html data-theme="06-neonglass"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="06-neonglass"] {
+  --font-body:'Inter','Segoe UI',system-ui,sans-serif;
+  --font-display:var(--font-body);
+  --bg:#07070f; --bg-2:#0d0d1c;
+  --surface:rgba(22,23,42,.55); --surface-2:rgba(31,32,56,.55);
+  --text:#e9eaf6; --text-dim:#9096b8;
+  --accent:#22d3ee; --accent-2:#a855f7; --accent-contrast:#07070f;
+  --border:rgba(255,255,255,.12); --border-soft:rgba(255,255,255,.08);
+  --field:rgba(10,11,24,.6);
+  --radius:22px; --radius-sm:14px;
+  --shadow:0 20px 60px rgba(0,0,0,.55); --shadow-sm:0 8px 24px rgba(0,0,0,.4);
+  --rule:rgba(34,211,238,.16); --ink:#e9eaf6; --page:rgba(18,19,36,.75); --page-edge:rgba(255,255,255,.14);
+  --tbox-bg:rgba(168,85,247,.12); --tbox-border:rgba(168,85,247,.55);
+  --ok:#4ade80; --warn:#fbbf24;
+  --bg:#eef1fb; --bg-2:#e2e7f8;
+  --surface:rgba(255,255,255,.72); --surface-2:rgba(255,255,255,.55);
+  --text:#14162a; --text-dim:#5a6080;
+  --accent:#0891b2; --accent-2:#7c3aed; --accent-contrast:#ffffff;
+  --border:rgba(20,22,42,.12); --border-soft:rgba(20,22,42,.08);
+  --field:rgba(255,255,255,.8);
+  --shadow:0 20px 50px rgba(40,50,120,.14); --shadow-sm:0 8px 20px rgba(40,50,120,.10);
+  --rule:rgba(8,145,178,.2); --ink:#14162a; --page:rgba(255,255,255,.85); --page-edge:rgba(20,22,42,.12);
+  --tbox-bg:rgba(124,58,237,.08); --tbox-border:rgba(124,58,237,.45);
+  --ok:#15803d; --warn:#b45309;
+}
+
+:root[data-theme="06-neonglass"][data-scheme="dark"] {
+  --font-body:'Inter','Segoe UI',system-ui,sans-serif;
+  --font-display:var(--font-body);
+  --bg:#07070f; --bg-2:#0d0d1c;
+  --surface:rgba(22,23,42,.55); --surface-2:rgba(31,32,56,.55);
+  --text:#e9eaf6; --text-dim:#9096b8;
+  --accent:#22d3ee; --accent-2:#a855f7; --accent-contrast:#07070f;
+  --border:rgba(255,255,255,.12); --border-soft:rgba(255,255,255,.08);
+  --field:rgba(10,11,24,.6);
+  --radius:22px; --radius-sm:14px;
+  --shadow:0 20px 60px rgba(0,0,0,.55); --shadow-sm:0 8px 24px rgba(0,0,0,.4);
+  --rule:rgba(34,211,238,.16); --ink:#e9eaf6; --page:rgba(18,19,36,.75); --page-edge:rgba(255,255,255,.14);
+  --tbox-bg:rgba(168,85,247,.12); --tbox-border:rgba(168,85,247,.55);
+  --ok:#4ade80; --warn:#fbbf24;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="06-neonglass"] {  .header, .box, .folder-sidebar, .editor-modal {
+  background: var(--surface);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  }
+  .header { border-color: var(--border); }
+  .header h1 { color: var(--text); }
+  .brand-name {
+  background: linear-gradient(92deg, var(--accent), var(--accent-2) 60%, var(--warn));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  button, .mini-button { border-color: var(--border); }
+  button:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 18px rgba(0, 0, 0, .25); }
+  .box { border-color: var(--border); }
+  .section-title { color: var(--accent); }
+  .notebook-cover { border-color: var(--border); background: var(--surface); }
+  .stage { box-shadow: 0 0 0 1px var(--page-edge), 0 0 60px rgba(0, 0, 0, .2); }
+  .status-line { border-top: 1px solid var(--border); padding-top: 6px; }
+}

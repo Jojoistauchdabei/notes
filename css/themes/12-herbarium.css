@@ -1,0 +1,88 @@
+/* Federwerk-Theme "Herbarium" (12-herbarium)
+ * Der volle Mix, auf eine Linie gebracht: 2 px Kante, 3 px Radius, zwei Stimmen
+ *
+ * Aktiv ueber <html data-theme="12-herbarium"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="12-herbarium"] {
+  --font-body:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --font-display:ui-monospace,'SF Mono',Menlo,monospace;
+  --font-read:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
+  --bg:#f0ebdc; --bg-2:#e5dfca;
+  --surface:#f9f5e8; --surface-2:#f2ecda;
+  --text:#26301f; --text-dim:#6f7a63;
+  --accent:#b0603a; --accent-2:#2f4f3a; --accent-contrast:#f9f5e8;
+  --border:#4a5c40; --border-soft:#d6cfb4;
+  --field:#fffdf4;
+  /* Einheitlichkeit: exakt zwei Radien fuer alles (3 px Knopf, 5 px Flaeche)
+  und eine Rahmenstaerke (2 px). Keine Sondermasse im Signatur-Block. */
+  --radius:5px; --radius-sm:3px;
+  --shadow:0 6px 18px rgba(60,70,45,.16); --shadow-sm:2px 2px 0 rgba(74,92,64,.35);
+  --rule:#cfdcc2; --ink:#2f4f3a; --page:#fffdf4; --page-edge:#4a5c40;
+  --tbox-bg:rgba(176,96,58,.08); --tbox-border:#b0603a;
+  --ok:#5d7a4e; --warn:#b0603a;
+}
+
+:root[data-theme="12-herbarium"][data-scheme="dark"] {
+  --font-body:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --font-display:ui-monospace,'SF Mono',Menlo,monospace;
+  --font-read:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
+  --bg:#f0ebdc; --bg-2:#e5dfca;
+  --surface:#f9f5e8; --surface-2:#f2ecda;
+  --text:#26301f; --text-dim:#6f7a63;
+  --accent:#b0603a; --accent-2:#2f4f3a; --accent-contrast:#f9f5e8;
+  --border:#4a5c40; --border-soft:#d6cfb4;
+  --field:#fffdf4;
+  /* Einheitlichkeit: exakt zwei Radien fuer alles (3 px Knopf, 5 px Flaeche)
+  und eine Rahmenstaerke (2 px). Keine Sondermasse im Signatur-Block. */
+  --radius:5px; --radius-sm:3px;
+  --shadow:0 6px 18px rgba(60,70,45,.16); --shadow-sm:2px 2px 0 rgba(74,92,64,.35);
+  --rule:#cfdcc2; --ink:#2f4f3a; --page:#fffdf4; --page-edge:#4a5c40;
+  --tbox-bg:rgba(176,96,58,.08); --tbox-border:#b0603a;
+  --ok:#5d7a4e; --warn:#b0603a;
+  --bg:#1d251c; --bg-2:#25301f;
+  --surface:#242d21; --surface-2:#2c3726;
+  --text:#eae9d8; --text-dim:#98a18b;
+  --accent:#d4805a; --accent-2:#cfe0b8; --accent-contrast:#1d251c;
+  --border:#8fa77d; --border-soft:#3c4733;
+  --field:#28321f;
+  --shadow:0 6px 18px rgba(0,0,0,.5); --shadow-sm:2px 2px 0 rgba(143,167,125,.4);
+  --rule:#3a452f; --ink:#dfe8cd; --page:#2a3323; --page-edge:#8fa77d;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="12-herbarium"] {  .header { border-color: var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+  .header h1 { color: var(--accent-2); letter-spacing: .02em; }
+  .brand-name { letter-spacing: .02em; }
+  .brand-tagline { color: var(--accent); letter-spacing: .04em; }
+  button, .mini-button {
+  border-width: 2px; border-color: var(--border); border-radius: var(--radius-sm);
+  text-transform: uppercase; letter-spacing: .07em; font-size: 11px;
+  background: var(--surface); color: var(--text); box-shadow: 2px 2px 0 var(--border);
+  }
+  button:hover { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+  button:active { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--border); }
+  button.picked, .mini-button.picked { background: var(--accent-2); color: var(--accent-contrast); border-color: var(--accent-2); }
+  .box { border-width: 2px; border-color: var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+  .section-title, .divider-title { letter-spacing: .16em; color: var(--accent); }
+  .folder-sidebar { border-width: 2px; border-color: var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+  .folder-item { border-radius: var(--radius-sm); }
+  .folder-item.active { border-radius: var(--radius-sm); }
+  .notebook-cover { border-width: 2px; border-color: var(--border); border-radius: var(--radius); }
+  .notebook-title { font-weight: 400; letter-spacing: 0; }
+  .notebook-spine { background: var(--accent-2); }
+  .stage { border-width: 2px; border-color: var(--border); border-radius: var(--radius-sm); }
+  .editor-modal { border-width: 2px; border-color: var(--border); border-radius: var(--radius); }
+  .editor-header { background: var(--accent-2); border-bottom-color: var(--border); }
+  .editor-header-title { color: var(--accent-contrast); }
+  .editor-footer { border-top-color: var(--border); }
+  .status-line { border-top: 2px solid var(--border); padding-top: 6px; letter-spacing: .05em; }
+}

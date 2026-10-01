@@ -1,0 +1,94 @@
+/* Federwerk-Theme "Feldlabor" (13-feldlabor)
+ * Der krassige Mix: Blaupausen-Shell um ein warmes Papier
+ *
+ * Aktiv ueber <html data-theme="13-feldlabor"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="13-feldlabor"] {
+  --font-body:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --font-display:var(--font-body);
+  --font-read:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
+  --bg:#0e2c4c; --bg-2:#123a63;
+  --surface:#123a63; --surface-2:#16457a;
+  --text:#e6f2ff; --text-dim:#8fb8dd;
+  --accent:#ffb98a; --accent-2:#7fd4ff; --accent-contrast:#08192c;
+  --border:#7fd4ff; --border-soft:#2a5f96;
+  --field:#0b2748;
+  --radius:0px; --radius-sm:0px;
+  --shadow:4px 4px 0 #06121f; --shadow-sm:2px 2px 0 rgba(127,212,255,.3);
+  --rule:rgba(127,212,255,.2); --ink:#2f4f3a; --page:#f7f1e2; --page-edge:#08192c;
+  --tbox-bg:rgba(176,96,58,.1); --tbox-border:#b0603a;
+  --ok:#8ee6b8; --warn:#ffb98a;
+}
+
+:root[data-theme="13-feldlabor"][data-scheme="dark"] {
+  --font-body:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --font-display:var(--font-body);
+  --font-read:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
+  --bg:#0e2c4c; --bg-2:#123a63;
+  --surface:#123a63; --surface-2:#16457a;
+  --text:#e6f2ff; --text-dim:#8fb8dd;
+  --accent:#ffb98a; --accent-2:#7fd4ff; --accent-contrast:#08192c;
+  --border:#7fd4ff; --border-soft:#2a5f96;
+  --field:#0b2748;
+  --radius:0px; --radius-sm:0px;
+  --shadow:4px 4px 0 #06121f; --shadow-sm:2px 2px 0 rgba(127,212,255,.3);
+  --rule:rgba(127,212,255,.2); --ink:#2f4f3a; --page:#f7f1e2; --page-edge:#08192c;
+  --tbox-bg:rgba(176,96,58,.1); --tbox-border:#b0603a;
+  --ok:#8ee6b8; --warn:#ffb98a;
+  --bg:#071829; --bg-2:#0b2138;
+  --surface:#0c2740; --surface-2:#103050;
+  --text:#dceeff; --text-dim:#79a3ca;
+  --accent:#ffb98a; --accent-2:#a8e2ff; --accent-contrast:#06121f;
+  --border:#a8e2ff; --border-soft:#1d4a76;
+  --field:#082034;
+  --shadow:4px 4px 0 #01080f;
+  --page:#efe7d4; --page-edge:#01080f;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="13-feldlabor"] {  body {
+  background-image:
+  linear-gradient(var(--rule) 1px, transparent 1px),
+  linear-gradient(90deg, var(--rule) 1px, transparent 1px),
+  linear-gradient(var(--rule) 1px, transparent 1px),
+  linear-gradient(90deg, var(--rule) 1px, transparent 1px),
+  linear-gradient(var(--bg), var(--bg));
+  background-size: 100% 26px, 26px 100%, 100% 6.5px, 6.5px 100%, auto;
+  }
+  body::after {
+  content: ""; position: fixed; inset: 0; z-index: 9998; pointer-events: none;
+  background: repeating-linear-gradient(rgba(0, 0, 0, 0) 0 2px, rgba(0, 0, 0, .28) 2px 4px);
+  }
+  .header, .box, .folder-sidebar, .stage-wrap { border-width: 2px; border-color: var(--border); border-radius: 0; position: relative; }
+  .header h1 { color: var(--page); letter-spacing: .04em; }
+  .brand-name { color: var(--page); }
+  button, .mini-button { border-width: 2px; border-color: var(--border); border-radius: 0; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+  button:hover { background: var(--accent); color: var(--accent-contrast); }
+  .box::before, .folder-sidebar::before, .stage-wrap::before {
+  content: ""; position: absolute; left: 4px; top: 4px; width: 13px; height: 13px;
+  border-left: 2px solid var(--accent); border-top: 2px solid var(--accent); pointer-events: none; z-index: 2;
+  }
+  .box::after, .folder-sidebar::after, .stage-wrap::after {
+  content: ""; position: absolute; right: 4px; bottom: 4px; width: 13px; height: 13px;
+  border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); pointer-events: none; z-index: 2;
+  }
+  .section-title { color: var(--accent-2); }
+  .notebook-cover { border-width: 2px; border-color: var(--border); border-radius: 0; background: var(--page); }
+  .notebook-title { color: var(--text); }
+  .folder-item { border-radius: 0; }
+  .folder-item.active { border-radius: 0; }
+  .stage { border-radius: 0; border-width: 2px; }
+  .editor-modal { border-radius: 0; border-width: 2px; border-color: var(--accent); }
+  .editor-header { background: var(--accent-2); border-bottom-color: var(--accent); }
+  .editor-header-title { color: var(--accent-contrast); }
+  .status-line { border-top: 2px solid var(--border); padding-top: 6px; text-transform: uppercase; letter-spacing: .06em; }
+}

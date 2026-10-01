@@ -10,6 +10,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
+  <!-- Theme-System: der Schirm soll im selben Design erscheinen wie das
+       Notizbuch, das sendet (SPEC-38 verlangt gleiche Optik). themes.js
+       laeuft synchron im <head> und liest die Auswahl aus localStorage –
+       gleiche Herkunft, also dasselbe Theme. Kein Auswahl-Knopf hier, die
+       Seite ist reine Anzeige. -->
+  <script src="js/themes.js" data-boot></script>
   <style>
     /* Nur diese Seite – inline, damit sie ohne App-Bundle auskommt. Die
        Papier-Optik (Klassen .stage.paper-* und .text-box) kommt bewusst aus

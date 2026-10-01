@@ -1,0 +1,76 @@
+/* Federwerk-Theme "Swiss / Raster" (10-swiss)
+ * Schwarzweiss, ein Rot, Helvetica, Disziplin
+ *
+ * Aktiv ueber <html data-theme="10-swiss"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="10-swiss"] {
+  --font-body:'Helvetica Neue',Helvetica,Arial,'Inter',sans-serif;
+  --font-display:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --bg:#ffffff; --bg-2:#f2f2f2;
+  --surface:#ffffff; --surface-2:#f2f2f2;
+  --text:#000000; --text-dim:#767676;
+  --accent:#e30613; --accent-2:#000000; --accent-contrast:#ffffff;
+  --border:#000000; --border-soft:#d8d8d8;
+  --field:#ffffff;
+  --radius:0px; --radius-sm:0px;
+  --shadow:none; --shadow-sm:none;
+  --rule:#d0d0d0; --ink:#000000; --page:#ffffff; --page-edge:#000000;
+  --tbox-bg:rgba(227,6,19,.06); --tbox-border:#e30613;
+  --ok:#000000; --warn:#e30613;
+}
+
+:root[data-theme="10-swiss"][data-scheme="dark"] {
+  --font-body:'Helvetica Neue',Helvetica,Arial,'Inter',sans-serif;
+  --font-display:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --bg:#ffffff; --bg-2:#f2f2f2;
+  --surface:#ffffff; --surface-2:#f2f2f2;
+  --text:#000000; --text-dim:#767676;
+  --accent:#e30613; --accent-2:#000000; --accent-contrast:#ffffff;
+  --border:#000000; --border-soft:#d8d8d8;
+  --field:#ffffff;
+  --radius:0px; --radius-sm:0px;
+  --shadow:none; --shadow-sm:none;
+  --rule:#d0d0d0; --ink:#000000; --page:#ffffff; --page-edge:#000000;
+  --tbox-bg:rgba(227,6,19,.06); --tbox-border:#e30613;
+  --ok:#000000; --warn:#e30613;
+  --bg:#000000; --bg-2:#0d0d0d;
+  --surface:#000000; --surface-2:#141414;
+  --text:#ffffff; --text-dim:#8a8a8a;
+  --accent:#ff2b34; --accent-2:#ffffff; --accent-contrast:#000000;
+  --border:#ffffff; --border-soft:#3a3a3a;
+  --field:#0d0d0d;
+  --rule:#3a3a3a; --ink:#ffffff; --page:#000000; --page-edge:#ffffff;
+  --tbox-bg:rgba(255,43,52,.1); --tbox-border:#ff2b34;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="10-swiss"] {  .header { border-width: 0; border-bottom: 3px solid var(--text); border-radius: 0; box-shadow: none; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .header h1 { color: var(--text); letter-spacing: -.02em; }
+  .brand-name { letter-spacing: -.03em; }
+  .brand-tagline, .version-tag, .notebook-meta, .explorer-section-label, .status-line { text-transform: uppercase; letter-spacing: .16em; }
+  button, .mini-button { border-radius: 0; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; font-size: 11px; }
+  button:hover { background: var(--text); color: var(--bg); }
+  .box { border-width: 0; border-top: 2px solid var(--text); border-radius: 0; box-shadow: none; background: transparent; }
+  .section-title { color: var(--text); font-weight: 700; letter-spacing: .2em; }
+  .divider-line { border-top-color: var(--text); }
+  .notebook-cover { border-width: 0; border-bottom: 2px solid var(--text); border-radius: 0; background: transparent; }
+  .notebook-spine { display: none; }
+  .notebook-title { letter-spacing: -.01em; color: var(--text); }
+  .folder-sidebar { background: transparent; box-shadow: none; border-color: var(--border); border-radius: 0; }
+  .folder-item { border-radius: 0; }
+  .folder-item.active { border-left: 3px solid var(--accent); border-radius: 0; }
+  .stage { border-radius: 0; border-width: 1px; }
+  .editor-modal { border-radius: 0; border-width: 2px; border-color: var(--text); }
+  .editor-header { background: var(--text); border-bottom: 0; }
+  .editor-header-title { color: var(--bg); }
+  .status-line { border-top: 1px solid var(--text); padding-top: 6px; }
+}

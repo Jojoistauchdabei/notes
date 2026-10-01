@@ -1,0 +1,90 @@
+/* Federwerk-Theme "Blueprint" (07-blueprint)
+ * Technische Zeichnung, Cyan auf Blau, Raster
+ *
+ * Aktiv ueber <html data-theme="07-blueprint"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="07-blueprint"] {
+  --font-body:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --font-display:var(--font-body);
+  --bg:#0a2340; --bg-2:#0d2c50;
+  --surface:#0e2a4c; --surface-2:#123a63;
+  --text:#e4f1ff; --text-dim:#7fa8ce;
+  --accent:#7fd4ff; --accent-2:#ffffff; --accent-contrast:#04182e;
+  --border:#2a5f96; --border-soft:#1c4472;
+  --field:#0b2748;
+  --radius:2px; --radius-sm:1px;
+  --shadow:0 0 0 1px rgba(127,212,255,.14); --shadow-sm:none;
+  --rule:rgba(127,212,255,.22); --ink:#cfe9ff; --page:#0b2748; --page-edge:#2a5f96;
+  --tbox-bg:rgba(127,212,255,.08); --tbox-border:#4a90d9;
+  --ok:#6fe3b0; --warn:#ffd166;
+  --bg:#eaf4ff; --bg-2:#dcebfd;
+  --surface:#f4f9ff; --surface-2:#e6f1fd;
+  --text:#0a2340; --text-dim:#4a7ba6;
+  --accent:#1668b0; --accent-2:#0a2340; --accent-contrast:#f4f9ff;
+  --border:#9dc4e8; --border-soft:#c2dbf3;
+  --field:#ffffff;
+  --rule:rgba(10,35,64,.18); --ink:#0a2340; --page:#ffffff; --page-edge:#9dc4e8;
+  --tbox-bg:rgba(22,104,176,.06); --tbox-border:#7fb0da;
+  --ok:#1d7a52; --warn:#a35b00;
+}
+
+:root[data-theme="07-blueprint"][data-scheme="dark"] {
+  --font-body:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --font-display:var(--font-body);
+  --bg:#0a2340; --bg-2:#0d2c50;
+  --surface:#0e2a4c; --surface-2:#123a63;
+  --text:#e4f1ff; --text-dim:#7fa8ce;
+  --accent:#7fd4ff; --accent-2:#ffffff; --accent-contrast:#04182e;
+  --border:#2a5f96; --border-soft:#1c4472;
+  --field:#0b2748;
+  --radius:2px; --radius-sm:1px;
+  --shadow:0 0 0 1px rgba(127,212,255,.14); --shadow-sm:none;
+  --rule:rgba(127,212,255,.22); --ink:#cfe9ff; --page:#0b2748; --page-edge:#2a5f96;
+  --tbox-bg:rgba(127,212,255,.08); --tbox-border:#4a90d9;
+  --ok:#6fe3b0; --warn:#ffd166;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="07-blueprint"] {  body {
+  background-image:
+  linear-gradient(var(--rule) 1px, transparent 1px),
+  linear-gradient(90deg, var(--rule) 1px, transparent 1px),
+  linear-gradient(var(--rule) 1px, transparent 1px),
+  linear-gradient(90deg, var(--rule) 1px, transparent 1px),
+  linear-gradient(var(--bg), var(--bg));
+  background-size: 100% 28px, 28px 100%, 100% 7px, 7px 100%, auto;
+  }
+  .header { border-radius: 0; border-width: 1px; border-color: var(--accent); }
+  .header h1 { color: var(--text); letter-spacing: .06em; }
+  .brand-name::after { content: "_"; color: var(--accent); }
+  button, .mini-button { border-radius: 0; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+  button:hover { background: var(--accent); color: var(--accent-contrast); }
+  .box { border-radius: 0; border-width: 1px; position: relative; }
+  .box::before, .folder-sidebar::before, .stage-wrap::before {
+  content: ""; position: absolute; left: 5px; top: 5px; width: 12px; height: 12px;
+  border-left: 1px solid var(--accent); border-top: 1px solid var(--accent); pointer-events: none;
+  }
+  .box::after, .folder-sidebar::after, .stage-wrap::after {
+  content: ""; position: absolute; right: 5px; bottom: 5px; width: 12px; height: 12px;
+  border-right: 1px solid var(--accent); border-bottom: 1px solid var(--accent); pointer-events: none;
+  }
+  .box, .folder-sidebar, .stage-wrap { position: relative; }
+  .section-title { color: var(--accent); }
+  .notebook-cover { border-radius: 0; border-width: 1px; }
+  .notebook-title::before { content: "[ "; color: var(--accent); }
+  .notebook-title::after { content: " ]"; color: var(--accent); }
+  .folder-sidebar { border-radius: 0; }
+  .folder-item.active { border-radius: 0; background: rgba(0, 0, 0, .18); border-left: 3px solid var(--accent); }
+  .stage { border-radius: 0; border-width: 1px; }
+  .editor-modal { border-radius: 0; border-color: var(--accent); }
+  .status-line { border-top: 1px solid var(--border); padding-top: 6px; text-transform: uppercase; letter-spacing: .06em; }
+}

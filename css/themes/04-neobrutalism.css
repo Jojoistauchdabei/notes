@@ -1,0 +1,73 @@
+/* Federwerk-Theme "Neo-Brutalismus" (04-neobrutalism)
+ * Dicke schwarze Kanten, harte Schlagschatten, laut
+ *
+ * Aktiv ueber <html data-theme="04-neobrutalism"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="04-neobrutalism"] {
+  --font-body:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --font-display:var(--font-body);
+  --bg:#fdf6e3; --bg-2:#f2ead4;
+  --surface:#ffffff; --surface-2:#fdf6e3;
+  --text:#000000; --text-dim:#5c5747;
+  --accent:#ff4d00; --accent-2:#0047ff; --accent-contrast:#000000;
+  --border:#000000; --border-soft:#000000;
+  --field:#ffffff;
+  --radius:0px; --radius-sm:0px;
+  --shadow:8px 8px 0 #000000; --shadow-sm:4px 4px 0 #000000;
+  --rule:#b9d8f5; --ink:#000000; --page:#ffffff; --page-edge:#000000;
+  --tbox-bg:#ffe600; --tbox-border:#000000;
+  --ok:#00a34a; --warn:#ff4d00;
+}
+
+:root[data-theme="04-neobrutalism"][data-scheme="dark"] {
+  --font-body:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --font-display:var(--font-body);
+  --bg:#fdf6e3; --bg-2:#f2ead4;
+  --surface:#ffffff; --surface-2:#fdf6e3;
+  --text:#000000; --text-dim:#5c5747;
+  --accent:#ff4d00; --accent-2:#0047ff; --accent-contrast:#000000;
+  --border:#000000; --border-soft:#000000;
+  --field:#ffffff;
+  --radius:0px; --radius-sm:0px;
+  --shadow:8px 8px 0 #000000; --shadow-sm:4px 4px 0 #000000;
+  --rule:#b9d8f5; --ink:#000000; --page:#ffffff; --page-edge:#000000;
+  --tbox-bg:#ffe600; --tbox-border:#000000;
+  --ok:#00a34a; --warn:#ff4d00;
+  --bg:#111111; --bg-2:#1c1c1c;
+  --surface:#1c1c1c; --surface-2:#262626;
+  --text:#fdf6e3; --text-dim:#a8a292;
+  --accent:#ff4d00; --accent-2:#5f8dff; --accent-contrast:#000000;
+  --border:#fdf6e3; --border-soft:#fdf6e3;
+  --field:#262626;
+  --shadow:8px 8px 0 #fdf6e3; --shadow-sm:4px 4px 0 #fdf6e3;
+  --rule:#2f4d78; --ink:#fdf6e3; --page:#1c1c1c; --page-edge:#fdf6e3;
+  --tbox-bg:#ffe600; --tbox-border:#fdf6e3;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="04-neobrutalism"] {  .header { border-width: 3px; border-color: var(--border); box-shadow: var(--shadow); }
+  .header h1 { color: var(--text); }
+  .brand-name { text-transform: uppercase; }
+  button, .mini-button { border-width: 3px; border-color: var(--border); border-radius: 0; box-shadow: var(--shadow-sm); font-weight: 800; text-transform: uppercase; }
+  button:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--border); background: var(--accent); color: var(--accent-contrast); }
+  button:active { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--border); }
+  .box { border-width: 3px; border-color: var(--border); border-radius: 0; box-shadow: var(--shadow); }
+  .section-title { color: var(--accent-2); }
+  .folder-sidebar { border-width: 3px; border-color: var(--border); border-radius: 0; box-shadow: var(--shadow-sm); }
+  .folder-item { border-radius: 0; }
+  .notebook-cover { border-width: 3px; border-color: var(--border); border-radius: 0; }
+  .stage { border-width: 3px; border-radius: 0; }
+  .editor-modal { border-width: 3px; border-radius: 0; }
+  .editor-header { background: var(--accent); border-bottom-color: var(--border); }
+  .editor-header-title { color: var(--accent-contrast); }
+  .status-line { border-top: 3px solid var(--border); padding-top: 6px; }
+}

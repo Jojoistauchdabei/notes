@@ -18,6 +18,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
+  <!-- Theme-System: laeuft synchron VOR dem ersten Paint und setzt
+       data-theme/data-scheme, damit die Seite nicht kurz im Standard-Theme
+       aufblitzt. Das data-boot-Attribut ist wichtig: build-dist.js bündelt
+       nur Skript-Tags ganz ohne weitere Attribute, also bleibt themes.js
+       allein im head und wird zuerst geladen (das Bundle wäre defer am
+       Seitenende und damit sichtbar zu spaet). -->
+  <script src="js/themes.js" data-boot></script>
 </head>
 <body>
   <div class="container">

@@ -1,0 +1,74 @@
+/* Federwerk-Theme "Werkstattpapier" (15-werkstattpapier)
+ * Buntstift trifft Krauter: dicke Kanten, warmes Papier, Mono-Beschriftung
+ *
+ * Aktiv ueber <html data-theme="15-werkstattpapier"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="15-werkstattpapier"] {
+  --font-body:'Comic Sans MS','Chalkboard SE',cursive;
+  --font-display:'Comic Sans MS','Chalkboard SE',cursive;
+  --font-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --bg:#fff6d9; --bg-2:#f6e6bc;
+  --surface:#fffdf0; --surface-2:#fbf3d8;
+  --text:#33301f; --text-dim:#7d7359;
+  --accent:#e2574c; --accent-2:#3f5c3a; --accent-contrast:#fffdf0;
+  --border:#33301f; --border-soft:#e0d5ae;
+  --field:#fffdf0;
+  --radius:18px; --radius-sm:13px;
+  --shadow:0 5px 0 #33301f; --shadow-sm:0 3px 0 #33301f;
+  --rule:#cfe3d6; --ink:#3f5c3a; --page:#fffdf0; --page-edge:#33301f;
+  --tbox-bg:rgba(226,87,76,.09); --tbox-border:#e2574c;
+  --ok:#3f7d4a; --warn:#e2574c;
+}
+
+:root[data-theme="15-werkstattpapier"][data-scheme="dark"] {
+  --font-body:'Comic Sans MS','Chalkboard SE',cursive;
+  --font-display:'Comic Sans MS','Chalkboard SE',cursive;
+  --font-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --bg:#fff6d9; --bg-2:#f6e6bc;
+  --surface:#fffdf0; --surface-2:#fbf3d8;
+  --text:#33301f; --text-dim:#7d7359;
+  --accent:#e2574c; --accent-2:#3f5c3a; --accent-contrast:#fffdf0;
+  --border:#33301f; --border-soft:#e0d5ae;
+  --field:#fffdf0;
+  --radius:18px; --radius-sm:13px;
+  --shadow:0 5px 0 #33301f; --shadow-sm:0 3px 0 #33301f;
+  --rule:#cfe3d6; --ink:#3f5c3a; --page:#fffdf0; --page-edge:#33301f;
+  --tbox-bg:rgba(226,87,76,.09); --tbox-border:#e2574c;
+  --ok:#3f7d4a; --warn:#e2574c;
+  --bg:#2a2a1f; --bg-2:#363525;
+  --surface:#33331f; --surface-2:#3e3e26;
+  --text:#fbf3d8; --text-dim:#b3a888;
+  --accent:#ff8f7f; --accent-2:#9cc48c; --accent-contrast:#2a2a1f;
+  --border:#14140d; --border-soft:#4f4f33;
+  --field:#3a3a22;
+  --shadow:0 5px 0 #14140d; --shadow-sm:0 3px 0 #14140d;
+  --rule:#4f6b52; --ink:#c8e2b4; --page:#3e3e26; --page-edge:#14140d;
+  --tbox-bg:rgba(255,143,127,.12); --tbox-border:#ff8f7f;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="15-werkstattpapier"] {  .header { border-width: 3px; border-color: var(--text); border-radius: 18px; }
+  .header h1 { color: var(--accent-2); }
+  button, .mini-button { border-width: 3px; border-color: var(--text); border-radius: 15px; box-shadow: var(--shadow-sm); font-weight: 700; }
+  button:hover { background: var(--accent); color: var(--accent-contrast); transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--text); }
+  button.picked, .mini-button.picked { background: var(--accent-2); color: var(--accent-contrast); }
+  .box { border-width: 3px; border-color: var(--text); border-radius: 18px 13px 20px 14px; }
+  .section-title { color: var(--accent-2); letter-spacing: .04em; }
+  .folder-sidebar { border-width: 3px; border-color: var(--text); border-radius: 15px; }
+  .folder-item { border-radius: 14px 8px 12px 7px; }
+  .notebook-cover { border-width: 3px; border-color: var(--text); border-radius: 16px 11px 18px 13px; }
+  .stage { border-width: 3px; border-color: var(--text); border-radius: 4px 12px 5px 14px; }
+  .editor-modal { border-width: 3px; border-color: var(--text); border-radius: 20px; }
+  .editor-header { background: var(--accent-2); border-bottom-color: var(--text); }
+  .editor-header-title { color: var(--accent-contrast); }
+  .status-line { border-top: 3px dashed var(--border); padding-top: 6px; }
+}

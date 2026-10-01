@@ -1,0 +1,76 @@
+/* Federwerk-Theme "Skeuomorph 90er" (09-retro90s)
+ * Erhabene Knoepfe, Verlaufsknoepfe, Systemschrift
+ *
+ * Aktiv ueber <html data-theme="09-retro90s"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="09-retro90s"] {
+  --font-body:Tahoma,'MS Sans Serif','Segoe UI',Geneva,sans-serif;
+  --font-display:var(--font-body);
+  --bg:#008080; --bg-2:#0a7a7a;
+  --surface:#c0c0c0; --surface-2:#d4d0c8;
+  --text:#000000; --text-dim:#3b3b3b;
+  --accent:#000080; --accent-2:#1084d0; --accent-contrast:#ffffff;
+  --border:#808080; --border-soft:#a0a0a0;
+  --field:#ffffff;
+  --radius:0px; --radius-sm:0px;
+  --shadow:3px 3px 0 rgba(0,0,0,.32); --shadow-sm:1px 1px 0 rgba(0,0,0,.28);
+  --rule:#c8dcf0; --ink:#000000; --page:#ffffff; --page-edge:#808080;
+  --tbox-bg:rgba(255,255,255,.7); --tbox-border:#1084d0;
+  --ok:#008000; --warn:#b02020;
+}
+
+:root[data-theme="09-retro90s"][data-scheme="dark"] {
+  --font-body:Tahoma,'MS Sans Serif','Segoe UI',Geneva,sans-serif;
+  --font-display:var(--font-body);
+  --bg:#008080; --bg-2:#0a7a7a;
+  --surface:#c0c0c0; --surface-2:#d4d0c8;
+  --text:#000000; --text-dim:#3b3b3b;
+  --accent:#000080; --accent-2:#1084d0; --accent-contrast:#ffffff;
+  --border:#808080; --border-soft:#a0a0a0;
+  --field:#ffffff;
+  --radius:0px; --radius-sm:0px;
+  --shadow:3px 3px 0 rgba(0,0,0,.32); --shadow-sm:1px 1px 0 rgba(0,0,0,.28);
+  --rule:#c8dcf0; --ink:#000000; --page:#ffffff; --page-edge:#808080;
+  --tbox-bg:rgba(255,255,255,.7); --tbox-border:#1084d0;
+  --ok:#008000; --warn:#b02020;
+  --bg:#3a6ea5; --bg-2:#2c5c8c;
+  --surface:#4a4a4a; --surface-2:#565656;
+  --text:#f2f2f2; --text-dim:#c4c4c4;
+  --accent:#c9d7ff; --accent-2:#5aa9e6; --accent-contrast:#1a1a1a;
+  --border:#2b2b2b; --border-soft:#3d3d3d;
+  --field:#3f3f3f;
+  --rule:#5f7ea8; --ink:#ffffff; --page:#f6f6f6; --page-edge:#2b2b2b;
+  --tbox-bg:rgba(255,255,255,.9); --tbox-border:#1084d0;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="09-retro90s"] {  body { background-color: var(--bg); }
+  .header, .box, .folder-sidebar, .editor-modal {
+  border-style: outset; border-width: 2px; border-color: var(--border); border-radius: 0;
+  box-shadow: var(--shadow);
+  }
+  .header { border-color: var(--border); }
+  .header h1 { color: var(--text); }
+  button, .mini-button {
+  border-style: outset; border-width: 2px; border-color: var(--border); border-radius: 0;
+  background: var(--surface-2); color: var(--text); box-shadow: none;
+  }
+  button:hover { border-style: inset; background: var(--surface); }
+  button.picked, .mini-button.picked { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent-2); }
+  .section-title { background: var(--accent); color: var(--accent-contrast); padding: 4px 8px; }
+  .notebook-cover { border-radius: 0; border-style: outset; }
+  .notebook-spine { background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+  .folder-item { border-radius: 0; }
+  .stage { border-radius: 0; }
+  .editor-modal { border-radius: 0; }
+  .status-line { border-top: 1px solid var(--border); padding-top: 6px; }
+}

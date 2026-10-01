@@ -1,0 +1,67 @@
+/* Federwerk-Theme "Feldnotiz" (11-feldnotiz)
+ * Sanfter Mix: Botanik trägt, Crayon stützt, Mono und Raster nur als Spur
+ *
+ * Aktiv ueber <html data-theme="11-feldnotiz"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="11-feldnotiz"] {
+  --font-body:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
+  --font-display:var(--font-body);
+  --bg:#f4efe0; --bg-2:#e9e3cf;
+  --surface:#fbf7ea; --surface-2:#f6f0dd;
+  --text:#2f4030; --text-dim:#77806d;
+  --accent:#b5643c; --accent-2:#2f4030; --accent-contrast:#fbf7ea;
+  --border:#c9bfa0; --border-soft:#ded6bb;
+  --field:#fffdf3;
+  --radius:22px 14px 20px 12px; --radius-sm:15px 10px 14px 9px;
+  --shadow:0 8px 22px rgba(70,80,55,.14); --shadow-sm:0 3px 10px rgba(70,80,55,.09);
+  --rule:#dbe1cd; --ink:#2f4030; --page:#fffdf3; --page-edge:#c9bfa0;
+  --tbox-bg:rgba(181,100,60,.07); --tbox-border:#b5643c;
+  --ok:#5d7a4e; --warn:#b5643c;
+}
+
+:root[data-theme="11-feldnotiz"][data-scheme="dark"] {
+  --font-body:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
+  --font-display:var(--font-body);
+  --bg:#f4efe0; --bg-2:#e9e3cf;
+  --surface:#fbf7ea; --surface-2:#f6f0dd;
+  --text:#2f4030; --text-dim:#77806d;
+  --accent:#b5643c; --accent-2:#2f4030; --accent-contrast:#fbf7ea;
+  --border:#c9bfa0; --border-soft:#ded6bb;
+  --field:#fffdf3;
+  --radius:22px 14px 20px 12px; --radius-sm:15px 10px 14px 9px;
+  --shadow:0 8px 22px rgba(70,80,55,.14); --shadow-sm:0 3px 10px rgba(70,80,55,.09);
+  --rule:#dbe1cd; --ink:#2f4030; --page:#fffdf3; --page-edge:#c9bfa0;
+  --tbox-bg:rgba(181,100,60,.07); --tbox-border:#b5643c;
+  --ok:#5d7a4e; --warn:#b5643c;
+  --bg:#232a20; --bg-2:#2c3428;
+  --surface:#2b3327; --surface-2:#333c2d;
+  --text:#eceadb; --text-dim:#9aa38c;
+  --accent:#d08a5f; --accent-2:#dfe8cd; --accent-contrast:#232a20;
+  --border:#4c5741; --border-soft:#3c4633;
+  --field:#2f382b;
+  --shadow:0 8px 22px rgba(0,0,0,.45); --shadow-sm:0 3px 10px rgba(0,0,0,.3);
+  --rule:#3d4733; --ink:#dfe8cd; --page:#2e3628; --page-edge:#4c5741;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="11-feldnotiz"] {  .header { border-width: 2px; border-color: var(--border-soft); }
+  .header h1 { color: var(--accent-2); }
+  button, .mini-button { border-width: 2px; border-color: var(--border); border-radius: 16px 10px 14px 8px; }
+  .box { border-width: 2px; border-color: var(--border-soft); border-radius: 18px 12px 16px 10px; }
+  .section-title { color: var(--accent-2); letter-spacing: .12em; }
+  .folder-sidebar { border-radius: 16px 10px 14px 8px; border-color: var(--border-soft); }
+  .folder-item { border-radius: 14px 8px 12px 7px; }
+  .notebook-cover { border-width: 2px; border-color: var(--border-soft); border-radius: 18px 12px 16px 10px; }
+  .stage { border-radius: 3px 9px 4px 10px; border-width: 1px; }
+  .status-line { border-top: 1px dashed var(--border); padding-top: 6px; }
+  .editor-modal { border-radius: 20px 14px 18px 10px; }
+}

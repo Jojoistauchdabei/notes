@@ -1,0 +1,72 @@
+/* Federwerk-Theme "Zen / Mu" (03-zen)
+ * Weissraum, Haarlinien, kein Zierrat
+ *
+ * Aktiv ueber <html data-theme="03-zen"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="03-zen"] {
+  --font-body:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --font-display:var(--font-body);
+  --bg:#f6f5f2; --bg-2:#efeeea;
+  --surface:#ffffff; --surface-2:#faf9f7;
+  --text:#3c3f3a; --text-dim:#8d9187;
+  --accent:#6f7a6c; --accent-2:#3c3f3a; --accent-contrast:#ffffff;
+  --border:#e6e4de; --border-soft:#efeeea;
+  --field:#ffffff;
+  --radius:26px; --radius-sm:16px;
+  --shadow:none; --shadow-sm:none;
+  --rule:#eae8e2; --ink:#3c3f3a; --page:#fffefc; --page-edge:rgba(0,0,0,.05);
+  --tbox-bg:rgba(111,122,108,.05); --tbox-border:#cfd3ca;
+  --ok:#6f7a6c; --warn:#a08a6b;
+}
+
+:root[data-theme="03-zen"][data-scheme="dark"] {
+  --font-body:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --font-display:var(--font-body);
+  --bg:#f6f5f2; --bg-2:#efeeea;
+  --surface:#ffffff; --surface-2:#faf9f7;
+  --text:#3c3f3a; --text-dim:#8d9187;
+  --accent:#6f7a6c; --accent-2:#3c3f3a; --accent-contrast:#ffffff;
+  --border:#e6e4de; --border-soft:#efeeea;
+  --field:#ffffff;
+  --radius:26px; --radius-sm:16px;
+  --shadow:none; --shadow-sm:none;
+  --rule:#eae8e2; --ink:#3c3f3a; --page:#fffefc; --page-edge:rgba(0,0,0,.05);
+  --tbox-bg:rgba(111,122,108,.05); --tbox-border:#cfd3ca;
+  --ok:#6f7a6c; --warn:#a08a6b;
+  --bg:#191a18; --bg-2:#1f201d;
+  --surface:#222320; --surface-2:#282926;
+  --text:#e6e5df; --text-dim:#8b8d85;
+  --accent:#9aa596; --accent-2:#e6e5df; --accent-contrast:#191a18;
+  --border:#2f302c; --border-soft:#272825;
+  --field:#1d1e1b;
+  --rule:#2c2d29; --ink:#e6e5df; --page:#202120; --page-edge:rgba(255,255,255,.05);
+  --tbox-bg:rgba(255,255,255,.04); --tbox-border:#3a3b36;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="03-zen"] {  .header { border-color: var(--border-soft); border-width: 1px; box-shadow: none; }
+  .header h1 { color: var(--text); font-weight: 300; letter-spacing: .12em; text-transform: uppercase; }
+  .brand-name { font-weight: 300; letter-spacing: .12em; text-transform: uppercase; }
+  button, .mini-button { border-color: transparent; background: transparent; color: var(--text-dim); box-shadow: none; }
+  button:hover, .mini-button:hover { background: var(--surface-2); color: var(--text); border-color: var(--border-soft); }
+  button.picked, .mini-button.picked { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+  .box { border-color: transparent; border-width: 1px; border-top-color: var(--border-soft); border-radius: 0; box-shadow: none; }
+  .section-title { color: var(--text-dim); letter-spacing: .2em; }
+  .notebook-cover { border-width: 1px; border-color: var(--border-soft); border-radius: 20px; box-shadow: none; }
+  .notebook-title { font-weight: 400; color: var(--text); }
+  .notebook-spine { background: var(--border-soft); }
+  .folder-sidebar { border-color: transparent; background: transparent; box-shadow: none; }
+  .folder-item { border-radius: 14px; }
+  .stage { border-radius: 2px; border-width: 1px; box-shadow: 0 18px 50px rgba(0, 0, 0, .07); }
+  .editor-modal { border-radius: 28px; border-width: 1px; border-color: var(--border-soft); }
+  .status-line { border-top: 1px solid var(--border-soft); padding-top: 6px; }
+}

@@ -1,0 +1,77 @@
+/* Federwerk-Theme "Editorial" (05-editorial)
+ * Magazinlayout, Serifenschrift, roter Stich
+ *
+ * Aktiv ueber <html data-theme="05-editorial"> (js/themes.js). Ohne dieses Attribut
+ * greift das Standard-Thema aus css/styles.css. Die Zuordnung der echten
+ * Federwerk-Klassen auf die Tokens steht in css/themes/_shared.css.
+ *
+ * Aufbau der Datei, in dieser Reihenfolge:
+ *   1) :root[data-theme="..."]           Design-Tokens, hell
+ *   2) :root[data-theme="..."][data-scheme="dark"]   dieselben, dunkel
+ *   3) Signatur                          was dieses Design vom Adapter
+ *                                         abweichend will
+ * Wege es hell/dunkel gibt, gehoeren in 1) und 2), nicht in 3).
+ */
+:root[data-theme="05-editorial"] {
+  --font-body:Georgia,'Times New Roman',Times,serif;
+  --font-display:Georgia,'Times New Roman',Times,serif;
+  --bg:#f7f3ea; --bg-2:#efe9db;
+  --surface:#fbf8f1; --surface-2:#f4efe2;
+  --text:#1a1713; --text-dim:#6b6252;
+  --accent:#a8232b; --accent-2:#1a1713; --accent-contrast:#fbf8f1;
+  --border:#d9d0bd; --border-soft:#e4dccb;
+  --field:#fffdf8;
+  --radius:0px; --radius-sm:0px;
+  --shadow:none; --shadow-sm:none;
+  --rule:#cdd9e8; --ink:#1a1713; --page:#fffefb; --page-edge:rgba(26,23,19,.16);
+  --tbox-bg:rgba(168,35,43,.05); --tbox-border:#a8232b;
+  --ok:#4a6b3a; --warn:#a8232b;
+}
+
+:root[data-theme="05-editorial"][data-scheme="dark"] {
+  --font-body:Georgia,'Times New Roman',Times,serif;
+  --font-display:Georgia,'Times New Roman',Times,serif;
+  --bg:#f7f3ea; --bg-2:#efe9db;
+  --surface:#fbf8f1; --surface-2:#f4efe2;
+  --text:#1a1713; --text-dim:#6b6252;
+  --accent:#a8232b; --accent-2:#1a1713; --accent-contrast:#fbf8f1;
+  --border:#d9d0bd; --border-soft:#e4dccb;
+  --field:#fffdf8;
+  --radius:0px; --radius-sm:0px;
+  --shadow:none; --shadow-sm:none;
+  --rule:#cdd9e8; --ink:#1a1713; --page:#fffefb; --page-edge:rgba(26,23,19,.16);
+  --tbox-bg:rgba(168,35,43,.05); --tbox-border:#a8232b;
+  --ok:#4a6b3a; --warn:#a8232b;
+  --bg:#14120f; --bg-2:#1c1a16;
+  --surface:#1a1815; --surface-2:#22201b;
+  --text:#ece6d9; --text-dim:#9a9184;
+  --accent:#e05a5a; --accent-2:#ece6d9; --accent-contrast:#14120f;
+  --border:#3a352d; --border-soft:#2b2822;
+  --field:#201d19;
+  --rule:#2f3b4a; --ink:#ece6d9; --page:#201d19; --page-edge:rgba(236,230,217,.18);
+  --tbox-bg:rgba(224,90,90,.07); --tbox-border:#e05a5a;
+  --ok:#8fbf72; --warn:#e05a5a;
+}
+
+/* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
+:root[data-theme="05-editorial"] {  .header { border-width: 0; border-bottom: 3px double var(--border); border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .header h1 { color: var(--text); font-weight: 400; letter-spacing: -.01em; }
+  .brand-name { font-weight: 400; letter-spacing: -.01em; }
+  .brand-tagline { font-style: italic; }
+  button, .mini-button { border-color: var(--border); border-radius: 0; box-shadow: none; font-variant: small-caps; letter-spacing: .04em; }
+  button:hover { background: transparent; color: var(--accent); border-color: var(--accent); }
+  .box { border-width: 0; border-top: 1px solid var(--border); border-radius: 0; box-shadow: none; background: transparent; }
+  .section-title { color: var(--text-dim); font-weight: 400; letter-spacing: .24em; }
+  .divider-line { border-top-color: var(--border); }
+  .notebook-cover { border-width: 0; border-bottom: 2px solid var(--text); border-radius: 0; background: transparent; }
+  .notebook-spine { display: none; }
+  .notebook-title { font-weight: 400; font-size: 18px; color: var(--text); }
+  .notebook-meta, .version-tag { text-transform: uppercase; letter-spacing: .12em; font-size: 10px; }
+  .folder-sidebar { background: transparent; box-shadow: none; border-color: var(--border-soft); border-radius: 0; }
+  .folder-item.active { background: transparent; color: var(--accent); border-left: 2px solid var(--accent); border-radius: 0; }
+  .stage { border-radius: 0; border-width: 1px; }
+  .editor-modal { border-radius: 0; border-color: var(--border); box-shadow: 14px 14px 0 rgba(0, 0, 0, .1); }
+  .editor-header { border-bottom: 3px double var(--border); }
+  .editor-body h1::first-letter { float: left; font-size: 58px; line-height: .8; padding: 4px 8px 0 0; color: var(--accent); }
+  .status-line { border-top: 1px solid var(--border); padding-top: 6px; font-variant: small-caps; letter-spacing: .1em; }
+}

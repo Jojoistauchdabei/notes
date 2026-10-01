@@ -196,10 +196,35 @@ const presentPage = bundlePage('present.html', 'present.bundle', false);
 //    gnpdf-worker.js: new Worker('js/gnpdf-worker.js', { type: 'module' })
 //    mcp.js / storage-usage.js: nicht in index.html referenziert, gehören aber
 //    weiterhin zum ausgelieferten dist/ (z. B. für externe Aufrufer/Tests).
-for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js']) {
+//    themes.js: lädt synchron im <head> und hängt die Theme-Stylesheets erst
+//    zur Laufzeit an den Dokumentanfang. Es darf deshalb nicht im Bundle
+//    landen (das wäre defer am Seitenende = sichtbarer Theme-Wechsel) und
+//    muss eigenständig kopiert werden.
+for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js', 'js/themes.js']) {
   const p = path.join(root, rel);
   if (!fs.existsSync(p)) continue;
   fs.writeFileSync(path.join(dist, rel), minify('js', fs.readFileSync(p, 'utf8'), path.basename(rel, '.js')));
+}
+
+// 5b) Theme-Stylesheets mitnehmen (js/themes.js lädt sie zur Laufzeit nach).
+//     Ungehasht und unminifiziert: sie sind additiv gegenüber styles.css
+//     (_shared.css + <thema>.css) und werden nach dem Start nur geladen,
+//     wenn ein Design-Thema gewählt wurde – der Standard lädt gar nichts.
+//     Ausnahme papier.css: es referenziert dasselbe Papierbild wie
+//     styles.css und muss daher genauso auf die gehashten Dateien zeigen.
+{
+  const src = path.join(root, 'css', 'themes');
+  if (fs.existsSync(src)) {
+    const dst = path.join(dist, 'css', 'themes');
+    fs.mkdirSync(dst, { recursive: true });
+    for (const name of fs.readdirSync(src).filter((f) => f.endsWith('.css'))) {
+      let body = fs.readFileSync(path.join(src, name), 'utf8');
+      body = body.replace(/url\(['"]\.\.\/\.\.\/altes_Papier\.(webp|jpg)['"]\)/g, (_, ext) => `url('../../${paperFiles[ext]}')`);
+      fs.writeFileSync(path.join(dst, name), body);
+    }
+  } else {
+    console.warn('build: css/themes/ fehlt – Design-Themen fehlen im dist.');
+  }
 }
 
 // 6) Eigenständig geladene Dateien behalten ihre Namen (siehe 5)

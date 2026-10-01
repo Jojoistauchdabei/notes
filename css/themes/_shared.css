@@ -1,0 +1,239 @@
+/* Federwerk Theme-Adapter (css/themes/_shared.css)
+ *
+ * Wird ausschliesslich geladen, wenn eine der 15 DESIGN-Varianten aktiv ist.
+ * Das Standard-Thema "Papier" laedt diese Datei gar nicht – sein Aussehen
+ * beschreibt css/styles.css bereits vollstaendig, und diese Datei aendert
+ * daran nichts. Jede Regel unten ist deshalb auf Nicht-Papier-Themen
+ * eingeschraenkt; fuer Paper gelten weiter die Werte aus styles.css.
+ *
+ * Reihenfolge im Dokument:
+ *   css/styles.css  ->  css/themes/_shared.css  ->  css/themes/<thema>.css
+ *
+ * Diese Datei hebt die in styles.css hartkodierten Werte auf die
+ * Design-Tokens, die das jeweilige Thema in <thema>.css setzt. Sie ist
+ * fuer alle 15 Designs identisch und enthaelt bewusst KEINE Gestaltung –
+ * nur die Zuordnung. Themen, die etwas anders wollen, ueberschreiben
+ * einfach (siehe ganz unten in <thema>.css).
+ *
+ * Erwartete Design-Tokens je Thema (siehe <thema>.css):
+ *   --bg --surface --surface-2 --text --text-dim --accent --accent-2
+ *   --accent-contrast --border --border-soft --field --radius --radius-sm
+ *   --shadow --shadow-sm --rule --ink --page --page-edge --tbox-bg
+ *   --tbox-border --ok --warn --font-body --font-display --font-mono
+ */
+
+/* ===== 1) Design-Token -> Federwerk-Token ==============================
+ * styles.css erwartet diese zusaetzlichen Namen. Spezifitaet
+ * :root[data-theme]:not([data-theme="papier"]) (0,1,1) schlaegt das :root (0,0,1) aus styles.css,
+ * die Werte werden zur Aufloesungszeit aus den Design-Tokens gelesen –
+ * die Reihenfolge der Dateien spielt dafuer keine Rolle. */
+:root[data-theme]:not([data-theme="papier"]) {
+  --accent-dark: var(--accent-2);
+  --accent-muted: var(--text-dim);
+  --border-light: var(--border-soft);
+  --surface-strong: var(--surface-2);
+  --field-bg: var(--field);
+  --disabled-bg: var(--surface-2);
+  --button-bg: var(--accent);
+  --button-text: var(--accent-contrast);
+  --button-inactive-bg: var(--surface-2);
+  --button-inactive-text: var(--text-dim);
+  --mini-button-hover-bg: var(--surface-2);
+
+  /* --bg-image wird von html/body/.editor-modal als eigene Hintergrundebene
+     benutzt. Es MUSS eine gueltige Bildebene sein (kein "none"): die
+     Papier-Varianten (.lined, .paper-* unten) bauen Kommalisten, in denen
+     ein "none" den ganzen Wert ungueltig machen wuerde. Das Themes setzt
+     hier koeln: eine Flaeche in --bg, damit body/Modal die Theme-Farbe
+     bekommen statt der Papier-Textur. */
+  --bg-image: linear-gradient(var(--bg), var(--bg));
+
+  /* Basislage des Blatts. Die Papier-Varianten unten bauen ihre
+   * Komma-Listen aus den Regeln und dieser Lage – ein "none" waere dort
+   * ungueltig (eine Liste darf kein "none" enthalten) und wuerde die
+   * komplette background-image-Deklaration verwerfen. Themes ohne
+   * Textur bekommen deshalb eine transparente Ebene; papier.css setzt
+   * hier die echte Papier-Textur. */
+  --paper-texture: linear-gradient(transparent, transparent);
+}
+
+/* ===== 2) Typografie ==================================================
+ * styles.css bindet die Web-Fonts hart an Klassen ('Cinzel' fuer
+ * Buttons/Labels, 'Crimson Text' fuer Text). Designs bringen ihre
+ * eigenen Stapel ueber --font-display / --font-body mit. */
+:root[data-theme]:not([data-theme="papier"]) body,
+:root[data-theme]:not([data-theme="papier"]) input,
+:root[data-theme]:not([data-theme="papier"]) textarea,
+:root[data-theme]:not([data-theme="papier"]) select,
+:root[data-theme]:not([data-theme="papier"]) .editor-body,
+:root[data-theme]:not([data-theme="papier"]) .text-box,
+:root[data-theme]:not([data-theme="papier"]) .notebook-preview,
+:root[data-theme]:not([data-theme="papier"]) .folder-label,
+:root[data-theme]:not([data-theme="papier"]) .status-line,
+:root[data-theme]:not([data-theme="papier"]) .graph-label {
+  font-family: var(--font-body);
+}
+:root[data-theme]:not([data-theme="papier"]) button,
+:root[data-theme]:not([data-theme="papier"]) .mini-button,
+:root[data-theme]:not([data-theme="papier"]) .section-title,
+:root[data-theme]:not([data-theme="papier"]) .explorer-section-label,
+:root[data-theme]:not([data-theme="papier"]) label,
+:root[data-theme]:not([data-theme="papier"]) .brand-name,
+:root[data-theme]:not([data-theme="papier"]) .notebook-title,
+:root[data-theme]:not([data-theme="papier"]) .editor-header-title,
+:root[data-theme]:not([data-theme="papier"]) .divider-title,
+:root[data-theme]:not([data-theme="papier"]) .version-tag,
+:root[data-theme]:not([data-theme="papier"]) .folder-count,
+:root[data-theme]:not([data-theme="papier"]) .editor-select {
+  font-family: var(--font-display);
+}
+:root[data-theme]:not([data-theme="papier"]) .status-line,
+:root[data-theme]:not([data-theme="papier"]) .version-tag,
+:root[data-theme]:not([data-theme="papier"]) .folder-count,
+:root[data-theme]:not([data-theme="papier"]) .notebook-meta,
+:root[data-theme]:not([data-theme="papier"]) .explorer-folder-count {
+  font-family: var(--font-mono);
+}
+:root[data-theme]:not([data-theme="papier"]) .editor-body h1,
+:root[data-theme]:not([data-theme="papier"]) .editor-body h2,
+:root[data-theme]:not([data-theme="papier"]) .editor-body h3,
+:root[data-theme]:not([data-theme="papier"]) .rich-field h1,
+:root[data-theme]:not([data-theme="papier"]) .rich-field h2,
+:root[data-theme]:not([data-theme="papier"]) .rich-field h3,
+:root[data-theme]:not([data-theme="papier"]) .text-box h1,
+:root[data-theme]:not([data-theme="papier"]) .text-box h2,
+:root[data-theme]:not([data-theme="papier"]) .text-box h3 {
+  font-family: var(--font-display);
+}
+
+/* ===== 3) Hartkodierte Buttonfarben -> Tokens =========================
+ * .btn-export/.btn-import/.btn-print liegen in styles.css als feste
+ * Brauntoene vor. Themes wuenschen sich die Akzentfarbe. */
+:root[data-theme]:not([data-theme="papier"]) .btn-export,
+:root[data-theme]:not([data-theme="papier"]) .btn-import,
+:root[data-theme]:not([data-theme="papier"]) .btn-print {
+  background: var(--accent-2);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+:root[data-theme]:not([data-theme="papier"]) .btn-export:hover,
+:root[data-theme]:not([data-theme="papier"]) .btn-import:hover,
+:root[data-theme]:not([data-theme="papier"]) .btn-print:hover {
+  background: var(--accent);
+}
+
+/* ===== 4) Die Seite: Papier und Tinte =================================
+ * .stage nutzt in styles.css eine feste Papierfarbe und das
+ * Papierbild. Beides wird hier auf die Theme-Tokens gehoben; die
+ * Papier-Vorlagen werden neu aus --page/--rule gebaut, damit jede
+ * Vorlage im Theme funktioniert (inkl. Punktraster und Notenlinien). */
+:root[data-theme]:not([data-theme="papier"]) .stage {
+  background-color: var(--page);
+  background-image: var(--paper-texture);
+  border-color: var(--page-edge);
+}
+:root[data-theme]:not([data-theme="papier"]) .page-slot:not(:has(> .stage)) {
+  background-color: var(--page);
+  border-color: var(--page-edge);
+}
+:root[data-theme]:not([data-theme="papier"]) .stage.lined {
+  background-image: linear-gradient(transparent 95%, var(--rule) 100%), var(--paper-texture);
+  background-size: 100% 32px, auto;
+}
+:root[data-theme]:not([data-theme="papier"]) .stage.grid,
+:root[data-theme]:not([data-theme="papier"]) .stage.paper-grid-lg {
+  background-image:
+    linear-gradient(var(--rule) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule) 1px, transparent 1px),
+    var(--paper-texture);
+  background-size: 24px 24px, 24px 24px, auto;
+}
+:root[data-theme]:not([data-theme="papier"]) .stage.paper-grid-lg { background-size: 48px 48px, 48px 48px, auto; }
+:root[data-theme]:not([data-theme="papier"]) .stage.paper-margin {
+  background-image:
+    linear-gradient(90deg, transparent 0 64px, var(--accent) 64px 66px, transparent 66px),
+    linear-gradient(transparent 95%, var(--rule) 100%),
+    var(--paper-texture);
+  background-size: auto, 100% 32px, auto;
+}
+:root[data-theme]:not([data-theme="papier"]) .stage.paper-cornell {
+  background-image:
+    linear-gradient(90deg, transparent 0 30%, var(--accent) 30% calc(30% + 2px), transparent calc(30% + 2px)),
+    linear-gradient(transparent 0 82%, var(--accent) 82% calc(82% + 2px), transparent calc(82% + 2px)),
+    linear-gradient(transparent 95%, var(--rule) 100%),
+    var(--paper-texture);
+  background-size: auto, auto, 100% 32px, auto;
+}
+:root[data-theme]:not([data-theme="papier"]) .stage.paper-todo {
+  background-image:
+    linear-gradient(var(--rule) 0 0),
+    linear-gradient(transparent 95%, var(--rule) 100%),
+    var(--paper-texture);
+  background-size: 16px 16px, 100% 40px, auto;
+  background-position: 20px 12px, 0 0, 0 0;
+  background-repeat: no-repeat, repeat, repeat;
+}
+:root[data-theme]:not([data-theme="papier"]) .stage.paper-dots {
+  background-image: radial-gradient(circle, var(--rule) 1.4px, transparent 1.6px), var(--paper-texture);
+  background-size: 24px 24px, auto;
+  background-position: 12px 12px, 0 0;
+}
+:root[data-theme]:not([data-theme="papier"]) .stage.paper-music {
+  background-image: repeating-linear-gradient(transparent 0 11px, var(--rule) 11px 12px, transparent 12px 76px), var(--paper-texture);
+  background-size: 100% 76px, auto;
+  background-position: 0 24px, 0 0;
+}
+/* Tintenfarbe auf dem Blatt. styles.css fixiert #2a1a0e, damit Tinte auf
+ * Papier immer dunkel bleibt – bei dunklen Themen waere sie unsichtbar,
+ * also folgt die Tinte jetzt --ink des Themas. */
+:root[data-theme]:not([data-theme="papier"]) .text-box { color: var(--ink); }
+:root[data-theme]:not([data-theme="papier"]) .text-box.selected {
+  border-color: var(--accent);
+  background: var(--tbox-bg);
+}
+:root[data-theme]:not([data-theme="papier"]) .img-item.selected { border-color: var(--accent); }
+:root[data-theme]:not([data-theme="papier"]) .img-handle { background: var(--accent); color: var(--accent-contrast); }
+:root[data-theme]:not([data-theme="papier"]) #previewCanvas { background: var(--page); border-color: var(--border); }
+
+/* ===== 5) Hartkodierte Brauntoene im Ordner-Baum ==================== */
+:root[data-theme]:not([data-theme="papier"]) .folder-row.active { background: var(--mini-button-hover-bg); }
+:root[data-theme]:not([data-theme="papier"]) .folder-count {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+:root[data-theme]:not([data-theme="papier"]) .folder-item.active .folder-count { background: var(--accent-contrast); color: var(--accent-2); }
+:root[data-theme]:not([data-theme="papier"]) .folder-badge {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+:root[data-theme]:not([data-theme="papier"]) .folder-badge:hover { background: var(--mini-button-hover-bg); }
+:root[data-theme]:not([data-theme="papier"]) .move-row select {
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--field);
+  color: var(--text);
+}
+
+/* ===== 6) Statuszeile und Konflikt-Badge ============================= */
+:root[data-theme]:not([data-theme="papier"]) #statusPage.edge-flash,
+:root[data-theme]:not([data-theme="papier"]) #statusPageB.edge-flash { background: var(--surface-2); }
+
+/* ===== 7) Eingaben:rahmen statt Unterstrich ===========================
+ * styles.css zeichnet Felder nur mit einer Unterlinie. Fuer die Design-
+ * Themes sind eingerahmte Felder die einheitlichere Wahl; Themen, die
+ * die Unterlinie wollen, ueberschreiben das. */
+:root[data-theme]:not([data-theme="papier"]) input[type="text"],
+:root[data-theme]:not([data-theme="papier"]) input[type="number"],
+:root[data-theme]:not([data-theme="papier"]) input[type="password"],
+:root[data-theme]:not([data-theme="papier"]) input[type="color"],
+:root[data-theme]:not([data-theme="papier"]) textarea,
+:root[data-theme]:not([data-theme="papier"]) select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--field);
+  color: var(--text);
+}
+:root[data-theme]:not([data-theme="papier"]) input[type="color"] { padding: 2px; }
+:root[data-theme]:not([data-theme="papier"]) :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
