@@ -41,7 +41,7 @@
   };
   Store._internals = {
     isBlobRef, isDataUrl, dataUrlToBytes, bytesToDataUrl,
-    collectRefs, stripRuntime, parseLegacy, memBlobs,
+    collectRefs, stripRuntime, persistJson, parseLegacy, memBlobs,
     _setForceMemBlobs(v) { forceMemBlobs = !!v; },
     _reset() { memBlobs.clear(); urlCache.clear(); inflight.clear(); dbPromise = null; },
   };
@@ -129,10 +129,16 @@
     }
     return refs;
   }
-  // Laufzeit-Keys (beginnend mit _) aus Persistenz-JSON entfernen
-  function stripRuntime(state) {
-    return JSON.parse(JSON.stringify(state, (k, v) => (k && k[0] === '_' ? undefined : v)));
-  }
+  // Laufzeit-Keys (beginnend mit _) aus Persistenz-JSON entfernen.
+  function runtimeReplacer(k, v) { return (k && k[0] === '_') ? undefined : v; }
+  /* Das Persistenz-JSON in EINEM Durchlauf erzeugen. Vorher lief der Zustand
+   * dreimal durch die Serialisierung: stringify(mit Replacer) -> parse ->
+   * stringify. Das bedeutet zwei komplette Serialisierungen plus einen frischen
+   * Objektgraphen aus dem Parser, und zwar bei jedem Autosave – der Radierer
+   * stoesst den Debouncer im Sekundentakt an. */
+  function persistJson(state) { return JSON.stringify(state, runtimeReplacer); }
+  // Objektform fuer Aufrufer, die eine bereinigte Kopie brauchen (Tests, Export).
+  function stripRuntime(state) { return JSON.parse(persistJson(state)); }
   function parseLegacy(raw) {
     if (!raw) return null;
     try {
@@ -320,7 +326,22 @@
     return bytesToDataUrl(rec.bytes, rec.mime);
   }
   function subscribe(fn) { if (typeof fn === 'function') subs.push(fn); }
-  function notify() { subs.forEach((fn) => { try { fn(); } catch { /* ignore */ } }); }
+  /* Abos gebuendelt benachrichtigen. Jede aufgeloeste Blob-URL hat einen
+   * eigenen ensureUrl()-Aufruf; eine Seite mit 20 Bildern feuerte also 20
+   * Einzelbenachrichtigungen, und der Abonnent baut den Bild-Layer komplett neu
+   * auf. Mit Microtask-Batching wird daraus eine Benachrichtigung pro Runde. */
+  let notifyQueued = false;
+  function flushNotify() {
+    notifyQueued = false;
+    subs.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
+  }
+  function notify() {
+    if (notifyQueued) return;
+    notifyQueued = true;
+    if (typeof queueMicrotask === 'function') { queueMicrotask(flushNotify); return; }
+    if (typeof Promise !== 'undefined') { Promise.resolve().then(flushNotify); return; }
+    flushNotify();
+  }
 
   /* ---------- Buch-Transformation ---------- */
   // Export-Format: alle blob:-Refs -> dataURL (portabel für JSON/Cloud)
@@ -368,8 +389,7 @@
 
   /* ---------- State-Persistenz ---------- */
   async function saveNow(state) {
-    const clean = stripRuntime(state);
-    const json = JSON.stringify(clean);
+    const json = persistJson(state); // ein Durchlauf statt drei
     await kvSet(STATE_KEY, json); // IDB (falls verfügbar)
     try { localStorage.setItem(LS_KEY, json); } catch { /* Quota: IDB trägt */ }
   }

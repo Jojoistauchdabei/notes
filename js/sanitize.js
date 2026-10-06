@@ -164,11 +164,41 @@ var GrimoireSanitize = (function () {
     }
   }
 
+  /* Memo fuer sanitizeHtml().
+   *
+   * Der Normalfall baut pro Aufruf ein komplettes DOMParser-Dokument und läuft
+   * mit querySelectorAll('*') darueber. renderTextInto() (js/app.js) ruft das
+   * fuer JEDE Textbox bei JEDEM Rendern erneut auf – eine Seite mit 20 Boxen auf
+   * 8 gemounteten Buehnen ergibt 180 DOMParser-Dokumente pro renderAll().
+   *
+   * sanitizeHtml() ist eine reine Funktion des Eingabetexts, also merken wir
+   * das Ergebnis. Die Boxen aendern ihren Text nur beim Tippen, die Trefferquote
+   * ist entsprechend sehr hoch. LRU mit harter Obergrenze, damit langes Tippen
+   * den Cache nicht unbegrenzt wachsen laesst. */
+  var memo = (typeof Map !== 'undefined') ? new Map() : null;
+  var MEMO_MAX = 400;
+
+  function clearSanitizeCache() { if (memo) memo.clear(); }
+
   function sanitizeHtml(html) {
     if (html == null) return '';
     var src = String(html);
     if (!src) return '';
     if (src.indexOf('<') === -1 && src.indexOf('>') === -1) return src;
+    if (!memo) return sanitizeUncached(src);
+    if (memo.has(src)) {
+      var hit = memo.get(src);
+      memo.delete(src);      // LRU: Treffer ans Ende schieben
+      memo.set(src, hit);
+      return hit;
+    }
+    var out = sanitizeUncached(src);
+    if (memo.size >= MEMO_MAX) memo.clear();
+    memo.set(src, out);
+    return out;
+  }
+
+  function sanitizeUncached(src) {
     if (typeof DOMParser === 'undefined' || typeof document === 'undefined') return fallback(src);
     var doc = null;
     try {
@@ -205,6 +235,7 @@ var GrimoireSanitize = (function () {
 
   return {
     sanitizeHtml: sanitizeHtml,
+    clearSanitizeCache: clearSanitizeCache,
     safeUrl: safeUrl,
     cleanStyle: cleanStyle,
     cleanClass: cleanClass,

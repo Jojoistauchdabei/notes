@@ -637,8 +637,10 @@
         state: g.state || null,
         openBook: (typeof g.openBook === 'function') ? g.openBook : null,
         currentPage: (typeof g.currentPage === 'function') ? g.currentPage : null,
-        renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
-        renderCanvas: (typeof g.renderCanvas === 'function') ? g.renderCanvas : null,
+renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
+    renderCanvas: (typeof g.renderCanvas === 'function') ? g.renderCanvas : null,
+    // Fremde Tinte aendert die Thumbnails, ohne den Seitenstempel zu beruehren.
+    invalidateRail: (typeof g.invalidateRail === 'function') ? g.invalidateRail : null,
         persistSoon: (typeof g.persistSoon === 'function') ? g.persistSoon : null,
         persistNow: (typeof g.persistNow === 'function') ? g.persistNow : null,
         openBookInPane: (typeof g.openBookInPane === 'function') ? g.openBookInPane : null,
@@ -683,6 +685,7 @@
           ? (A.state.books || []).find(x => x && x.id === S.share.bookId)
           : null) || liveBook();
         if (b) b.updatedAt = Date.now();
+        if (A.invalidateRail) A.invalidateRail();
         if (A.persistSoon) A.persistSoon();
         // Die betroffene Seite gezielt neu zeichnen: im Continuous-Scroll-Modus
         // kann eine fremde Aenderung auf einer sichtbaren Nachbarseite landen,
@@ -971,6 +974,7 @@
         if (ix >= 0) {
           // Gast-Kopie ist Wegwerf-Sicht: nicht in Cloud syncen, einfach entfernen.
           A.state.books.splice(ix, 1);
+          if (A.invalidateRail) A.invalidateRail();
           if (A.persistSoon) A.persistSoon();
           if (A.renderAll) A.renderAll();
         }
@@ -1000,12 +1004,18 @@
       const dots = peers.map(p =>
         '<span class="live-avatar" title="' + esc(p.userName) + '" style="background:' + esc(p.userColor) + '">' +
         esc(String(p.userName || '?').slice(0, 1).toUpperCase()) + '</span>').join('');
-      bar.innerHTML =
+      // Gleiche Barschreibweise wie renderCursors() unten: ohne den Guard
+      // wurde bar.innerHTML bei JEDEM Event neu geparst und der Bar komplett
+      // neu gebaut – auch bei reinen Cursor-Events, von denen jeder Peer bis zu
+      // alle 120ms schickt. presenceSee() kann newue Peers hinzufuegen, darum
+      // wird der Inhalt verglichen statt das Ereignis uebersprungen.
+      const html =
         '<span class="live-dot"></span><span>Live · ' + (peers.length + 1) + '</span>' +
         '<span class="live-avatars">' + dots +
         '<span class="live-avatar live-me" title="' + esc(S.me ? S.me.userName : 'ich') + '">ich</span></span>' +
         '<button class="mini-button" onclick="window.FederwerkLive.copyLink()" title="Share-Link kopieren">🔗</button>' +
         '<button class="mini-button" onclick="window.FederwerkLive.leave()" title="Live verlassen">✕</button>';
+      if (bar._html !== html) { bar.innerHTML = html; bar._html = html; }
     }
     function renderCursors() {
       try {

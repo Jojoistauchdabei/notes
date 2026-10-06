@@ -399,9 +399,13 @@
     catch { /* ignore */ }
     return null;
   }
-  function afterChange() {
+  function afterChange(changed) {
     try {
       if (typeof window === 'undefined') return;
+      // Ohne erkennbare Aenderung ist der Vollneubau reine Arbeit: persistNow()
+      // serialisiert das ganze Dokument und renderAll() baut Rail, Layers und
+      // Thumbnails neu auf. Das passierte bei jedem 5-Sekunden-Poll.
+      if (changed === false) return;
       if (typeof window.persistNow === 'function') window.persistNow();
       if (typeof window.renderAll === 'function') window.renderAll();
       else if (typeof window.renderLibrary === 'function') window.renderLibrary();
@@ -739,7 +743,13 @@
 
       if (maxSeen) { lastPull.notes = maxSeen; saveLastPull(lastPull); }
       saveRowMap(map);
-      afterChange();
+      // Leerer Plan = Remote ist identisch zu lokal. Nichts zu uebernehmen,
+      // nichts neu zu rendern. (Feldnamen aus planRows(), s. Return oben.)
+      const idle = plan.push.length === 0 && plan.pull.length === 0
+        && plan.adopt.length === 0 && plan.conflict.length === 0
+        && plan.pushDelete.length === 0 && plan.localDelete.length === 0
+        && plan.download.length === 0 && summary.downloaded === 0;
+      afterChange(!idle);
       return summary;
     },
 
@@ -871,10 +881,21 @@
       const ws = new WebSocket(url);
       st.ws = ws;
       let deb = null, hb = null;
-      clearInterval(st.poll);
-      st.poll = setInterval(() => {
-        if (st.onChange) { try { st.onChange(); } catch { /* manual sync remains available */ } }
-      }, 5000);
+      // Fallback-Poll: laeuft nur solange die Realtime-Verbindung NICHT steht.
+      // Bei offener Verbindung liefert das WebSocket dieselben Aenderungen bereits
+      // (mit 2500ms Debounce). Der Poll war also reine Doppelarbeit: kompletter
+      // Zeilenabruf plus SHA-256 ueber jedes Buch-JSON und ueber jedes Bild-Byte,
+      // gefolgt von persistNow() + renderAll().
+      // Er startet zusaetzlich sofort beim Schliessen und schliesst damit die
+      // bisherige 15-Sekunden-Luecke bis zum Reconnect.
+      const startPoll = () => {
+        clearInterval(st.poll);
+        st.poll = setInterval(() => {
+          if (st.connected) return; // WebSocket liefert bereits
+          if (st.onChange) { try { st.onChange(); } catch { /* manual sync remains available */ } }
+        }, 5000);
+      };
+      startPoll();
       const fire = () => {
         clearTimeout(deb);
         deb = setTimeout(() => { try { st.onChange && st.onChange(); } catch { /* ignore */ } }, 2500);
@@ -915,8 +936,9 @@
         st.connected = false;
         st.ws = null;
         try { clearInterval(hb); } catch { /* ignore */ }
+        // Sofort zurück auf den Fallback-Poll (vorher gap bis zum Reconnect).
+        startPoll();
         clearTimeout(st.retry);
-        clearInterval(st.poll);
         st.retry = setTimeout(() => {
           if (st.onChange) { try { Sync.startRealtime(st.onChange); } catch { /* ignore */ } }
         }, 15000);

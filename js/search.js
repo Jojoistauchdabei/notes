@@ -197,6 +197,70 @@ var GrimoireSearch = (function () {
     return out;
   }
 
+  /* ---------- Korpus-Cache ----------
+   * buildCorpus() strippt den kompletten HTML-Volltext eines Buchs (jo Box
+   * mehrere Regex-Durchlaeufe) und leitet daraus Klein-Text, Tags und
+   * Task-Listen ab. Im Suchfeld war das pro Tastendruck zweimal teuer:
+   * rankBooks() ruft matchBook() und scoreBook(), und beide bauten den Korpus
+   * neu. Der Cache haelt einen Korpus je Buch.
+   *
+   * Der Stempel muss Text-Änderungen FANGEN, ohne selbst stripHtml zu kosten:
+   * O(Zeilen) Zaehl-/Vergleichsschritte sind um Groessenordnungen billiger.
+   * Erfasst werden Buch- und Kartennummer, Box-Anzahl, das jüngste
+   * updatedAt aus Buch/Textboxen/Karten sowie die Summe aller HTML-Laengen
+   * (string.length ist O(1), der Durchlauf also O(Boxen)).
+   *
+   * Wichtig: ein Textedit ruft touchBook() NICHT auf – nur die Box bekommt
+   * updatedAt. Deshalb stehen box.updatedAt UND die Laengensumme im Stempel.
+   * Was danach noch durchrutschen kann, ist eine Inhaltsaenderung derselben
+   * Laenge ohne updatedAt; dafuer gibt es dropCorpusCache(), und die App ruft
+   * es an den Schreibstellen auf (touchBook, Textbox speichern, Karten). */
+  var corpusCache = (typeof Map !== 'undefined') ? new Map() : null;
+  var CORPUS_CACHE_MAX = 64;
+
+  function corpusStamp(book) {
+    try {
+      var pages = (book && Array.isArray(book.pages)) ? book.pages : [];
+      var texts = 0, newestBox = 0, lenSum = 0;
+      for (var i = 0; i < pages.length; i++) {
+        var ts = (pages[i] && Array.isArray(pages[i].texts)) ? pages[i].texts : [];
+        for (var k = 0; k < ts.length; k++) {
+          var t = ts[k];
+          if (!t) continue;
+          texts++;
+          var u = t.updatedAt || 0;
+          if (u > newestBox) newestBox = u;
+          if (t.html != null) lenSum += String(t.html).length;
+        }
+      }
+      var cards = (book && Array.isArray(book.cards)) ? book.cards : [];
+      var newestCard = 0;
+      for (var c = 0; c < cards.length; c++) {
+        var card = cards[c];
+        if (!card) continue;
+        var u2 = card.updatedAt || 0;
+        if (u2 > newestCard) newestCard = u2;
+        if (card.front != null) lenSum += String(card.front).length;
+        if (card.back != null) lenSum += String(card.back).length;
+      }
+      return (book && book.id ? book.id : '') + '|' + (book ? book.updatedAt : 0)
+        + '|' + newestBox + '|' + newestCard + '|' + bookTitleOf(book)
+        + '|' + pages.length + '|' + texts + '|' + cards.length + '|' + lenSum;
+    } catch (e) { return ''; } // leerer Stempel -> immer neu bauen
+  }
+
+  function corpusFor(book) {
+    if (!corpusCache) return buildCorpus(book);
+    var stamp = corpusStamp(book);
+    var hit = corpusCache.get(book);
+    if (hit && hit.stamp === stamp) return hit.corpus;
+    var cp = buildCorpus(book);
+    if (corpusCache.size >= CORPUS_CACHE_MAX) corpusCache.clear();
+    corpusCache.set(book, { stamp: stamp, corpus: cp });
+    return cp;
+  }
+  function dropCorpusCache(book) { if (corpusCache) { if (book) corpusCache.delete(book); else corpusCache.clear(); } }
+
   function buildCorpus(book) {
     var title = bookTitleOf(book);
     var htmls = bookHtmls(book);
@@ -284,7 +348,7 @@ var GrimoireSearch = (function () {
     try {
       var p = (typeof parsed === 'string' || parsed == null) ? parseQuery(parsed) : parsed;
       if (!p || p.isEmpty || !Array.isArray(p.groups) || !p.groups.length) return true;
-      var cp = buildCorpus(book);
+      var cp = corpusFor(book);
       for (var g = 0; g < p.groups.length; g++) {
         var grp = p.groups[g];
         var ok = true;
@@ -336,7 +400,7 @@ var GrimoireSearch = (function () {
     try {
       var p = (typeof parsed === 'string' || parsed == null) ? parseQuery(parsed) : parsed;
       if (!p || p.isEmpty) return 0;
-      var cp = buildCorpus(book);
+      var cp = corpusFor(book);
       var s = 0, g, t;
       for (g = 0; g < p.groups.length; g++) {
         for (t = 0; t < p.groups[g].length; t++) {
@@ -377,6 +441,7 @@ var GrimoireSearch = (function () {
     matchBook: matchBook,
     rankBooks: rankBooks,
     scoreBook: scoreBook,
+    dropCorpusCache: dropCorpusCache,
     stripHtml: stripHtml,
     extractTags: extractTags,
     extractTasks: extractTasks,

@@ -263,7 +263,9 @@ function pageFlowApi() {
   catch { return null; }
 }
 function newFlowState() {
-  return { slots: [], mounted: new Map(), pool: [], layout: null, raf: 0, mountAll: false, ids: '' };
+  // viewH: Scroller-Hoehe der letzten Messung. renderAllFor() nutzt sie als
+  // Aenderungsmarker und ueberspringt measureFlow(), solange sie stimmt.
+  return { slots: [], mounted: new Map(), pool: [], layout: null, raf: 0, mountAll: false, ids: '', viewH: -1 };
 }
 const paneFlow = [newFlowState(), newFlowState()];
 function flowOf(i) { return paneFlow[i === 1 ? 1 : 0]; }
@@ -396,6 +398,10 @@ function measureFlow(i) {
   const sc = scrollerFor(i);
   const viewH = sc ? sc.clientHeight : 0;
   const b = paneBook(i);
+  // ALLE Lesewerte VOR den Schreibwerten sammeln. Ein clientWidth nach N
+  // style.setProperty erzwingt einen synchronen Reflow des Seitenstapels.
+  let avail = 0;
+  if (sc && sc.parentElement) { try { avail = sc.parentElement.clientWidth; } catch { avail = 0; } }
   if (viewH > 0 && b && b.pages && b.pages.length === f.slots.length) {
     let widest = 0;
     for (let k = 0; k < f.slots.length; k++) {
@@ -411,12 +417,14 @@ function measureFlow(i) {
     }
     // Scroller an die breiteste Seite heranholen: die Bildlaufleiste gehoert
     // neben das Papier, nicht an den Fensterrand 700px weiter aussen.
-    if (sc && widest > 0) {
-      const avail = sc.parentElement ? sc.parentElement.clientWidth : 0;
-      if (avail > 0) sc.style.maxWidth = Math.min(avail, widest + 22) + 'px';
+    if (sc && widest > 0 && avail > 0) {
+      sc.style.maxWidth = Math.min(avail, widest + 22) + 'px';
     }
   }
+  // Ein einziger Reflow-Lauf: die Slot-Hoehe folgt aus der Breite, geht also
+  // nicht vorher. Vorher stand hier ein zweiter, unnoetiger Reflow dazwischen.
   const heights = f.slots.map(s => Math.max(1, s.offsetHeight || 0));
+  f.viewH = viewH;
   if (!heights.length) { f.layout = PF ? PF.buildLayout([], PAGE_GAP) : null; return f.layout; }
   f.layout = PF ? PF.buildLayout(heights, PAGE_GAP) : null;
   return f.layout;
@@ -745,6 +753,10 @@ function syncStageViewport() {
     const gap = 20; // --toolbar-top = Header + 20px
     const toolbarBottom = hH + gap + tH;
     const barH = paneBarHeight();
+    // railHeight() liest zwei getBoundingClientRect(). Das MUSS vor dem ersten
+    // style.setProperty stehen: ein Lesezugriff nach einem Schreibzugriff
+    // erzwingt im Browser einen synchronen Reflow des ganzen Seitenstapels.
+    const railH = railHeight();
     root.style.setProperty('--toolbar-bottom', Math.round(toolbarBottom + satTop) + 'px');
     // 24px Reserve fuer Rahmen/Luechten, 26px fuer die Statuszeile.
     const reserve = 24 + satTop;
@@ -752,7 +764,7 @@ function syncStageViewport() {
     // Eine offene Seiten-Vorschau nimmt Platz zwischen Pane-Bar und Buehne –
     // sie muss mitgerechnet werden, sonst schiebt sie die Seite aus dem
     // Fenster, sobald man sie aufklappt.
-    const avail = vh - toolbarBottom - barH - railHeight() - statusH - reserve;
+    const avail = vh - toolbarBottom - barH - railH - statusH - reserve;
     root.style.setProperty('--stage-h', Math.max(200, Math.round(avail)) + 'px');
   } catch { /* Viewport-Berechnung optional */ }
 }
@@ -1215,7 +1227,13 @@ function currentPage() {
   const b = openBook(); if (!b) return null;
   return b.pages.find(x => x.id === state.openPageId) || b.pages[0] || null;
 }
-function touchBook() { const b = openBook(); if (b) b.updatedAt = Date.now(); }
+function touchBook() {
+  const b = openBook();
+  if (b) b.updatedAt = Date.now();
+  // Such-Korpus ist gecacht: bei jeder Buchaenderung verwerfen, sonst
+  // liefert die Bibliothekssuche nach einem Import/Loeschen alte Treffer.
+  try { if (typeof GrimoireSearch !== 'undefined' && GrimoireSearch.dropCorpusCache) GrimoireSearch.dropCorpusCache(b); } catch { /* Suche optional */ }
+}
 /* Liveshare: Gäste im Lesemodus schauen nur zu (Schreiben/Radieren/Text blockiert). */
 function liveReadonly() {
   try {
@@ -2237,6 +2255,15 @@ function renderBreadcrumb(title, folders) {
   }
   title.textContent = label;
 }
+/* Suchfeld: Tastendrucke sammeln statt bei jedem Zeichen die Bibliothek neu zu
+ * bauen. renderLibrary() selbst bleibt unveraendert synchron – Ordner, Import,
+ * Sync und Loeschen brauchen das sofort. Nur die Eingabe wird entprellt, sonst
+ * filtert jedes Zeichen den kompletten Bestand neu. */
+let librarySearchTimer = 0;
+function renderLibrarySoon() {
+  clearTimeout(librarySearchTimer);
+  librarySearchTimer = setTimeout(() => { librarySearchTimer = 0; renderLibrary(); }, 150);
+}
 function renderLibrary() {
   ensureFoldersLocal();
   renderFolderList();
@@ -2461,16 +2488,37 @@ function historyState(allPages = false, pageId) {
   const p = b.pages.find(p => p.id === pid); if (!p) return null;
   return JSON.stringify({ bookId: b.id, pageId: p.id, page: p });
 }
+/* Undo-Budget. Bisher nur 60 Eintraege – das begrenzt die Tiefe, aber nicht
+ * den Speicher: eine vollgeschriebene Seite serialisiert in die Groessenordnung
+ * Megabyte, und snapshot() feuert bei jedem pointerdown eines Strichs. 60
+ * davon im Speicher zu halten ist der eigentliche Kostentreiber. Deshalb
+ * zusaetzlich ein Byte-Budget, das den aeltesten Eintrag zuerst fallen laesst.
+ * Mindestens ein Eintrag bleibt immer stehen, damit Undo symmetrisch bleibt. */
+const UNDO_MAX_ENTRIES = 60;
+const UNDO_MAX_BYTES = 48 * 1024 * 1024;
+function trimHistory(stack) {
+  if (!Array.isArray(stack)) return stack;
+  while (stack.length > UNDO_MAX_ENTRIES) stack.shift();
+  let bytes = 0;
+  for (let i = 0; i < stack.length; i++) bytes += (stack[i] && stack[i].length) || 0;
+  while (stack.length > 1 && bytes > UNDO_MAX_BYTES) {
+    bytes -= (stack[0] && stack[0].length) || 0;
+    stack.shift();
+  }
+  return stack;
+}
 function snapshot(allPages = false) {
   const entry = historyState(allPages); if (!entry) return;
   undoStack.push(entry);
-  if (undoStack.length > 60) undoStack.shift();
+  trimHistory(undoStack);
   redoStack = [];
 }
 function restore(json) {
   const b = openBook(); if (!b) return;
   const s = JSON.parse(json);
   if (s.bookId !== b.id) return;
+  // Strokes aendern sich hier ohne den Seitenstempel -> Rail neu aufbauen.
+  invalidateRail();
   if (s.pages) {
     b.pages = s.pages;
     if (!b.pages.some(p => p.id === s.pageId)) s.pageId = (b.pages[0] && b.pages[0].id) || null;
@@ -2493,6 +2541,7 @@ function moveHistory(from, to) {
   // den die Historie aufzeichnet (u.a. abgesichert in tests/app-history.test.js).
   const inverse = historyState(!!s.pages); if (!inverse) return;
   to.push(inverse);
+  trimHistory(to); // auch die Gegen-Aufzeichnung budgetieren
   from.pop();
   restore(entry);
 }
@@ -2894,12 +2943,30 @@ function overlayFor(st, idx) {
   }
   return overlayEl(key);
 }
+/* Live-Vorschau eines laufenden Strichs. Die geglätteten Punkte werden
+ * inkrementell gepflegt (js/inkdraw.js -> liveStroke) statt pro pointermove neu
+ * berechnet: chaikinSmooth legt pro Aufruf ~3N Objekte an, was über einen
+ * Strich mit N Bildern auf O(N^2) hinausläuft. Der Cache bindet an die
+ * Punkt-Liste des aktuellen Strichs; ein neuer Strich hat eine neue Liste und
+ * setzt ihn damit automatisch zurück. */
+let previewLive = null, previewSrc = null;
 function previewStroke(points, color, size, toolName, st, idx) {
   const oc = overlayFor(st, idx); if (!oc) return;
   const o = oc.getContext('2d');
   const d = paneDims((idx == null) ? activePaneIdx() : idx);
   o.clearRect(0, 0, d.w, d.h);
-  if (points && points.length) drawStroke(o, { tool: toolName, color, size, points });
+  if (!points || !points.length) return;
+  const INK = (typeof FederwerkInk !== 'undefined') ? FederwerkInk : null;
+  if (!INK || typeof INK.liveStroke !== 'function') {
+    drawStroke(o, { tool: toolName, color, size, points }); // Notfallpfad
+    return;
+  }
+  // Neue Liste oder kuerzer geworden (neuer Strich, undo) -> Cache neu aufbauen.
+  if (!previewLive || previewSrc !== points || points.length < previewLive.sourceCount()) {
+    previewLive = INK.liveStroke();
+    previewSrc = points;
+  }
+  drawStroke(o, { tool: toolName, color, size, points: previewLive.update(points), presmoothed: true });
 }
 // Apple Pencil Hover-Preview: Ghost-Kreis am Cursor, kein Zeichnen (nur pen-Hover, Stift/Marker).
 function drawHoverPreview(pos, st, idx) {
@@ -3189,7 +3256,7 @@ function bindStageFor(idx, el) {
             const gone = new Set(victims);
             const goneIds = victims.map(s => s && s.id).filter(Boolean);
             p.strokes = p.strokes.filter(s => !gone.has(s));
-            touchBook(); persistSoon(); renderCanvas(); renderRail();
+            touchBook(); persistSoon(); renderCanvas(); redrawPageThumb(p.id);
             try { if (goneIds.length && typeof window !== 'undefined' && window.FederwerkLive) window.FederwerkLive.emitLocalStrokeDeletes(goneIds); } catch { /* Liveshare optional */ }
           }
         }
@@ -3202,7 +3269,7 @@ function bindStageFor(idx, el) {
       const clean = { id: uid(), tool: drawing.tool, color: drawing.color, size: drawing.size, points: drawing.points, updatedAt: Date.now() };
       if (!liveReadonly()) {
         p.strokes.push(clean);
-        touchBook(); persistSoon(); renderCanvas(); renderRail();
+        touchBook(); persistSoon(); renderCanvas(); redrawPageThumb(p.id);
         try { if (typeof window !== 'undefined' && window.FederwerkLive) window.FederwerkLive.emitLocalStroke(clean); } catch { /* Liveshare optional */ }
       }
     }
@@ -3220,19 +3287,25 @@ function eraseAt(pos) {
   if (typeof GrimoireErase === 'undefined') {
     const gone = p.strokes.filter(s => distToStroke(pos, s, 12));
     const goneIds = gone.map(s => s && s.id).filter(Boolean);
-    const before = p.strokes.length;
-    p.strokes = p.strokes.filter(s => gone.indexOf(s) < 0);
-    if (p.strokes.length !== before) {
-      touchBook(); persistSoon(); renderCanvas(); renderRail();
+    if (gone.length) {
+      const goneSet = new Set(gone); // statt gone.indexOf(s) pro Stroke (war O(n^2))
+      p.strokes = p.strokes.filter(s => !goneSet.has(s));
+      touchBook(); persistSoon(); renderCanvas(); redrawPageThumb(p.id);
       try { if (goneIds.length && typeof window !== 'undefined' && window.FederwerkLive) window.FederwerkLive.emitLocalStrokeDeletes(goneIds); } catch { /* Liveshare optional */ }
     }
     return;
   }
   const orig = p.strokes;
   const res = GrimoireErase.filterStrokesForErase(orig, pos, undefined, { mode: eraserMode, highlighterOnly: eraserHighlighterOnly });
-  const changed = res.removed.length > 0 || res.kept.length !== orig.length || res.kept.some(s => orig.indexOf(s) === -1);
+  let changed = res.removed.length > 0 || res.kept.length !== orig.length;
+  if (!changed) {
+    // Umlsortieren erkennen. Ein Set statt orig.indexOf() pro kept-Stroke: der
+    // indexOf-Scan war O(n^2) und lief bei jedem pointermove ueber freie Stellen.
+    const origSet = new Set(orig);
+    changed = res.kept.some(s => !origSet.has(s));
+  }
   if (changed) {
-    p.strokes = res.kept; touchBook(); persistSoon(); renderCanvas(); renderRail();
+    p.strokes = res.kept; touchBook(); persistSoon(); renderCanvas(); redrawPageThumb(p.id);
     try { const ids = (res.removed || []).map(s => s && s.id).filter(Boolean); if (ids.length && typeof window !== 'undefined' && window.FederwerkLive) window.FederwerkLive.emitLocalStrokeDeletes(ids); } catch { /* Liveshare optional */ }
   }
 }
@@ -3376,6 +3449,13 @@ function renderImgInto(layer, p, sel, idx) {
     d.style.aspectRatio = 'auto';
     const img = document.createElement('img');
     // blob:-Refs lösen asynchron auf (Cache in GrimoireStore), Rest direkt
+    const isBlobRef = typeof GrimoireStore !== 'undefined' && im.src && String(im.src).startsWith('blob:');
+    if (isBlobRef) {
+      // Merksatz, damit patchResolvedAssetUrls() genau dieses Bild treffen kann,
+      // ohne den ganzen Layer neu aufzubauen.
+      img.setAttribute('data-asset-ref', String(im.src));
+      img.setAttribute('data-asset-url', '');
+    }
     img.src = safeAssetUrl(typeof GrimoireStore !== 'undefined' ? (GrimoireStore.url(im.src) || TRANSPARENT_PIXEL) : im.src, true) || TRANSPARENT_PIXEL;
     img.draggable = false;
     img.style.height = 'auto';
@@ -3402,6 +3482,36 @@ function renderImgLayerFor(idx) {
   renderImgInto($(eid('imgLayer', idx)), panePage(idx), sel, idx);
 }
 function renderImgLayer() { renderImgLayerFor(activePaneIdx()); }
+/* Aufgeloeste Blob-URLs in den bestehenden <img>-Knoten einsetzen, statt den
+ * Bild-Layer neu zu bauen. GrimoireStore meldet jede einzelne Aufloesung; ein
+ * Vollneubau je Aufloesung war beim Oeffnen einer Seite mit 20 Bildern
+ * 20 x 20 Element-Konstruktionen. Gibt zurueck, ob überhaupt blob:-, also
+ * patchbare, <img>-Knoten vorhanden sind – sonst muss der Aufrufer neu rendern. */
+function patchResolvedAssetUrls() {
+  let found = 0, patched = 0;
+  for (let i = 0; i < 2; i++) {
+    const layer = $(eid('imgLayer', i));
+    if (!layer) continue;
+    let imgs = [];
+    try { imgs = layer.querySelectorAll('img[data-asset-ref]'); } catch { continue; }
+    for (let k = 0; k < imgs.length; k++) {
+      const el = imgs[k];
+      const ref = el.getAttribute('data-asset-ref');
+      if (!ref) continue;
+      found++;
+      if (typeof GrimoireStore === 'undefined') continue;
+      const raw = GrimoireStore.url(ref);
+      if (!raw) continue;
+      const u = safeAssetUrl(raw, true);
+      if (!u || u === TRANSPARENT_PIXEL) continue;
+      if (el.getAttribute('data-asset-url') === u) continue;
+      el.setAttribute('data-asset-url', u);
+      el.src = u;
+      patched++;
+    }
+  }
+  return { found: found, patched: patched };
+}
 function makeDraggable(el, obj, kind) {
   el.onpointerdown = e => {
     if (tool !== 'move' && !(kind === 'text' && tool === 'text')) return;
@@ -3678,7 +3788,8 @@ async function importPdfAsNewPages(file, pageRangeStr) {
     createdIds.push(page.id);
     if (!firstNewId.v) firstNewId.v = page.id;
     touchBook(); persistSoon();
-    renderRail();
+    // Kein renderRail() pro Seite: der Lauf am Ende (renderAll) baut die Rail
+    // ohnehin einmal komplett neu auf. Bei 200 PDF-Seiten waeren das 200 Volldurchlaeufe.
   }
   if (firstNewId.v) setActivePageId(firstNewId.v);
   touchBook(); persistSoon(); renderAll();
@@ -3711,6 +3822,45 @@ async function importPdfAsPages(ev, presetRange) {
   })().catch(e => { console.warn('PDF-Import:', e); setSaveStatus('💾 gespeichert'); });
 }
 
+/* Einen Thumb-Canvas bemalen (Contain in 140×198-Box). Aus renderRailFor
+ * ausgelagert, weil derselbe Code zwei Wege bedient: der Volldurchlauf unten
+ * und der Einzelfall `redrawPageThumb`, wenn sich nur eine Seite geaendert hat. */
+function paintThumbCanvas(c, page, book) {
+  const pd = pageDimsOf(page, book && book.paper);
+  const tScale = Math.min(140 / pd.w, 198 / pd.h);
+  const tw = Math.max(1, Math.round(pd.w * tScale)), th = Math.max(1, Math.round(pd.h * tScale));
+  // Nur bei echter Groessenaenderung setzen: width/height setzen verwirft den
+  // Canvas-Puffer, beim blossen Neuzeichnen ist das reine Arbeit.
+  if (c.width !== tw) c.width = tw;
+  if (c.height !== th) c.height = th;
+  const g = c.getContext('2d');
+  let _tbg = '#fffdf6';
+  try { const P = paperApi(); if (P) _tbg = P.bgFor(book && book.paper); } catch { /* Default */ }
+  g.fillStyle = _tbg; g.fillRect(0, 0, tw, th);
+  g.save(); g.scale(tw / pd.w, th / pd.h);
+  (page.strokes || []).forEach(s => drawStroke(g, s));
+  g.restore();
+}
+/* Genau EINEN Thumb neu bemalen. Jede Ink-Aenderung (Strich, Radierer, Text)
+ * betrifft nur die aktive Seite. Ein renderRail() wuerde dagegen den kompletten
+ * Rail-Inhalt verwerfen und jeden Stroke jeder Seite neu durch den Renderer
+ * schicken – bei 300 Seiten ein Rebuild pro pointermove. */
+function redrawPageThumb(pageId, paneIdx) {
+  try {
+    const key = (paneIdx == null) ? activePaneIdx() : (paneIdx === 1 ? 1 : 0);
+    const rail = $(eid('pageRail', key));
+    if (!rail) return false;
+    const byPage = rail._thumbByPage;
+    if (!byPage || !byPage.get) return false;
+    const thumb = pageId ? byPage.get(pageId) : null;
+    if (!thumb || !thumb.firstChild || typeof thumb.firstChild.getContext !== 'function') return false;
+    const b = paneBook(key);
+    const page = (b && b.pages) ? b.pages.find(p => p.id === pageId) : null;
+    if (!page) return false;
+    paintThumbCanvas(thumb.firstChild, page, b);
+    return true;
+  } catch { return false; }
+}
 /* ---------- Rail / Status / Paper (pro Pane) ---------- */
 function renderRailFor(idx) {
   const rail = $(eid('pageRail', idx));
@@ -3730,18 +3880,8 @@ function renderRailFor(idx) {
     if (p.id) thumbByPage.set(p.id, d);
     if (p.id === curPid) rail._selectedThumb = d;
     // Thumbnail im nativen Seitenverhältnis (Contain in 140×198-Box)
-    const pd = pageDimsOf(p, b && b.paper);
-    const tScale = Math.min(140 / pd.w, 198 / pd.h);
-    const tw = Math.max(1, Math.round(pd.w * tScale)), th = Math.max(1, Math.round(pd.h * tScale));
     const c = document.createElement('canvas');
-    c.width = tw; c.height = th;
-    const g = c.getContext('2d');
-    let _tbg = '#fffdf6';
-    try { const P = paperApi(); if (P) _tbg = P.bgFor(b && b.paper); } catch { /* Default */ }
-    g.fillStyle = _tbg; g.fillRect(0, 0, tw, th);
-    g.save(); g.scale(tw / pd.w, th / pd.h);
-    p.strokes.forEach(s => drawStroke(g, s));
-    g.restore();
+    paintThumbCanvas(c, p, b);
     const label = document.createElement('div');
     label.className = 'thumb-label';
     label.textContent = 'Seite ' + (i + 1);
@@ -3796,6 +3936,50 @@ function renderRailFor(idx) {
   }
 }
 function renderRail() { renderRailFor(activePaneIdx()); }
+/* Rail-Aufbau nur bei echter Aenderung.
+ *
+ * Gemessen (40 Seiten): renderAll() kostete 14,0 ms, davon 11,9 ms allein
+ * renderRailFor – der Volldurchlauf schickt jeden Stroke jeder Seite neu durch
+ * den Renderer. renderAll() laeuft aber bei jedem Seitenwechsel, jeder
+ * Textbox, jedem Liveshare-Ereignis und jedem Sync-Touch, obwohl sich die
+ * Thumbnails dabei fast nie aendern.
+ *
+ * Der Stempel deckt alles ab, was ein Thumb beeinflusst: Seitenliste,
+ * Seitenformat, Buchpapier und die Zahl der Strokes je Seite. Letzteres ist
+ * O(Seiten) – praktisch gratis – und faengt jede Tinte-Aenderung auch dann,
+ * wenn eine Stelle den Weg ueber redrawPageThumb()/invalidateRail() vergisst.
+ * Die restlichen Wege sind bewusst doppelt abgesichert:
+ * Auswahl ueber updateRailSelection() (O(1) ueber rail._thumbByPage),
+ * Thumb-Inhalt einer bearbeiteten Seite ueber redrawPageThumb(),
+ * undo/redo und Liveshare ueber invalidateRail() in restore()/touchAndRender(). */
+function railStampFor(idx) {
+  const b = paneBook(idx);
+  if (!b) return '';
+  const pages = b.pages || [];
+  const parts = [b.id || '', b.paper || ''];
+  for (let k = 0; k < pages.length; k++) {
+    const p = pages[k];
+    if (!p) { parts.push(''); continue; }
+    parts.push((p.id || '') + '@' + (p.size || '') + '#'
+      + ((p.strokes && p.strokes.length) || 0));
+  }
+  return parts.join('|');
+}
+function invalidateRail(idx) {
+  try {
+    const rail = $(eid('pageRail', (idx == null) ? activePaneIdx() : idx));
+    if (rail) rail._sig = null;
+  } catch { /* Rail optional */ }
+}
+function syncRailFor(idx) {
+  const rail = $(eid('pageRail', idx));
+  if (!rail) return false;
+  const sig = railStampFor(idx);
+  if (rail._sig !== sig) { rail._sig = sig; renderRailFor(idx); return true; }
+  updateRailSelection(idx);
+  syncStatusPageFor(idx);
+  return false;
+}
 function applyPaperToStage(st, page, book) {
   if (!st) return;
   // Alle Papier-Klassen abräumen (Legacy 'lined'/'grid' inkl.), dann die der
@@ -3855,6 +4039,10 @@ function renderAllFor(idx) {
   // 2) Sichtbar-Hoehe des Scrollers bestimmen (die haengt an Header/Toolbar),
   //    dann Geometrie messen und das Mount-Fenster fuellen.
   syncStageViewport();
+  // Kein Guard vor measureFlow: gemessen ist der Durchlauf bei 40 Seiten mit
+  // 0,06 ms praktisch gratis – die Bremse brachte nichts, kostete aber einen
+  // zusaetzlichen Layout-Read. Der echte Engpass von renderAll() ist die Rail
+  // (siehe syncRailFor).
   measureFlow(key);
   syncMountFor(key);
   // 3) Aktive Seite behaelt die kanonischen IDs, danach wird sie gezeichnet.
@@ -3867,7 +4055,7 @@ function renderAllFor(idx) {
   renderTextLayerFor(key); renderImgLayerFor(key);
   markActiveSlot(key);
   repaintMountedNeighbors(key);
-  renderRailFor(key);
+  syncRailFor(key);
   // 4) Scrollposition an die aktive Seite anpassen (rueckt nur, wenn noetig).
   scrollPaneToPage(key, panePageId(key), false);
   syncPaneChrome(key);
@@ -4490,9 +4678,21 @@ bindRailToggle();
 applyRailState();
 if (typeof GrimoireStore !== 'undefined') {
   // Blob-URLs trudeln asynchron ein -> sichtbare Ebenen nachrendern
-  GrimoireStore.subscribe(() => {
-    if ($('viewBook') && $('viewBook').classList.contains('active')) { renderImgLayerFor(0); applyBgFor(0); if (splitEnabled()) { renderImgLayerFor(1); applyBgFor(1); } }
-  });
+GrimoireStore.subscribe(() => {
+      if (!($('viewBook') && $('viewBook').classList.contains('active'))) return;
+      // Nur die Bilder, deren URL gerade aufgeloest wurde, einsetzen. Der
+      // Hintergrund braucht weiterhin einen gezielten Nachzug (hat keinen
+      // Merksatz), die Bild-Layer aber keinen Neuaufbau mehr.
+      const r = patchResolvedAssetUrls();
+      applyBgFor(0);
+      if (splitEnabled()) applyBgFor(1);
+      if (!r.found) {
+        // Keine patchbaren <img> vorhanden (keine Bilder, oder noch sehr alter
+        // DOM-Stand) -> wie bisher komplett neu zeichnen.
+        renderImgLayerFor(0);
+        if (splitEnabled()) renderImgLayerFor(1);
+      }
+    });
 }
 document.addEventListener('keydown', e => {
   // Split-Shortcuts (nur in Buchansicht, ohne Editor/Overlays/Input-Fokus)

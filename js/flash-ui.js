@@ -515,7 +515,15 @@
     }
     list.innerHTML = list2.map(cardRow).join('');
   }
-  function flashListSearch(v) { listQuery = String(v == null ? '' : v); renderCardList(); }
+  /* Suchfeld entprellen: renderCardList() baut die komplette Kartenliste neu auf
+   * und filtert jede Karte gegen die Query. Ohne Bremse passiert das bei jedem
+   * Tastendruck. Filter/Sort (onchange) bleiben unveraendert sofort. */
+      var listSearchTimer = 0;
+      function flashListSearch(v) {
+        listQuery = String(v == null ? '' : v);
+        clearTimeout(listSearchTimer);
+        listSearchTimer = setTimeout(function () { listSearchTimer = 0; renderCardList(); }, 150);
+      }
   function flashListFilter(v) {
     listFilter = ['all', 'due', 'new', 'learning', 'young', 'mature', 'leech', 'suspended']
       .indexOf(String(v)) >= 0 ? String(v) : 'all';

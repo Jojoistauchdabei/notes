@@ -14,6 +14,83 @@
 (function () {
   'use strict';
 
+  /* ---------- Punkt-Normalisierung + Glättung ----------
+   * Dieselben Regeln wie GrimoirePencil.normalizePoint/normalizePressure,
+   * hier lokal, damit die Live-Vorschau auch ohne den Bleistift-Helfer genau
+   * dieselbe Ausgabe erzeugt. */
+  function press(p) {
+    if (typeof p !== 'number' || !isFinite(p) || p <= 0) return 0.5;
+    if (p > 1) return 1;
+    return p;
+  }
+  function num(v) { return +v || 0; }
+  function normPoint(pt) {
+    pt = pt || {};
+    return { x: num(pt.x), y: num(pt.y), p: press(pt.p) };
+  }
+  // Ein Chaikin-Schnittpunkt: a mit wa, b mit wb (Summe 1).
+  function cut(a, b, wa, wb) {
+    return {
+      x: num(a.x) * wa + num(b.x) * wb,
+      y: num(a.y) * wa + num(b.y) * wb,
+      p: press(press(a.p) * wa + press(b.p) * wb)
+    };
+  }
+
+  /* Live-Vorschau mit inkrementeller Glättung.
+   *
+   * drawStroke glättet seine Punkte bei jedem Aufruf neu. Die Vorschau ruft ihn
+   * pro pointermove auf – bei einem Strich mit N Bildern also O(N^2)
+   * Allokationen (normalizePoints + Chaikin legen pro Bild ~3N Objekte an).
+   *
+   * `liveStroke()` haelt die geglättete Liste und haengt nur das Neue an:
+   * Chaikin ist ein lokaler Filter, out[i] haengt ausschliesslich an roh[0..i].
+   * Nach einer Verlaengerung von n auf m Punkte bleiben die Eintraege 0..2n-2
+   * exakt gleich, nur Index 2n-1 (bisher der Roh-Endpunkt) wird zum
+   * Schnittpunkt und der echte Endpunkt wandert ans neue Ende. Jeder bereits
+   * gezeichnete Pfadabschnitt bleibt damit unveraendert – das Ergebnis ist
+   * punkweise identisch zu einem vollstaendigen chaikinSmooth(raw). */
+  function liveStroke() {
+    var pts = [];
+    var n = 0;
+    function rebuild(src, m) {
+      pts.length = 0;
+      if (m <= 0) return;
+      pts.push(normPoint(src[0]));
+      for (var j = 0; j < m - 1; j++) {
+        pts.push(cut(src[j], src[j + 1], 0.75, 0.25), cut(src[j], src[j + 1], 0.25, 0.75));
+      }
+      if (m > 1) pts.push(normPoint(src[m - 1]));
+    }
+    return {
+      // Rohe Eingabepunkte -> geglättete Punkte (dieselbe Liste, neu gefuellt).
+      update: function (raw) {
+        var src = raw || [];
+        var m = src.length;
+        if (m < 3) {
+          // Chaikin ist bei <3 Punkten die Identitaet.
+          pts.length = 0;
+          for (var q = 0; q < m; q++) pts.push(normPoint(src[q]));
+          n = 0; // beim 3. Punkt wird der volle Aufbau einmal erzwungen
+          return pts;
+        }
+        if (n < 3 || pts.length < 2 * n - 1) { rebuild(src, m); n = m; return pts; }
+        var w = 2 * n - 1;              // stabile Praefix-Laenge
+        for (var i = n - 1; i < m - 1; i++) {
+          pts[w++] = cut(src[i], src[i + 1], 0.75, 0.25);
+          pts[w++] = cut(src[i], src[i + 1], 0.25, 0.75);
+        }
+        pts[w++] = normPoint(src[m - 1]);
+        pts.length = w;
+        n = m;
+        return pts;
+      },
+      reset: function () { pts = []; n = 0; },
+      points: function () { return pts; },
+      sourceCount: function () { return n; }
+    };
+  }
+
   function drawStroke(c, s) {
     if (!s.points.length) return;
     c.save();
@@ -27,7 +104,9 @@
     // aber Altbestand/Shapes unverfälscht lassen bei closed/fill/dash.
     let pts = s.points;
     const closed = !!s.closed || (!!s.fill && pts.length > 2);
-    const canSmooth = !closed && !(s.dash && s.dash.length) && pts.length >= 3
+    // `presmoothed`: die Punkte sind bereits geglättet (liveStroke), sonst
+    // würde der Renderer sie ein zweites Mal glätten.
+    const canSmooth = !s.presmoothed && !closed && !(s.dash && s.dash.length) && pts.length >= 3
       && typeof GrimoirePencil !== 'undefined' && GrimoirePencil.chaikinSmooth;
     if (canSmooth) {
       try { pts = GrimoirePencil.chaikinSmooth(pts, 1); } catch { pts = s.points; }
@@ -122,7 +201,7 @@
     c.restore();
   }
 
-  var api = { drawStroke: drawStroke };
+  var api = { drawStroke: drawStroke, liveStroke: liveStroke };
 
   if (typeof window !== 'undefined') window.FederwerkInk = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

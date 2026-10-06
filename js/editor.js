@@ -91,6 +91,9 @@ function saveTextEditor() {
     if (box) {
       box.html = editorSafeHtml(editorContent.innerHTML);
       box.updatedAt = Date.now();
+      // Such-Korpus verwerfen: der Stempel fasst Laenge+updatedAt, aber eine
+      // Ersetzung gleicher Laenge ohne Stampf wuerde sonst alte Treffer zeigen.
+      try { if (typeof GrimoireSearch !== 'undefined' && GrimoireSearch.dropCorpusCache) GrimoireSearch.dropCorpusCache(); } catch { /* Suche optional */ }
       // Box-Stil aus dem Editor-Container übernehmen (Roundtrip zum Default-Stil).
       const st = collectEditorStyle();
       if (st) { box.fontSize = st.fontSize; box.color = st.color; box.align = st.align; }
@@ -98,7 +101,8 @@ function saveTextEditor() {
       persistSoon();
       if (typeof renderTextLayerFor === 'function') renderTextLayerFor(paneIdx);
       else renderTextLayer();
-      renderRail();
+      // Nur der Thumb dieser einen Seite ist betroffen -> kein Rail-Volldurchlauf.
+      if (typeof redrawPageThumb === 'function') redrawPageThumb(page.id, paneIdx);
     }
   } else if (currentEditorTargetId && editorContent) {
     const targetEl = document.getElementById(currentEditorTargetId);
