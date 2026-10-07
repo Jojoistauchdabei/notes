@@ -168,9 +168,37 @@ const host = block.parentNode;
 
   /* -- Toolbar ----------------------------------------------------------- */
 
+  /* Auswahl merken und wiederherstellen.
+ * Ein Klick auf einen Toolbar-Knopf loescht im Browser die Auswahl im
+ * contenteditable (der Button zieht den Fokus). Deshalb erst am mousedown
+ * preventDefault – am click ist es zu spaet, dort ist die Auswahl schon weg.
+ * Die gespeicherte Range deckt zusaetzlich den Fall ab, dass preventDefault
+ * nicht greift (z. B. Touch, wo mousedown nicht ausgeloest wird). */
+let savedRange = null;
+
+function rememberSelection() {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && sel.anchorNode) {
+      const node = sel.anchorNode;
+      const host = el('officeBlocks');
+      if (host && (node === host || host.contains(node))) savedRange = sel.getRangeAt(0).cloneRange();
+    }
+  }
+
+  function restoreSelection() {
+    if (!savedRange) return false;
+    const sel = window.getSelection();
+    try {
+      sel.removeAllRanges();
+      sel.addRange(savedRange);
+      return true;
+    } catch { return false; }
+  }
+
   function execInline(book, cmd, value) {
     const host = el('officeBlocks');
     if (!host) return;
+    restoreSelection();
     const block = blockOf(window.getSelection().anchorNode, host);
     if (!block) return;
     try {
@@ -357,6 +385,10 @@ const host = block.parentNode;
       b.dataset.fwOfficeCmd = item.cmd;
       b.textContent = item.label;
       b.title = item.key ? item.key + ' – ' + item.label : item.label;
+      // Siehe Kommentar an savedRange: am mousedown verhindern, sonst ist die
+      // Textauswahl weg, bevor der Befehl laeuft.
+      b.addEventListener('mousedown', (ev) => ev.preventDefault());
+      b.addEventListener('touchstart', () => rememberSelection(), { passive: true });
       b.onclick = (ev) => { ev.preventDefault(); const book = currentView(); if (book) execInline(book, item.cmd); };
       toolbar.appendChild(b);
     }
@@ -369,9 +401,12 @@ const host = block.parentNode;
       o.textContent = t.label;
       typeSel.appendChild(o);
     }
+    typeSel.addEventListener('mousedown', () => rememberSelection());
+    typeSel.addEventListener('focus', () => rememberSelection());
     typeSel.onchange = () => {
       const book = currentView();
       const host = el('officeBlocks');
+      restoreSelection();
       const block = host && window.getSelection().anchorNode ? blockOf(window.getSelection().anchorNode, host) : null;
       if (book && block) setBlockType(book, block, typeSel.value);
     };
@@ -379,11 +414,11 @@ const host = block.parentNode;
 
     el('officeBack').onclick = closeOffice;
 
-    el('officeBlocks').addEventListener('input', () => { updateToolbar(); scheduleSave(); });
-    el('officeBlocks').addEventListener('keyup', updateToolbar);
-    el('officeBlocks').addEventListener('mouseup', updateToolbar);
+    el('officeBlocks').addEventListener('input', () => { rememberSelection(); updateToolbar(); scheduleSave(); });
+    el('officeBlocks').addEventListener('keyup', () => { rememberSelection(); updateToolbar(); });
+    el('officeBlocks').addEventListener('mouseup', () => { rememberSelection(); updateToolbar(); });
     document.addEventListener('selectionchange', () => {
-      if (el('viewOffice').classList.contains('active')) updateToolbar();
+      if (el('viewOffice').classList.contains('active')) { rememberSelection(); updateToolbar(); }
     });
 
     // Klick auf einen Absatz setzt den Typ-Selektor.
