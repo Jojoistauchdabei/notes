@@ -14,8 +14,8 @@ name: Auto-Release – Test + Release + Deploy
 #   Federwerk-<tag>-web.zip ans Release und deployed auf Cloudflare.
 # - tauri.yml: hängt Linux- (deb/AppImage/rpm), Windows- und Android-Installer
 #   + latest.json (Desktop-Autoupdate) an dasselbe Release.
-# - office.yml: baut office/dist, hängt Office-<tag>-web.zip an und deployed
-#   auf den separaten Worker „office" (siehe office/wrangler.toml).
+# Office hat keinen eigenen Worker mehr: der ONLYOFFICE-Editor wird als
+# Komponente in Federwerks Oberfläche eingebettet, nichts wird separat deployed.
 # Hinweis: Ein per GITHUB_TOKEN erstelltes Release startet KEINE weiteren
 # Workflow-Läufe (GitHub unterdrückt Workflow-Ketten) – darum passieren
 # Web-ZIP, Deploy und Tauri-Builds für diesen Weg direkt hier im selben Lauf.
@@ -153,17 +153,6 @@ jobs:
     needs: release
     if: needs.release.outputs.released == 'true'
     uses: ./.github/workflows/tauri.yml
-    with:
-      tag: ${{ needs.release.outputs.version }}
-    secrets: inherit
-
-  office-deploy:
-    name: Office (eigener Worker)
-    needs: release
-    if: needs.release.outputs.released == 'true'
-    # Eigener Job ohne 'needs' auf tauri-installers: ein Office-Fehler darf das
-    # Federwerk-Deployment (bereits erfolgt) nicht zurückrollen.
-    uses: ./.github/workflows/office.yml
     with:
       tag: ${{ needs.release.outputs.version }}
     secrets: inherit
