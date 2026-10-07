@@ -65,6 +65,8 @@
   /* -- Rendern ----------------------------------------------------------- */
 
 function renderBlocks(book, host) {
+  // Alte Range verwerfen: sie zeigt auf Knoten, die hier gleich ersetzt werden.
+  savedRange = null;
   host.innerHTML = '';
   for (const block of book.office.blocks) {
     host.appendChild(renderBlock(block));
@@ -187,12 +189,27 @@ function rememberSelection() {
 
   function restoreSelection() {
     if (!savedRange) return false;
+    // Nur verwenden, wenn die Range noch im Dokument haengt. Nach einem
+    // Neuaufbau der Bloecke zeigt sie auf abgeraeumte Knoten -- removeAllRanges()
+    // wuerde dann die aktuelle Auswahl loeschen und addRange schlaegt fehl, also
+    // waere am Ende gar keine Auswahl mehr. Genau das passierte: nach dem
+    // Oeffnen eines Dokuments hat der erste Klick auf einen Toolbar-Knopf nichts
+    // getan.
+    const node = savedRange.commonAncestorContainer;
+    const host = el('officeBlocks');
+    if (!node || !host || !(node === host || host.contains(node))) {
+      savedRange = null;
+      return false;
+    }
     const sel = window.getSelection();
     try {
       sel.removeAllRanges();
       sel.addRange(savedRange);
       return true;
-    } catch { return false; }
+    } catch {
+      savedRange = null;
+      return false;
+    }
   }
 
   function execInline(book, cmd, value) {
