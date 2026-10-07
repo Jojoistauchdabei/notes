@@ -61,10 +61,17 @@
     const parentOrigin = opts.parentOrigin
       || (typeof location !== 'undefined' ? location.origin : editorOrigin);
     const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT;
+    // window ist injizierbar: im Browser das globale, im Test eine Attrappe --
+    // sonst waere der Nachrichtenweg gar nicht testbar.
+    const win = opts.win || (typeof window !== 'undefined' ? window : null);
 
     let seq = 0;
     const pending = new Map();
     const handlers = new Map();
+    // document:ready kommt genau einmal pro geladenem Editor. Ohne diese
+    // Merkung wartet whenReady() beim zweiten Dokument auf ein Ereignis, das
+    // nie wieder kommt -- der Aufruf haengt dann bis zum Zeitueberschreiten.
+    let readySeen = false;
 
     function nextId() { return 'office-' + (++seq) + '-' + Date.now(); }
 
@@ -101,10 +108,11 @@
       const msg = makeMessageFilter(editorOrigin, frame.contentWindow)(event);
       if (!msg) return;
       if (msg.id) settle(msg.id, msg.type, msg.payload);
+      if (msg.type === 'document:ready') readySeen = true;
       emit(msg.type, msg.payload, msg.id);
     }
 
-    if (typeof window !== 'undefined') window.addEventListener('message', onMessage);
+    if (win) win.addEventListener('message', onMessage);
 
     return {
       editorOrigin,
@@ -124,7 +132,13 @@
 
       load(options) {
         const url = this.frameUrl(options);
-        if (frame.src !== url) frame.src = url;
+        if (frame.src !== url) {
+          frame.src = url;
+          // Neuer Frame = neuer Editor: document:ready kommt wieder, die alte
+          // Merkung darf nicht gelten.
+          readySeen = false;
+          this._ready = null;
+        }
         return url;
       },
 
@@ -138,8 +152,13 @@
         };
       },
 
+      isReady: () => readySeen,
+
+      // Sofort aufloesen, wenn der Editor schon fertig ist: sonst wartet der
+      // zweite Aufruf in derselben Sitzung auf ein document:ready, das
+      // ein zweites Mal nicht kommt.
       whenReady() {
-        if (this._ready) return this._ready;
+        if (readySeen) return Promise.resolve(true);
         this._ready = new Promise((resolve) => {
           const off = this.on('document:ready', () => { off(); resolve(true); });
         });
@@ -174,7 +193,7 @@
       destroy() {
         for (const entry of pending.values()) clearTimeout(entry.timer);
         pending.clear();
-        if (typeof window !== 'undefined') window.removeEventListener('message', onMessage);
+        if (win) win.removeEventListener('message', onMessage);
       },
     };
   }

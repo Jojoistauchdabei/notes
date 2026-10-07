@@ -5,6 +5,25 @@ const Editor = require('../office/js/editor-adapter.js');
 
 const ORIGIN = 'https://office.example.test';
 
+// Attrappe fuer window: sammelt Listener und erlaubt, Nachrichten zu senden.
+function fakeWindow() {
+  const listeners = [];
+  return {
+    addEventListener(type, fn) { if (type === 'message') listeners.push(fn); },
+    removeEventListener(type, fn) {
+      if (type !== 'message') return;
+      const i = listeners.indexOf(fn);
+      if (i >= 0) listeners.splice(i, 1);
+    },
+    __listenerAnzahl: () => listeners.length,
+    __emit(type, payload, id, source) {
+      for (const fn of listeners.slice()) {
+        fn({ origin: ORIGIN, source, data: { id: id || null, type, payload: payload || {} } });
+      }
+    },
+  };
+}
+
 describe('office/editor-adapter', () => {
   describe('Nachrichtenfilter', () => {
     const target = { name: 'editor-window' };
@@ -99,6 +118,45 @@ describe('office/editor-adapter', () => {
       assert.equal(frame.src, first, 'identisches Ziel darf nicht neu laden');
       a.load();
       assert.notEqual(frame.src, first, 'anderes Ziel muss neu laden');
+    });
+
+    // Regression: whenReady() wartete auf ein document:ready, das beim zweiten
+    // Dokument in derselben Sitzung nie wieder kommt -- der Aufruf haengt dann
+    // bis zum Zeitueberschreiten (120 s) und das Dokument oeffnet nie.
+    it('whenReady() loest sofort auf, wenn der Editor schon bereit war', async () => {
+      const win = fakeWindow();
+      const frame = { src: '' };
+      const a = Editor.createEditorAdapter({ frame, editorBase: ORIGIN, win });
+      win.__emit('document:ready', {});
+      assert.equal(a.isReady(), true, 'readySeen muss gesetzt sein');
+      const t0 = Date.now();
+      await a.whenReady();
+      assert.ok(Date.now() - t0 < 1000, 'zweites whenReady() darf nicht warten');
+      assert.equal(frame.src, '', 'whenReady() laedt nichts nach');
+    });
+
+    it('load() mit neuem Ziel setzt die Ready-Merkung zurueck', async () => {
+      const win = fakeWindow();
+      const frame = { src: '' };
+      const a = Editor.createEditorAdapter({ frame, editorBase: ORIGIN, win });
+      win.__emit('document:ready', {});
+      assert.equal(a.isReady(), true);
+      a.load({ newDoc: 'docx' });
+      assert.equal(a.isReady(), false, 'neuer Frame = neuer Editor, ready kommt wieder');
+      // Und danach wieder normal awaitbar.
+      const offen = a.whenReady();
+      win.__emit('document:ready', {});
+      assert.equal(await offen, true);
+    });
+
+    it('load() ohne Zielaenderung behaelt die Ready-Merkung', () => {
+      const win = fakeWindow();
+      const frame = { src: '' };
+      const a = Editor.createEditorAdapter({ frame, editorBase: ORIGIN, win });
+      a.load();
+      win.__emit('document:ready', {});
+      a.load();
+      assert.equal(a.isReady(), true, 'gleiches Ziel ist kein Neustart des Editors');
     });
 
     it('openBuffer braucht echte Bytes', () => {
