@@ -1,6 +1,9 @@
 tmp/
 .DS_Store
 dist/
+# office/dist/ ist dasselbe Prinzip: reines Build-Artefakt (npm run build:office),
+# nicht eingecheckt. Jedes Release enthält Office-<version>-web.zip mit den
+# fertigen Cloudflare-Dateien (office.yml baut + lädt hoch).
 # dist/ ist ein reines Build-Artefakt (npm run build) und wird NICHT
 # eingecheckt: Jedes GitHub Release enthält Federwerk-<version>-web.zip
 # mit den fertigen Cloudflare-Dateien (release.yml baut + lädt hoch),

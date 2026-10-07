@@ -8,6 +8,7 @@
     "test:mcp": "node --test tests/mcpserver.test.js tests/mcp-function.test.js",
     "test:mcp:live": "node scripts/live-mcp-selftest.js",
     "build": "node scripts/build-dist.js",
+    "build:office": "node scripts/build-office.js",
     "sync-paper-theme": "node scripts/sync-paper-theme.js",
     "build:mcp": "node scripts/build-mcp.js",
     "release-web": "npm run build && node scripts/inject-version.js",

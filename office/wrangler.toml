@@ -1,0 +1,28 @@
+# Office als eigenes Cloudflare-Worker-Deployment – bewusst getrennt vom
+# Federwerk-Worker "notes" (siehe ../wrangler.toml).
+#
+# Warum getrennt:
+# - Der ONLYOFFICE-WASM-Editor ist AGPL-3.0 mit erwaehnungspflichtigen
+#   Zusatzbedingungen (ONLYOFFICE-Logo, keine Markenrechte). Federwerk bleibt
+#   davon unberuehrt, solange kein ONLYOFFICE-Code in sein Bundle wandert.
+# - Der Editor ist ein Framework-Paket mit Hunderten Dateien und ~445 MB
+#   Rohdaten. Das gehoert nicht in Federwerks Release-ZIP und nicht in die
+#   Desktop-Installer (src-tauri baut gegen ../dist).
+# - Eigener Worker = eigener Deploy-Takt. Federwerk-Releases muessen nicht
+#   anfassen, wenn sich nur das Office aendert.
+#
+# Der Editor selbst (ONLYOFFICE-WASM) ist NICHT Teil dieses Deployments und
+# wird auch nicht mitgebaut: 445 MB, nicht im Federwerk-Repo eingecheckt. Die
+# Adresse kommt zur Laufzeit aus dem Eingabefeld "Editor-URL" in der Kopfzeile
+# (oder per ?editor=<url> / window.EDITOR_BASE beim Erzeugen des Builds).
+#
+# Deploy: `npm run build:office` und dann `wrangler deploy` in diesem Ordner.
+# In CI übernimmt .github/workflows/release-office.yml dieselben Secrets
+# (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID) wie der Federwerk-Deploy.
+name = "office"
+compatibility_date = "2026-09-11"
+
+[assets]
+directory = "dist"
+not_found_handling = "single-page-application"
+html_handling = "none"
