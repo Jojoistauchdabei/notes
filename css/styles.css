@@ -1117,3 +1117,158 @@ select { cursor: pointer; }
 .fw-theme-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .fw-theme-name { font-weight: bold; font-size: 13.5px; line-height: 1.2; }
 .fw-theme-desc { font-size: 11.5px; opacity: .72; line-height: 1.3; }
+
+/* ===== Office (SPEC-40) =================================================
+ * Styles liegen bewusst hier und nicht in einer eigenen Datei: scripts/
+ * build-dist.js kopiert nur styles.css in dist/ und hasht sie. Eine zweite
+ * Datei wuerde eine Erweiterung des Builds noetig machen -- dieselbe Datei
+ * wuerde aber auch die unfertige Markdown-Arbeit (SPEC-39) anfassen.
+ * Nach der Einarbeitung in Federwerk gehoert Office ohnehin in die App. */
+
+.fw-office {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.fw-office-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.fw-office-bar h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  max-width: 44ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fw-office-kind {
+  font-size: 12px;
+  opacity: .75;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+}
+
+.fw-office-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-strong, var(--surface));
+}
+
+.fw-office-btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.fw-office-btn:hover { border-color: var(--accent); }
+
+.fw-office-btn.is-active {
+  background: var(--accent);
+  color: var(--accent-fg, #fff);
+  border-color: var(--accent);
+}
+
+.fw-office-type {
+  font: inherit;
+  font-size: 13px;
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: inherit;
+}
+
+/* Blatt: helles Blatt in der Mitte, wie in den meisten Editoren. */
+.fw-office-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 16px 80px;
+}
+
+.fw-office-paper {
+  max-width: 78ch;
+  margin: 0 auto;
+  min-height: 60vh;
+  padding: 40px 44px;
+  background: var(--paper, #fff);
+  color: var(--ink, #1a1a1a);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .09);
+}
+
+.fw-office-block {
+  margin: 0 0 .55em;
+  line-height: 1.6;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.fw-office-block:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+  border-radius: 3px;
+}
+
+.fw-office-b-h1 { font-size: 1.9em; font-weight: 700; line-height: 1.25; margin: .9em 0 .4em; }
+.fw-office-b-h2 { font-size: 1.5em; font-weight: 700; line-height: 1.3; margin: .8em 0 .35em; }
+.fw-office-b-h3 { font-size: 1.24em; font-weight: 600; line-height: 1.35; margin: .7em 0 .3em; }
+.fw-office-b-quote { border-left: 3px solid var(--accent); padding-left: 12px; opacity: .9; font-style: italic; }
+.fw-office-b-code { font-family: var(--mono, ui-monospace, monospace); font-size: .92em; background: rgba(127, 127, 127, .12); padding: 2px 5px; border-radius: 4px; }
+
+.fw-office-hr {
+  display: block;
+  height: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.1em 0;
+}
+
+.fw-office-placeholder { color: var(--muted, #6b6b6b); padding: 20px 0; }
+
+.fw-office-status {
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  opacity: .8;
+}
+
+/* Badge der Office-Karte in der Bibliothek, neben den Deck-Karten. */
+.notebook-cover .fw-office-badge {
+  display: inline-block;
+  font-size: 11px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 8px;
+  margin-left: 8px;
+  opacity: .9;
+}
+
+@media print {
+  .fw-office-toolbar, .fw-office-status, .fw-office-bar { display: none; }
+  .fw-office-paper { border: 0; box-shadow: none; padding: 0; max-width: none; }
+}

@@ -53,6 +53,7 @@
           <button onclick="openGraphOverlay()" style="white-space:nowrap" aria-label="Graph-Ansicht öffnen">◈ Graph</button>
           <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
           <button onclick="createFlashDeck()" style="white-space:nowrap" aria-label="Neues Karteikarten-Deck erstellen">+ 🂠 Deck</button>
+<button onclick="createOfficeDoc('doc')" style="white-space:nowrap" aria-label="Neues Office-Dokument erstellen" title="Office (SPEC-40): Textdokument mit Überschriften, Listen und Formatierung">+ 📄 Office</button>
         </div>
         <div class="folder-chips no-print" id="folderChips" role="tablist" aria-label="Ordner-Filter (mobil)"></div>
         <div class="library-layout">
@@ -303,6 +304,27 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- OFFICE (SPEC-40) ===================================================
+       Office-Dokumente liegen als Bücher in derselben Bibliothek (Ordner,
+       Suche, Appwrite-Sync). Diese Ansicht ist nur die Editorfläche.
+       Der Writer hängt die Toolbar zur Laufzeit an #officeToolbar. -->
+  <div class="view" id="viewOffice">
+    <div class="fw-office">
+      <div class="fw-office-bar">
+        <button type="button" class="mini-button" id="officeBack" aria-label="Zurück zur Bibliothek">← Bibliothek</button>
+        <h2 id="officeTitle">Dokument</h2>
+        <span class="fw-office-kind" id="officeKind">Dokument</span>
+      </div>
+      <div class="fw-office-toolbar" id="officeToolbar"></div>
+      <div class="fw-office-page">
+        <div class="fw-office-paper">
+          <div id="officeBlocks"></div>
+        </div>
+      </div>
+      <div class="fw-office-status" id="officeStatus" aria-live="polite"></div>
     </div>
   </div>
 
@@ -599,8 +621,12 @@
   <script src="js/pageflow.js"></script>
   <script src="js/paper-templates.js"></script>
   <script src="js/flashcards.js"></script>
-  <script src="js/dialog.js"></script>
-  <script src="js/app.js"></script>
+<script src="js/dialog.js"></script>
+<!-- Office (SPEC-40): Modell zuerst, der Writer baut darauf auf, app.js
+     braucht isOfficeDoc() fuer die Karten der Bibliothek. -->
+<script src="js/office-doc.js"></script>
+<script src="js/office-writer.js"></script>
+<script src="js/app.js"></script>
   <script src="js/flash-ui.js"></script>
   <script src="js/presentflow.js"></script>
   <script src="js/present.js"></script>

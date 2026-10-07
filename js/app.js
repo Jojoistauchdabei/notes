@@ -1214,6 +1214,37 @@ function createFlashDeck() {
   persistNow(); renderLibrary();
   if (typeof openDeckView === 'function') openDeckView(b.id);
 }
+/* Office (SPEC-40): eigenes Office in derselben Bibliothek. Ein Office-Dokument
+   ist ein Buch mit office-Feld, kein eigener Bestand – Ordner, Suche und der
+   Appwrite-Sync laufen dadurch unverändert mit. */
+function isOfficeDoc(b) {
+  try {
+    if (typeof FederwerkOfficeDoc !== 'undefined' && FederwerkOfficeDoc.isOfficeBook) return FederwerkOfficeDoc.isOfficeBook(b);
+  } catch { /* Fallback unten */ }
+  return !!(b && b.office && (b.office.kind === 'doc' || b.office.kind === 'sheet' || b.office.kind === 'slides'));
+}
+/* Office-Dokument anlegen und direkt im Editor öffnen. */
+function createOfficeDoc(kind) {
+  const k = (kind === 'sheet' || kind === 'slides') ? kind : 'doc';
+  const label = (typeof FederwerkOfficeDoc !== 'undefined') ? FederwerkOfficeDoc.kindLabel(k) : 'Dokument';
+  const n = state.books.filter(function (b) { return isOfficeDoc(b) && b.office.kind === k; }).length + 1;
+  const b = (typeof FederwerkOfficeDoc !== 'undefined')
+    ? FederwerkOfficeDoc.create(k, label + ' ' + n)
+    : { id: uid(), title: label + ' ' + n, updatedAt: Date.now(), folderId: null, pages: [], office: { kind: k, blocks: [{ id: uid(), type: 'p', html: '' }] } };
+  // Wie ein Notizbuch in den aktiven Ordner legen.
+  try {
+    if (activeFolderId && activeFolderId !== 'all' && activeFolderId !== 'unsorted') {
+      if ((state.folders || []).some(function (f) { return f.id === activeFolderId; })) b.folderId = activeFolderId;
+    }
+  } catch { /* ignore */ }
+  state.books.unshift(b);
+  persistNow(); renderLibrary();
+  if (typeof FederwerkOfficeWriter !== 'undefined') FederwerkOfficeWriter.openBook(b.id);
+}
+function openOfficeDoc(id) {
+  if (typeof FederwerkOfficeWriter === 'undefined') { showLibrary(); return; }
+  FederwerkOfficeWriter.openBook(id);
+}
 function isFlashDeck(b) {
   try {
     if (typeof FederwerkFlashcards !== 'undefined' && FederwerkFlashcards.isDeck) return FederwerkFlashcards.isDeck(b);
@@ -1251,6 +1282,8 @@ function showLibrary() {
 }
 function openBookView(id, pageId, paneIdx) {
   const b0 = state.books.find(x => x.id === id);
+  // Office (SPEC-40): eigenes Fenster mit Editor, kein Zeichen-Canvas.
+  if (b0 && isOfficeDoc(b0)) { openOfficeDoc(id); return; }
   // Karteikarten-Decks öffnen die Deck-Ansicht (Lernen + Kartenliste), kein Zeichen-Canvas.
   if (b0 && isFlashDeck(b0)) {
     if (typeof openDeckView === 'function') { openDeckView(id); return; }
@@ -2381,13 +2414,21 @@ function renderLibrary() {
     + (folderCards ? '<div class="explorer-section-label">Ordner</div><div class="explorer-folder-grid">' + folderCards + '</div>' : '')
     + (folderCards ? '<div class="explorer-section-label">Dokumente</div>' : '')
     + matches.map(({ book: b, match, snippet }) => {
-    const deck = isFlashDeck(b);
+    const office = isOfficeDoc(b);
+    const deck = !office && isFlashDeck(b);
     let preview = 'Leere Seiten – tippen zum Öffnen.';
     let metaLine = '';
     let typeBadge = '';
     let deckActions = '';
     let deckProgress = '';
-    if (deck) {
+    if (office) {
+      const OD = (typeof FederwerkOfficeDoc !== 'undefined') ? FederwerkOfficeDoc : null;
+      const text = OD ? OD.plainText(b) : '';
+      const st = OD ? OD.stats(b) : { words: 0, unit: '' };
+      preview = text ? esc(text.slice(0, 120)) : 'Leeres Dokument – tippen zum Schreiben.';
+      metaLine = st.words + ' Wörter · ' + st.unit + ' · ' + new Date(b.updatedAt).toLocaleDateString('de-DE');
+      typeBadge = '<span class="fw-office-badge" title="Office-Dokument (SPEC-40)">' + esc(OD ? OD.kindLabel(b.office.kind) : 'Office') + '</span>';
+    } else if (deck) {
       let stats = null;
       try {
         if (typeof FederwerkFlashcards !== 'undefined' && FederwerkFlashcards.deckStats) stats = FederwerkFlashcards.deckStats(b, Date.now());
@@ -2452,9 +2493,9 @@ function renderLibrary() {
       + deckProgress
       + snippetHtml
       + '<div class="notebook-actions">'
-      + (deck ? deckActions : '<button class="mini-button" onclick="openBookInSplit(\'' + b.id + '\',event)" title="Als zweites Dokument daneben öffnen (Split-Screen, ein Fenster)">⇉ Split</button>')
+      + (deck || office ? deckActions : '<button class="mini-button" onclick="openBookInSplit(\'' + b.id + '\',event)" title="Als zweites Dokument daneben öffnen (Split-Screen, ein Fenster)">⇉ Split</button>')
       + '<button class="mini-button" onclick="exportBookJSON(\'' + b.id + '\',event)">Export</button>'
-      + (deck ? '' : '<button class="mini-button" onclick="exportGoodNotes(\'' + b.id + '\',event)" aria-label="Buch als GoodNotes-Datei exportieren">📤 GoodNotes</button>')
+      + (deck || office ? '' : '<button class="mini-button" onclick="exportGoodNotes(\'' + b.id + '\',event)" aria-label="Buch als GoodNotes-Datei exportieren">📤 GoodNotes</button>')
       + '<button class="mini-button" onclick="duplicateBook(\'' + b.id + '\',event)">Duplizieren</button>'
       + '<button class="mini-button" onclick="deleteBook(\'' + b.id + '\',event)">Löschen</button>'
       + '</div>'
