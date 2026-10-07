@@ -29,6 +29,14 @@
 
 * { box-sizing: border-box; }
 
+/* Muss vor allen display-Regeln stehen: das hidden-Attribut kommt aus dem
+ * Browser-Stylesheet mit specificity 0,1,0 und setzt display:none -- eine
+ * eigene display-Regel (.gate{display:grid}, .conflict{display:flex}) gewinnt
+ * aber gegen das Attribut und laesst "ausgeblendete" Bereiche sichtbar. Genau
+ * das ist hier passiert: Tresor und Konfliktbalken blieben trotz hidden
+ * sichtbar. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -139,6 +147,17 @@ input[type="password"], input[type="url"] {
 .actions { display: grid; gap: 8px; margin-bottom: 14px; }
 
 .editor { display: flex; flex-direction: column; min-width: 0; }
+
+/* #editorPane ist ein Kind der Flex-Spalte und muss selbst mitwachsen --
+ * sonst steht der iframe als Block darin auf seiner Default-Hoehe (150px)
+ * und der Editor wird zu einem Streifen. */
+.editor > #editorPane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .editor__bar {
   display: flex;
   align-items: center;
@@ -147,7 +166,13 @@ input[type="password"], input[type="url"] {
   border-bottom: 1px solid var(--line);
 }
 
-#editorFrame { flex: 1; width: 100%; border: 0; background: #fff; }
+#editorFrame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
 
 .hint { color: var(--muted); padding: 24px; }
 

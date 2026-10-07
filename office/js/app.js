@@ -158,6 +158,7 @@
       state.dirty = false;
       el('editorTitle').textContent = doc.title;
       el('editorPane').hidden = false;
+      el('editorHint').hidden = true;
       el('lockNote').textContent = 'Bearbeitung gesperrt für dich (weich, 2 min).';
 
       const editor = getEditor();
@@ -188,6 +189,7 @@
     state.current = null;
     state.dirty = false;
     el('editorPane').hidden = true;
+    el('editorHint').hidden = false;
     el('editorTitle').textContent = '';
     el('historyList').innerHTML = '';
   }
