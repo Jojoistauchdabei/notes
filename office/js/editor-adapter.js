@@ -119,9 +119,9 @@
       base: editorBase,
 
       // Der Origin-Allowlist des Editors mitgeben, damit er nur zu uns spricht.
-      // Ein leeres Dokument erzeugt der Editor selbst (new=<kind>) -- das ist ein
-      // Seitenparameter beim Laden des Frames. Ueber open-url eine Editor-URL zu
-      // schicken waere ein Missbrauch: dort wird eine *Dokument*-URL erwartet.
+      // newDoc/readonly sind dokumentierte Seitenparameter des Editors, werden
+      // von der App aber nicht benutzt: am getesteten Deployment blieb der
+      // Editor bei new= weiss. Siehe Kommentar in app.js.
       frameUrl(options) {
         const o = options || {};
         const params = new URLSearchParams({ embed: '1', embedOrigin: parentOrigin });

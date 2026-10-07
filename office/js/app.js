@@ -162,18 +162,21 @@
       el('lockNote').textContent = 'Bearbeitung gesperrt für dich (weich, 2 min).';
 
       const editor = getEditor();
-      // Ein noch nie beschriebenes Dokument erzeugt der Editor selbst (new=);
-      // ab Version 1 schicken wir die entschluesselten Bytes aus dem Tresor.
+      // Ein leeres Dokument bekommt ein leerer Puffer -- NICHT new=<kind> als
+      // Seitenparameter. Beides ist laut Editor-Doku moeglich, aber am
+      // getesteten Deployment (edit.chaxus.com) blieb der Editor bei new=
+      // dauerhaft weiss ohne Ribbon, waehrend open-buffer mit 0 Bytes ein
+      // vollstaendig bearbeitbares leeres Dokument liefert. Also der Weg, der
+      // nachweislich funktioniert.
       // open-url bleibt ungenutzt: unsere Dateien liegen verschluesselt lokal
       // und es gibt keine CORS-faehige Dokument-URL.
-      if (doc.version === 0) {
-        editor.load({ newDoc: doc.kind });
-        await editor.whenReady();
-      } else {
-        editor.load();
-        await editor.whenReady();
-        await editor.openBuffer(doc.bytes, doc.title, { readonly: false });
-      }
+      editor.load();
+      await editor.whenReady();
+      await editor.openBuffer(
+        doc.version === 0 ? new Uint8Array(0) : doc.bytes,
+        doc.title,
+        { readonly: false },
+      );
       state.dirty = true;
       status('Dokument geöffnet.');
     } catch (e) {

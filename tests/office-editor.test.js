@@ -1,6 +1,8 @@
 'use strict';
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const Editor = require('../office/js/editor-adapter.js');
 
 const ORIGIN = 'https://office.example.test';
@@ -93,12 +95,15 @@ describe('office/editor-adapter', () => {
       assert.equal(a.base, ORIGIN);
     });
 
-    it('frameUrl erzeugt ein leeres Dokument ueber new=, nicht ueber open-url', () => {
+    it('frameUrl kennt new=/readonly, die App nutzt sie aber nicht', () => {
       const a = Editor.createEditorAdapter({ frame: { src: '' }, editorBase: ORIGIN, parentOrigin: 'https://app.example' });
-      const url = a.frameUrl({ newDoc: 'xlsx' });
-      assert.match(url, /\/editor\?/);
-      assert.ok(url.includes('new=xlsx'), 'new=<kind> muss als Seitenparameter drinstehen: ' + url);
-      assert.ok(!a.frameUrl().includes('new='), 'ohne newDoc bleibt die URL aequivalent');
+      assert.ok(a.frameUrl({ newDoc: 'xlsx' }).includes('new=xlsx'));
+      // Der Standardpfad der App (leeres Dokument) darf new= NICHT setzen: am
+      // getesteten Deployment blieb der Editor dann weiss ohne Ribbon. Siehe
+      // app.js -- dort wird stattdessen open-buffer mit 0 Bytes gesendet.
+      const app = fs.readFileSync(path.join(__dirname, '..', 'office', 'js', 'app.js'), 'utf8');
+      assert.ok(!/load\(\{\s*newDoc/.test(app), 'app.js darf newDoc nicht als URL-Parameter setzen');
+      assert.ok(/new Uint8Array\(0\)/.test(app), 'leeres Dokument muss als leerer Puffer gehen');
     });
 
     it('readonly und new lassen sich kombinieren', () => {
