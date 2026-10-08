@@ -34,19 +34,46 @@ echo "wasm-bindgen-Crate: ${wb_version}"
 cli_dir="$here/.tooling"
 mkdir -p "$cli_dir"
 
-if [ ! -x "$cli_dir/wasm-bindgen" ]; then
-  echo "::group::wasm-bindgen ${wb_version} (vorberefabtes Binary)"
-  arch="$(uname -m)"
-  case "$arch" in
-    x86_64)  wa=x86_64-unknown-linux-musl ;;
-    aarch64) wa=aarch64-unknown-linux-gnu ;;
-    *) echo "::error::unbekannte Architektur $arch"; exit 1 ;;
-  esac
+# Plattform des RUNNERS bestimmen, nicht des Ziels. Der Windows-Desktop-Job
+# laeuft auf windows-latest: ein Linux-musl-Binary laesst sich dort nicht
+# starten ("Exec format error"), darum muss die Auswahl passen.
+os_name="$(uname -s)"
+machine="$(uname -m)"
+case "$os_name" in
+  Linux)  case "$machine" in
+            x86_64)  wa=x86_64-unknown-linux-musl ;;
+            aarch64) wa=aarch64-unknown-linux-gnu ;;
+            *) echo "::error::Linux-Architektur nicht unterstuetzt: $machine"; exit 1 ;;
+          esac
+          bin=wasm-bindgen ;;
+  Darwin) case "$machine" in
+            arm64)  wa=aarch64-apple-darwin ;;
+            *)      wa=x86_64-apple-darwin ;;
+          esac
+          bin=wasm-bindgen ;;
+  MINGW*|MSYS*|CYGWIN*|Windows_NT)
+          if [ "$machine" != "x86_64" ]; then echo "::error::Windows-Architektur nicht unterstuetzt: $machine"; exit 1; fi
+          wa=x86_64-pc-windows-msvc
+          # Auf Windows heisst das Binary wasm-bindgen.exe.
+          bin=wasm-bindgen.exe ;;
+  *) echo "::error::Runner-Plattform nicht unterstuetzt: $os_name/$machine"; exit 1 ;;
+esac
+echo "Runner: ${os_name}/${machine} -> ${wa}"
+
+if [ ! -x "$cli_dir/$bin" ]; then
+  echo "::group::wasm-bindgen ${wb_version} fuer ${wa}"
   url="https://github.com/rustwasm/wasm-bindgen/releases/download/${wb_version}/wasm-bindgen-${wb_version}-${wa}.tar.gz"
   echo "hole $url"
   curl -fsSL "$url" | tar -xz -C "$cli_dir" --strip-components=1
-  chmod +x "$cli_dir/wasm-bindgen"
+  chmod +x "$cli_dir/$bin" 2>/dev/null || true
 fi
+# Gegenprobe: startet das Binary ueberhaupt? Auf der falschen Plattform
+# faellt das erst beim Aufruf auf, dann ist die Fehlermeldung schwer lesbar.
+if ! "$cli_dir/$bin" --version >/dev/null 2>&1; then
+  echo "::error::wasm-bindgen aus $cli_dir laesst sich hier nicht ausfuehren (falsche Plattform?)."
+  exit 1
+fi
+"$cli_dir/$bin" --version
 
 echo "::group::cargo build --release --target wasm32-unknown-unknown"
 # panic=abort + strip stehen in Cargo.toml; beides senkt die Groesse deutlich.
@@ -55,7 +82,7 @@ cargo build --release --target wasm32-unknown-unknown --lib
 echo "::group::wasm-bindgen"
 rm -rf "$out"
 mkdir -p "$out"
-"$cli_dir/wasm-bindgen" \
+"$cli_dir/$bin" \
   --target web \
   --no-typescript \
   --out-dir "$out" \
