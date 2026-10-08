@@ -96,10 +96,39 @@ Geprueft von `tests/themes.test.js` (12 Tests).
 
 Der State (klein) liegt in IndexedDB (`grimoire-db`) plus localStorage-Backup; Bild-Bytes und PDF-Hintergründe liegen als Blobs separat in IndexedDB, im State steht nur eine kurze `blob:<id>`-Referenz. Das 5MB-localStorage-Limit greift damit nicht mehr. Beim ersten Start migriert die App bestehende Daten automatisch (Zähler in der Statuszeile). JSON-Export enthält weiter portable dataURLs (`inlineBook`/`extractBook` in `js/store.js`). Cloud-Sync läuft über Appwrite (Tabellen `notes`/`folders`, Storage-Bucket `attachments` mit SHA-256-Dedupe, `js/appwrite-files.js`, `js/appwrite-sync.js`). **Liveshare** (Share-Link mit Lesen/Edit + Ablauf, Live-Cursor, LWW pro Stroke) läuft ebenfalls über Appwrite – Tabellen `shares`/`share_events`, `js/liveshare.js`, Setup in `specs/36-liveshare.md`.
 
+## Markdown-Editor (Live-Vorschau)
+
+Eigene Seite **✎ Markdown** in der Kopfzeile (siehe
+[SPEC-39](specs/39-markdown-editor.md)) – ein vollwertiger Markdown-Editor mit
+Live-Vorschau nach dem markText-Prinzip: getippt wird das gerenderte Dokument,
+die Markdown-Zeichen (`**`, `## `, `[[`, …) sind in `contenteditable="false"`-
+Spans versteckt und erscheinen nur im Block, in dem der Cursor steht.
+
+- **Parser** ist [markdown-wasm](https://github.com/rsms/markdown-wasm)
+  (WebAssembly, CommonMark + GFM: Tabellen, Strikethrough, Aufgabenlisten,
+  Autolinks). Liegt **vendored** unter `js/vendor/` (MIT, `markdown.js` +
+  `markdown.wasm`, ~65 KB) – kein CDN, kein `node_modules`, offline, kein Build.
+  Die Tests laden denselben Build per `require()`, deshalb braucht `npm test`
+  weiterhin keine Installation.
+- **OFM-Layer** wie in den Textboxen (SPEC-13): `[[Wikilink]]`, `[[Ziel|Alias]]`,
+  `![[bild.png|300]]`, `> [!note]`-Callouts mit `-`/`+`-Faltung, `==Highlight==`,
+  `%%Kommentar%%` und die halbe Aufgabe `- [/]`.
+- **Drei Ansichten**: ✎ Live (WYSIWYG), ⌨ Quelle (Textarea, Strg+E), 👁 Lesen
+  (Druck/PDF). Beim Tippen wird nie neu gerendert – die Quelle wird aus der DOM
+  serialisiert (`serialize()` in `js/md-render.js`); neu gerendert wird nur an
+  sicheren Stellen (Moduswechsel, `Esc`, Blur, Einfügen, Werkzeugleiste), und
+  der Cursor kehrt über Blockindex + Textoffset zurück.
+- **Dokumente** in IndexedDB `fw-md` (`js/md-store.js`), getrennt vom Notizbuch,
+  damit Markdown-Dateien nicht im Buch-Export landen. Import/Export als `.md`,
+  Gliederung, Wort-/Zeichen-/Lesezeit, Klick auf Aufgaben-Kästchen (offen →
+  erledigt → halb), Wikilink-Klick legt fehlende Notizen an.
+- `js/markdown.js` (Renderer der Textboxen im Notizbuch) bleibt unangetastet –
+  Begründung in SPEC-39 § 7.
+
 ## Tests
 
 ```bash
-npm test   # 46 Tests, inkl. GoodNotes-Konformanz (tests/)
+npm test   # 716 Tests (23 davon für den Markdown-Editor), inkl. GoodNotes-Konformanz
 ```
 
 Läuft automatisch bei jedem Push/PR auf `main` (`.github/workflows/ci.yml`, Node 20 + 22).

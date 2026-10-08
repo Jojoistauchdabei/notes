@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#8b5a2b">
+  <meta name="description" content="Federwerk Markdown-Editor: Live-Vorschau mit markdown-wasm, CommonMark+GFM und Obsidian-Syntax (Wikilinks, Callouts), offline im Browser.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="icons/logo.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>Federwerk – Markdown</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/md-editor.css">
+  <!-- Theme-System: laeuft synchron im <head> und setzt data-theme/data-scheme
+       vor dem ersten Paint – gleiche Herkunft, also dasselbe Design wie im
+       Notizbuch. Das Attribut data-boot ist noetig: build-dist.js buendelt nur
+       Skript-Tags ganz ohne weitere Attribute. -->
+  <script src="js/themes.js" data-boot></script>
+</head>
+<body class="md-body">
+  <header class="md-topbar">
+    <button class="md-button" id="mdSidebarToggle" type="button" aria-label="Dokumentliste ein-/ausblenden" title="Dokumentliste">☰</button>
+    <a class="md-brand" href="index.html" title="Zurueck zum Notizbuch"><img src="icons/logo.svg" alt="" width="26" height="26"><span>Markdown</span></a>
+    <span class="md-doc-title" id="mdDocTitle" aria-live="polite">—</span>
+    <input type="text" id="mdTitle" placeholder="Dokumenttitel" aria-label="Dokumenttitel" autocomplete="off" spellcheck="false">
+    <div class="md-mode-switch" role="group" aria-label="Ansicht">
+      <button type="button" id="mdModeLive" class="picked" aria-pressed="true" title="Live-Ansicht: getippt wird das gerenderte Dokument (Strg+E)">✎ Live</button>
+      <button type="button" id="mdModeSource" aria-pressed="false" title="Quelltext: reines Markdown (Strg+E)">⌨ Quelle</button>
+      <button type="button" id="mdModePreview" aria-pressed="false" title="Lesen ohne Cursor">👁 Lesen</button>
+    </div>
+    <div class="md-topbar-group">
+      <button class="md-button" id="mdNewBtn" type="button" title="Neues Dokument">＋ Neu</button>
+      <button class="md-button" id="mdSaveBtn" type="button" title="Speichern (Strg+S)">💾</button>
+      <button class="md-button" id="mdHelpBtn" type="button" aria-label="Hilfe und Tastenkürzel" title="Hilfe">?</button>
+      <button class="md-button" id="mdThemeBtn" type="button" aria-label="Design wechseln" title="Design wechseln">🎨</button>
+    </div>
+  </header>
+
+  <div class="md-shell">
+    <!-- DOKUMENTE -->
+    <aside class="md-side" aria-label="Dokumente">
+      <div class="md-side-head">
+        <span>Dokumente</span>
+        <button class="md-button" id="mdRenameBtn" type="button" title="Titel ändern" aria-label="Titel ändern">✎</button>
+      </div>
+      <input type="text" id="mdFilter" placeholder="Filtern (Titel oder Text)" aria-label="Dokumente filtern" spellcheck="false">
+      <ul class="md-doc-list" id="mdDocList" role="listbox" aria-label="Markdown-Dokumente"></ul>
+      <div class="md-side-head"><span>Gliederung</span></div>
+      <nav class="md-outline" id="mdOutline" aria-label="Gliederung des Dokuments"></nav>
+      <div class="md-stats" id="mdStats" aria-live="polite"></div>
+      <div class="md-topbar-group" style="padding:8px 10px;flex-wrap:wrap">
+        <button class="md-button" id="mdExportBtn" type="button" title="Als .md-Datei sichern">⬇ .md</button>
+        <button class="md-button" id="mdImportBtn" type="button" title="Markdown-Dateien öffnen">⬆ Öffnen</button>
+        <button class="md-button" id="mdDuplicateBtn" type="button" title="Dokument verdoppeln">⧉</button>
+        <button class="md-button" id="mdPrintBtn" type="button" title="Drucken / PDF">🖨</button>
+        <button class="md-button is-danger" id="mdDeleteBtn" type="button" title="Dokument löschen">🗑</button>
+      </div>
+    </aside>
+
+    <!-- BUHNE -->
+    <div class="md-stage-wrap" id="mdStageWrap" data-mode="live">
+      <div class="md-toolbar" id="mdToolbar" role="toolbar" aria-label="Formatierung">
+        <button type="button" data-tool="bold" title="Fett (Strg+B)" aria-label="Fett"><b>B</b></button>
+        <button type="button" data-tool="italic" title="Kursiv (Strg+I)" aria-label="Kursiv"><i>I</i></button>
+        <button type="button" data-tool="strike" title="Durchgestrichen" aria-label="Durchgestrichen"><s>S</s></button>
+        <button type="button" data-tool="highlight" title="Highlight ==…==" aria-label="Highlight">▨</button>
+        <button type="button" data-tool="code" title="Code `…`" aria-label="Code">&lt;/&gt;</button>
+        <span class="md-tool-sep"></span>
+        <button type="button" data-tool="h1" title="Überschrift 1 (Strg+1)" aria-label="Überschrift 1">H1</button>
+        <button type="button" data-tool="h2" title="Überschrift 2 (Strg+2)" aria-label="Überschrift 2">H2</button>
+        <button type="button" data-tool="h3" title="Überschrift 3 (Strg+3)" aria-label="Überschrift 3">H3</button>
+        <span class="md-tool-sep"></span>
+        <button type="button" data-tool="ul" title="Aufzählung" aria-label="Aufzählung">• Liste</button>
+        <button type="button" data-tool="ol" title="Nummerierte Liste" aria-label="Nummerierte Liste">1. Liste</button>
+        <button type="button" data-tool="task" title="Aufgabe [ ]" aria-label="Aufgabe">☐ Aufgabe</button>
+        <button type="button" data-tool="quote" title="Zitat &gt; …" aria-label="Zitat">❝</button>
+        <button type="button" data-tool="table" title="Tabelle" aria-label="Tabelle">▦</button>
+        <button type="button" data-tool="hr" title="Trennlinie ---" aria-label="Trennlinie">―</button>
+        <span class="md-tool-sep"></span>
+        <button type="button" data-tool="wikilink" title="Wikilink [[…]]" aria-label="Wikilink">[[ ]]</button>
+        <button type="button" data-tool="link" title="Link (Strg+K)" aria-label="Link">🔗</button>
+        <button type="button" data-tool="rerender" title="Neu rendern (Esc)" aria-label="Neu rendern">⟳</button>
+        <span class="md-tool-hint">Strg+E Quelle · Strg+S speichern · Esc rendert neu</span>
+      </div>
+
+      <div class="md-stage" id="mdStage">
+        <!-- Live: der getippte Text IST das Dokument (Marker nur im aktiven Block) -->
+        <div class="md-editor-surface md-live-surface" id="mdLive" contenteditable="true"
+             spellcheck="true" data-placeholder="Tippe Markdown …"
+             role="textbox" aria-multiline="true" aria-label="Markdown-Editor"></div>
+        <!-- Quelltext -->
+        <textarea id="mdSource" class="md-editor-surface" spellcheck="false"
+                  aria-label="Markdown-Quelltext" hidden></textarea>
+        <!-- Lesen -->
+        <div class="md-editor-surface md-preview" id="mdPreview" hidden></div>
+      </div>
+
+      <div class="md-help" id="mdHelp" hidden>
+        <h2>Was der Editor kann</h2>
+        <p class="md-note">Getippt wird das fertige Dokument. Die Markdown-Zeichen sind in <span class="md-marker" style="display:inline">**</span>-Spans versteckt und erscheinen wieder, sobald der Cursor im selben Block steht. Alles wird lokal im Browser gespeichert (IndexedDB), nichts geht raus.</p>
+        <table>
+          <tr><th>Syntax</th><th>Ergebnis</th></tr>
+          <tr><td><code>#</code> bis <code>######</code></td><td>Überschriften (Gliederung links)</td></tr>
+          <tr><td><code>**fett**</code>, <code>*kursiv*</code>, <code>~~durch~~</code>, <code>==hervor==</code></td><td>fett, kursiv, durchgestrichen, Hervorhebung</td></tr>
+          <tr><td><code>- [ ]</code> / <code>- [x]</code></td><td>Aufgabe; Kästchen klicken zykliert offen → erledigt → halb</td></tr>
+          <tr><td><code>| a | b |</code></td><td>Tabellen</td></tr>
+          <tr><td><code>&gt; [!note] Titel</code></td><td>Callout (note, tip, warning, caution, danger, info, example, quote; <code>-</code>/<code>+</code> klappt ein/aus)</td></tr>
+          <tr><td><code>[[Notiz]]</code>, <code>[[Notiz|Alias]]</code></td><td>Wikilink – Klick öffnet oder legt das Dokument an</td></tr>
+          <tr><td><code>![[bild.png|300]]</code></td><td>Bild einbetten (300 = Breite)</td></tr>
+          <tr><td><code>%%nicht sichtbar%%</code></td><td>Kommentar</td></tr>
+          <tr><td><code>```js</code></td><td>Codeblock mit Sprachkennung</td></tr>
+        </table>
+        <h2>Tasten</h2>
+        <table>
+          <tr><td>Strg+E</td><td>Live ↔ Quelltext</td></tr>
+          <tr><td>Strg+S</td><td>speichern (sonst automatisch nach ~0,7 s)</td></tr>
+          <tr><td>Strg+B / Strg+I / Strg+K</td><td>fett / kursiv / Link</td></tr>
+          <tr><td>Strg+1 … Strg+3</td><td>Überschrift</td></tr>
+          <tr><td>Esc</td><td>Block neu rendern (Marker einblenden)</td></tr>
+          <tr><td>Tab</td><td>zwei Leerzeichen einrücken</td></tr>
+        </table>
+        <h2>Technik</h2>
+        <p class="md-note">Parser ist <code>markdown-wasm</code> (WebAssembly, CommonMark + GFM: Tabellen, Strikethrough, Aufgabenlisten, Autolinks) – lokal in <code>js/vendor/</code> abgelegt, kein CDN, offline fähig. Darüber liegt die Federwerk-Erweiterung aus <code>specs/13-obsidian-markdown-ofm.md</code>. Rohes HTML wird nicht erhalten (wird bereinigt), der Quelltext ist die Wahrheit: jeder Render-Vorgang schreibt nur die Zeichen zurück, die auch wirklich im Dokument stehen.</p>
+</div>
+    </aside>
+  </div>
+
+  <footer class="md-statusbar">
+    <span id="mdEngineStatus">markdown-wasm wird geladen…</span>
+    <span class="md-spacer"></span>
+    <span id="mdStatus" role="status" aria-live="polite"></span>
+    <a href="index.html" class="md-doc-meta">zurück zum Notizbuch</a>
+  </footer>
+
+  <input type="file" id="mdImportFile" accept=".md,.markdown,.mdx,.txt,text/markdown,text/plain" multiple style="display:none" aria-hidden="true">
+
+  <!-- markdown-wasm (UMD, WASM separat). Das Attribut data-wasm ist wichtig:
+       build-dist.js buendelt nur Skript-Tags ohne Attribute, weil der WASM-
+       Laedepfad relativ zum Skript selbst aufgeloest wird. -->
+  <script src="js/vendor/markdown.js" data-wasm></script>
+  <script src="js/sanitize.js"></script>
+  <script src="js/dialog.js"></script>
+  <script src="js/md-render.js"></script>
+  <script src="js/md-store.js"></script>
+  <script src="js/md-editor.js"></script>
+</body>
+</html>

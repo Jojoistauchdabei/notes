@@ -94,6 +94,8 @@ for (const file of ['index.html', 'agent.html', 'manifest.webmanifest', 'sw.js',
   copy(file);
 }
 if (fs.existsSync(path.join(root, 'present.html'))) copy('present.html');
+// md.html = Markdown-Editor (SPEC-39), ebenfalls gebündelt.
+if (fs.existsSync(path.join(root, 'md.html'))) copy('md.html');
 for (const dir of ['icons', 'screenshots', 'docs']) {
   // docs/ ist optional (Nutzer-Doku) – ein fehlender Ordner darf den Build
   // nicht abbrechen.
@@ -191,6 +193,10 @@ const appPage = bundlePage('index.html', 'app.bundle', true);
 // braucht weder app.js noch die Cloud-Sync-Skripte – nur Renderer, Bleistift,
 // Laser und die Präsentationslogik.
 const presentPage = bundlePage('present.html', 'present.bundle', false);
+// Markdown-Editor (SPEC-39): Parser (md-render), Dokument-Store und die
+// Seitenlogik. js/vendor/markdown.js bleibt draußen (muss sein Skript-URL
+// für den Pfad zur .wasm behalten), darum das data-wasm-Attribut im HTML.
+const mdPage = bundlePage('md.html', 'md.bundle', false);
 
 // 5) Eigenständig geladene Dateien behalten ihre Namen
 //    gnpdf-worker.js: new Worker('js/gnpdf-worker.js', { type: 'module' })
@@ -204,6 +210,31 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js', 'js
   const p = path.join(root, rel);
   if (!fs.existsSync(p)) continue;
   fs.writeFileSync(path.join(dist, rel), minify('js', fs.readFileSync(p, 'utf8'), path.basename(rel, '.js')));
+}
+
+// 5a) Markdown-Editor: eigenes Stylesheet und der WASM-Parser.
+//   - css/md-editor.css wird minifiziert, aber NICHT gehasht: md.html laedt es
+//     ueber <link>, und das Bundle-Skript-Patchen fasst nur styles.css an.
+//   - js/vendor/markdown.js + markdown.wasm bleiben byteweise unveraendert:
+//     der WASM-Pfad wird zur Laufzeit relativ zum Skript aufgeloest, und die
+//     Dateien sollen 1:1 dem npm-Paket entsprechen (MIT, siehe LICENSE).
+{
+  const css = path.join(root, 'css', 'md-editor.css');
+  if (fs.existsSync(css)) {
+    fs.writeFileSync(path.join(dist, 'css', 'md-editor.css'), minify('css', fs.readFileSync(css, 'utf8'), 'md-editor'));
+  } else {
+    console.warn('build: css/md-editor.css fehlt – der Markdown-Editor sieht im dist unformatiert aus.');
+  }
+  const vendor = path.join(root, 'js', 'vendor');
+  if (fs.existsSync(vendor)) {
+    const dst = path.join(dist, 'js', 'vendor');
+    fs.mkdirSync(dst, { recursive: true });
+    for (const name of fs.readdirSync(vendor)) {
+      fs.cpSync(path.join(vendor, name), path.join(dst, name));
+    }
+  } else {
+    console.warn('build: js/vendor/ fehlt – der Markdown-Editor laeuft ohne Parser.');
+  }
 }
 
 // 5b) Theme-Stylesheets mitnehmen (js/themes.js lädt sie zur Laufzeit nach).
@@ -248,10 +279,16 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js', 'js
     'icons/icon-512.png',
   ];
   // Die Empfängerseite gehört zur Shell: eine Präsentation muss auch ohne Netz
-  // starten können, sonst ist ausgerechnet beim Zeigen alles weg.
+  // starten können, sonst ist ausgerechnet beim Zeigen alles weg. Dasselbe gilt
+  // für den Markdown-Editor – inklusive Parser und .wasm.
   if (presentPage) {
     shell.splice(3, 0, 'present.html');
     shell.splice(5, 0, `js/${presentPage.bundleName}`);
+  }
+  if (mdPage) {
+    shell.splice(3, 0, 'md.html');
+    shell.splice(5, 0, `js/${mdPage.bundleName}`);
+    shell.splice(6, 0, 'css/md-editor.css', 'js/vendor/markdown.js', 'js/vendor/markdown.wasm');
   }
   const arr = `const ASSETS = ${JSON.stringify(shell).replace(/","/g, '", "')};`;
   if (!/const ASSETS = \[[^\]]*\];/.test(s)) {
@@ -281,6 +318,11 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js', 'js
   if (presentPage) {
     immutable.push(`/js/${presentPage.bundleName}`);
     revalidate.push('/present.html');
+  }
+  if (mdPage) {
+    immutable.push(`/js/${mdPage.bundleName}`);
+    // Ungehashte Editor-Dateien: müssen bei einem Release zuverlässig ankommen.
+    revalidate.push('/md.html', '/css/md-editor.css', '/js/vendor/markdown.js', '/js/vendor/markdown.wasm');
   }
   const headers = [
     ...immutable.map((route) => `${route}\n  Cache-Control: public, max-age=31536000, immutable`),

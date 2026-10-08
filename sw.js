@@ -1,4 +1,4 @@
-// Federwerk Service Worker: App-Shell precachen, Rest per Stale-While-Revalidate.
+﻿// Federwerk Service Worker: App-Shell precachen, Rest per Stale-While-Revalidate.
 // - dist/sw.js wird von scripts/build-dist.js umgeschrieben (Bundle-Hash statt
 //   Einzeldateien) + per inject-version.js auf die Release-Version gestempelt.
 // - Hinweis: js/updater.js ist im Release-Bundle js/app.bundle.*.js enthalten.
@@ -9,7 +9,7 @@
 //   sind nicht im Precache, sondern werden nach dem Start bei Bedarf
 //   gecacht (Stale-While-Revalidate unten) – so bleibt die App-Shell schlank.
 const CACHE = 'federwerk-v1.9.0';
-const ASSETS = ['.', 'index.html', 'agent.html', 'present.html', 'css/styles.css', 'js/themes.js', 'js/sanitize.js', 'js/pencil.js', 'js/inkdraw.js', 'js/folders.js', 'js/split.js', 'js/markdown.js', 'js/editor.js', 'js/gnzip.js', 'js/goodnotes.js', 'js/gnpdf-worker.js', 'js/optimize.js', 'js/store.js', 'js/pages-import.js', 'js/paper-templates.js', 'js/erase.js', 'js/laser.js', 'js/ink-index.js', 'js/graph.js', 'js/search.js', 'js/format-doc.js', 'js/pageflow.js', 'js/presentflow.js', 'js/flashcards.js', 'js/dialog.js', 'js/app.js', 'js/flash-ui.js', 'js/present.js', 'js/present-view.js', 'js/appwrite-files.js', 'js/appwrite-sync.js', 'js/liveshare.js', 'js/updater.js', 'manifest.webmanifest', 'altes_Papier.webp', 'altes_Papier.jpg', 'icons/logo.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
+const ASSETS = ['.', 'index.html', 'agent.html', 'present.html', 'md.html', 'css/styles.css', 'css/md-editor.css', 'js/themes.js', 'js/sanitize.js', 'js/pencil.js', 'js/inkdraw.js', 'js/folders.js', 'js/split.js', 'js/markdown.js', 'js/editor.js', 'js/md-render.js', 'js/md-store.js', 'js/md-editor.js', 'js/vendor/markdown.js', 'js/vendor/markdown.wasm', 'js/gnzip.js', 'js/goodnotes.js', 'js/gnpdf-worker.js', 'js/optimize.js', 'js/store.js', 'js/pages-import.js', 'js/paper-templates.js', 'js/erase.js', 'js/laser.js', 'js/ink-index.js', 'js/graph.js', 'js/search.js', 'js/format-doc.js', 'js/pageflow.js', 'js/presentflow.js', 'js/flashcards.js', 'js/dialog.js', 'js/app.js', 'js/flash-ui.js', 'js/present.js', 'js/present-view.js', 'js/appwrite-files.js', 'js/appwrite-sync.js', 'js/liveshare.js', 'js/updater.js', 'manifest.webmanifest', 'altes_Papier.webp', 'altes_Papier.jpg', 'icons/logo.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()).catch(() => {}));
 });
@@ -21,15 +21,24 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  // Navigationen: Netzwerk zuerst, offline auf die App-Shell zurückfallen.
+  // Navigationen: Netzwerk zuerst, offline auf die angefragte Seite und
+  // erst dann auf die App-Shell zurueckfallen. Ohne den Zwischenschritt
+  // landet /md.html (Markdown-Editor) offline im Notizbuch.
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req).then((res) => {
       if (res && res.ok) {
         const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put('index.html', copy)).catch(() => {});
+        caches.open(CACHE).then((c) => {
+          c.put(new Request(req.url), copy).catch(() => {});
+          // Die Shell (und damit auch index.html) bleibt zusaetzlich gepflegt.
+          if (/\/(index\.html)?$/.test(url.pathname)) {
+            c.put('index.html', copy.clone()).catch(() => {});
+          }
+        }).catch(() => {});
       }
       return res;
-    }).catch(() => caches.match('index.html')));
+    }).catch(() => caches.match(new Request(req.url), { ignoreSearch: true })
+      .then((hit) => hit || caches.match('index.html'))));
     return;
   }
   // Statische Assets: Cache zuerst, im Hintergrund aktualisieren.
@@ -47,3 +56,4 @@ self.addEventListener('fetch', e => {
     return hit || miss;
   }));
 });
+
