@@ -64,16 +64,28 @@ mkdir -p "$out"
 
 echo "::group::Ergebnis"
 ls -la "$out"
-if [ -f "$out/office_wasm_bg.wasm" ]; then
-  size_mib="$(awk "BEGIN{printf \"%.2f\", $(( $(stat -c%s "$out/office_wasm_bg.wasm") )) / 1048576}")"
-  echo "WASM: ${size_mib} MiB"
+
+wasm="$out/office_wasm_bg.wasm"
+if [ -f "$wasm" ]; then
+  # Bash-Arithmetik statt awk: `print (x) > 25` ist in awk eine Umleitung und
+  # damit ein Syntaxfehler.
+  bytes="$(stat -c%s "$wasm")"
+  mib=$(( bytes / 1048576 ))
+  kib=$(( (bytes / 1024) % 1024 ))
+  echo "WASM: ${mib} MiB ${kib} KiB (${bytes} Bytes)"
+  echo "::endgroup::"
   # Cloudflare Workers Static Assets: 25 MiB je Datei. Darueber kann die
-  # Engine nicht als Asset ausgeliefert werden.
-  over="$(awk "BEGIN{print ($(( $(stat -c%s "$out/office_wasm_bg.wasm") )) / 1048576) > 25 ? 1 : 0}")"
-  if [ "$over" = "1" ]; then
-    echo "::error::WASM ist ${size_mib} MiB und damit groesser als das 25-MiB-Limit je Datei bei Cloudflare."
+  # Engine nicht als Asset ausgeliefert werden - dann lieber hier abbrechen,
+  # als still ein zu grosses Asset zu veroeffentlichen.
+  if [ "$mib" -ge 25 ]; then
+    echo "::error::WASM ist ${mib} MiB und damit groesser als das 25-MiB-Limit je Datei bei Cloudflare."
     exit 1
   fi
+  echo "Groesse liegt unter dem 25-MiB-Limit."
+else
+  echo "::group::"
+  echo "::error::office_wasm_bg.wasm fehlt nach wasm-bindgen"
+  exit 1
 fi
 
 # _headers-Eintraege fuer das WASM: der richtige MIME-Typ ist Pflicht, sonst
@@ -88,5 +100,4 @@ cat > "$out/office_wasm.headers" <<'HEADERS'
   Cache-Control: public, max-age=31536000, immutable
 HEADERS
 
-echo "::endgroup::"
 echo "fertig: $out"

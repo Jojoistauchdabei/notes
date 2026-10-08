@@ -115,7 +115,18 @@ describe('Tauri-Releasegerüst', () => {
 
   it('Build-Skript ist plattformübergreifend (kein rm/cp/mkdir/find-Shell-Mix)', () => {
     const pkg = JSON.parse(read('package.json'));
-    assert.equal(pkg.scripts.build, 'node scripts/build-dist.js', 'build nutzt node-basiertes Skript');
+    // Nicht auf einen festen Dateinamen festnageln: "build" ist inzwischen ein
+    // Wrapper (scripts/build.js), der scripts/build-dist.js aufruft und danach
+    // das Office-WASM nach dist/ kopiert. Geprueft wird die Absicht des Tests:
+    // ein Node-Skript, kein Shell-Mix -- und dass der Wrapper wirklich den
+    // eigentlichen Build aufruft.
+    assert.match(pkg.scripts.build, /^node scripts\/build[\w-]*\.js$/,
+      'build nutzt ein node-basiertes Skript');
+    assert.ok(!/\b(rm|cp|mkdir|find|cat|sed|awk)\b/.test(pkg.scripts.build),
+      'kein Shell-Werkzeug im build-Skript');
+    // Der Wrapper muss build-dist.js einbinden, sonst baut er nichts.
+    const wrapper = read('scripts/build.js');
+    assert.ok(wrapper.includes('build-dist.js'), 'build.js ruft scripts/build-dist.js auf');
   });
 
   it('tauri.yml: Windows-sicher + Android ohne Fremd-Action', () => {
