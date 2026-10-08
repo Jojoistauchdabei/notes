@@ -1,0 +1,91 @@
+name: Office-WASM (DOCX/XLSX/PPTX)
+
+# Baut die Office-Engine als WebAssembly: einen duennen Wrapper ueber die
+# headless Crates von WordCraft (docx), GridCraft (xlsx) und DeckCraft (pptx).
+#
+# Warum das im CI und nicht lokal: der Windows-Runner dieser Maschine hat kein
+# MSVC (kein link.exe), und ein Rust-Build von Build-Skripten braucht einen
+# Host-Linker. Die ubuntu-Runner bringen eine vollstaendige Toolchain mit.
+#
+# Dieser Workflow ist die Pruefschleife fuer den Rust-Teil: cargo test laeuft
+# nativ, cargo build --target wasm32-unknown-unknown beweist, dass der headless
+# Kern ueberhaupt in den Browser passt. Gebaut wird nur bei Aenderungen an
+# office-wasm/ oder an den Workflows.
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - "office-wasm/**"
+      - ".github/workflows/office-wasm.yml"
+  pull_request:
+    paths:
+      - "office-wasm/**"
+      - ".github/workflows/office-wasm.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: office-wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Rust-Tests + WASM bauen
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: office-wasm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust-Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cargo-Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            office-wasm/target
+          key: office-wasm-${{ hashFiles('office-wasm/Cargo.lock') }}
+          restore-keys: |
+            office-wasm-
+
+      # Nativ: prueft die Brueckenfunktionen (read/write/roundtrip) ohne Browser.
+      # Faengt die meisten Fehler, bevor ueberhaupt ein WASM gebaut wird.
+      - name: Tests (nativ)
+        run: cargo test --lib -- --nocapture
+
+      # Lint wie die Upstream-Repos: die Crates verbieten unwrap/expect/panic,
+      # damit schlechtes Encoding im Browser nicht paniked.
+      - name: clippy
+        run: cargo clippy --lib -- -D warnings
+
+      - name: WASM bauen
+        run: ./build.sh dist
+
+      - name: Artefakt hochladen (nach Dist)
+        uses: actions/upload-artifact@v4
+        with:
+          name: office-wasm-dist
+          path: office-wasm/dist
+          retention-days: 14
+
+      - name: Groesse protokollieren
+        run: |
+          {
+            echo "### Office-WASM"
+            echo ""
+            echo "| Datei | Größe |"
+            echo "| --- | --- |"
+            for f in dist/*; do
+              [ -f "$f" ] || continue
+              echo "| $(basename "$f") | $(du -h "$f" | cut -f1) |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

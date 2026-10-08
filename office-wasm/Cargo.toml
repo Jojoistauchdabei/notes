@@ -1,0 +1,40 @@
+[package]
+name = "federwerk-office-wasm"
+version = "0.1.0"
+edition = "2021"
+# Teil von Federwerk, kein eigenes Paket. Die Abhaengigkeiten darunter sind
+# Apache-2.0/MIT (siehe die NOTICE-Dateien der Upstream-Repos).
+description = "DOCX/XLSX/PPTX-Bridge fuer Federwerks Office: Datei-Bytes <-> JSON"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Nur fuer die ZIP-Strukturpruefung in sniff(); dieselbe Version, die die
+# Upstream-Crates benutzen, damit cargo nicht zwei Kopien baut.
+zip = { version = "3", default-features = false, features = ["deflate"] }
+
+# Upstream-Engines, gepinnt auf einen Commit. Sie liegen nicht auf crates.io,
+# deshalb als Git-Abhaengigkeit. Es sind ausschliesslich die headless Crates --
+# crates/ui-egui wird nicht mitgezogen, sonst kaeme die komplette Oberflaeche
+# und der Fontbestand mit ins WASM.
+wordcraft-doc = { git = "https://github.com/storytold/wordcraft.git", rev = "db0cfed1f78f4e82b77b922b6006f56a842c8e50" }
+wordcraft-docx = { git = "https://github.com/storytold/wordcraft.git", rev = "db0cfed1f78f4e82b77b922b6006f56a842c8e50" }
+gridcraft-model = { git = "https://github.com/storytold/gridcraft.git", rev = "c6b6f4177cbf52aa7a8bac8aa15650a7502926fe" }
+gridcraft-xlsx = { git = "https://github.com/storytold/gridcraft.git", rev = "c6b6f4177cbf52aa7a8bac8aa15650a7502926fe" }
+deckcraft-model = { git = "https://github.com/storytold/deckcraft.git", rev = "286ff74c8ba9be7e8ec110783b3d22beb8052341" }
+deckcraft-pptx = { git = "https://github.com/storytold/deckcraft.git", rev = "286ff74c8ba9be7e8ec110783b3d22beb8052341" }
+
+[profile.release]
+# small = wasm-opt -Oz: DAS ist der Hebel fuer die Groesse. Ohne das landet
+# ein Release um ein Vielfaches groesser als der Upstream-Web-Build (29,75 MiB
+# bei wordcraft), und das Cloudflare-Limit je Datei liegt bei 25 MiB.
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
