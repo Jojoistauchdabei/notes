@@ -1,0 +1,83 @@
+name: Craft-WASM (PSD/SVG/IDML)
+
+# Baut die Grafik-Engine als WebAssembly: einen duennen Wrapper ueber die
+# headless Crates von PhotoCraft (PSD), VectorCraft (SVG) und DesignCraft
+# (IDML). Apache-2.0, ohne die egui-Oberflaeche.
+#
+# Getrennt vom Office-WASM (DOCX/XLSX/PPTX): selten gleichzeitig gebraucht,
+# und als getrennte WASM bleibt jede Datei klein und einzeln nachladbar.
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - "craft-wasm/**"
+      - ".github/workflows/craft-wasm.yml"
+  pull_request:
+    paths:
+      - "craft-wasm/**"
+      - ".github/workflows/craft-wasm.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: craft-wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Rust-Tests + WASM bauen
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: craft-wasm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust-Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cargo-Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            craft-wasm/target
+            craft-wasm/.tooling
+          key: craft-wasm-${{ hashFiles('craft-wasm/Cargo.lock') }}
+          restore-keys: |
+            craft-wasm-
+
+      - name: Tests (nativ)
+        run: cargo test --lib -- --nocapture
+
+      - name: clippy
+        run: cargo clippy --lib -- -D warnings
+
+      - name: WASM bauen
+        run: bash build.sh dist
+
+      - name: Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: craft-wasm-dist
+          path: craft-wasm/dist
+          retention-days: 14
+
+      - name: Groesse protokollieren
+        run: |
+          {
+            echo "### Craft-WASM"
+            echo ""
+            echo "| Datei | Größe |"
+            echo "| --- | --- |"
+            for f in dist/*; do
+              [ -f "$f" ] || continue
+              echo "| $(basename "$f") | $(du -h "$f" | cut -f1) |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

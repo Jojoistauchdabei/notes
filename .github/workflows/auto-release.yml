@@ -128,6 +128,10 @@ jobs:
         if: steps.gate.outputs.wanted == 'true'
         uses: ./.github/actions/build-office-wasm
 
+      - name: Craft-WASM bauen (PSD/SVG/IDML-Engine)
+        if: steps.gate.outputs.wanted == 'true'
+        uses: ./.github/actions/build-craft-wasm
+
       # REQUIRE_OFFICE_WASM=1: bricht ab, wenn das WASM fehlt. Lieber rot als
       # eine App ausliefern, die keine Office-Dateien lesen kann.
       - name: Deploy-Verzeichnis bauen + Version stempeln (nicht eingecheckt)
@@ -135,6 +139,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           REQUIRE_OFFICE_WASM: "1"
+          REQUIRE_CRAFT_WASM: "1"
         run: npm run release-web
 
       - name: Auf Cloudflare deployen (wrangler.toml → Worker „notes", wrangler@4)

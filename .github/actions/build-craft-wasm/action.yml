@@ -1,0 +1,45 @@
+name: Craft-WASM bauen
+description: >-
+  Baut die Grafik-Engine als WebAssembly (PSD/SVG/IDML-Bridge ueber die
+  headless Crates von PhotoCraft, VectorCraft und DesignCraft) und legt das
+  Ergebnis in craft-wasm/dist ab. scripts/build.js kopiert es danach nach
+  dist/.
+#
+# Getrennt von Office-WASM: die beiden Engines werden selten gleichzeitig
+# gebraucht, und als getrennte WASM bleibt jede Datei klein und laesst sich
+# einzeln nachladen.
+
+runs:
+  using: composite
+  steps:
+    - name: Rust-Toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+
+    - name: Cargo-Cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          craft-wasm/target
+          craft-wasm/.tooling
+        key: craft-wasm-${{ hashFiles('craft-wasm/Cargo.lock') }}
+        restore-keys: |
+          craft-wasm-
+
+    - name: WASM bauen
+      # Ueber `bash`, nicht ./build.sh: core.filemode ist auf Windows-Checkouts
+      # oft aus, dann fehlt im Checkout das Ausfuehrungsbit.
+      shell: bash
+      run: bash craft-wasm/build.sh
+
+    - name: Groesse pruefen
+      shell: bash
+      run: |
+        wasm=craft-wasm/dist/craft_wasm_bg.wasm
+        test -f "$wasm" || { echo "::error::$wasm fehlt"; exit 1; }
+        mib=$(( $(stat -c%s "$wasm") / 1048576 ))
+        echo "Craft-WASM: ${mib} MiB (Limit je Datei: 25 MiB)"
+        echo "Craft-WASM-Größe: ${mib} MiB" >> "$GITHUB_STEP_SUMMARY"

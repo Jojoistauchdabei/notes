@@ -134,12 +134,16 @@ jobs:
       - name: Office-WASM bauen (DOCX/XLSX/PPTX-Engine)
         uses: ./.github/actions/build-office-wasm
 
-      # REQUIRE_OFFICE_WASM=1: bricht ab, wenn das WASM fehlt. Sonst entstuende
+      - name: Craft-WASM bauen (PSD/SVG/IDML-Engine)
+        uses: ./.github/actions/build-craft-wasm
+
+      # REQUIRE_*_WASM=1: bricht ab, wenn eine Engine fehlt. Sonst entstuende
       # ein Installer, der keine Office-Dateien lesen kann – schlimmer als ein
       # fehlgeschlagener Build.
       - name: Web-Frontend bauen + Version stempeln
         env:
           REQUIRE_OFFICE_WASM: "1"
+          REQUIRE_CRAFT_WASM: "1"
         run: npm run release-web
 
       # Signatur-Format prüfen (gibt NICHTS vom Schlüssel aus – nur Formcheck),
@@ -243,9 +247,13 @@ jobs:
       - name: Office-WASM bauen (DOCX/XLSX/PPTX-Engine)
         uses: ./.github/actions/build-office-wasm
 
+      - name: Craft-WASM bauen (PSD/SVG/IDML-Engine)
+        uses: ./.github/actions/build-craft-wasm
+
       - name: Web-Frontend bauen + Version stempeln
         env:
           REQUIRE_OFFICE_WASM: "1"
+          REQUIRE_CRAFT_WASM: "1"
         run: npm run release-web
 
       - name: Android-Projekt initialisieren (falls neu)

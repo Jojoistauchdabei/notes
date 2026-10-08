@@ -58,12 +58,16 @@ jobs:
       - name: Office-WASM bauen (DOCX/XLSX/PPTX-Engine)
         uses: ./.github/actions/build-office-wasm
 
+      - name: Craft-WASM bauen (PSD/SVG/IDML-Engine)
+        uses: ./.github/actions/build-craft-wasm
+
       - name: Deploy-Verzeichnis bauen + Version stempeln (nicht eingecheckt)
         env:
           VERSION: ${{ github.event.release.tag_name }}
           # Ohne WASM darf kein Release entstehen: lieber rot als eine App
           # ausliefern, die keine Office-Dateien lesen kann.
           REQUIRE_OFFICE_WASM: "1"
+          REQUIRE_CRAFT_WASM: "1"
         run: npm run release-web
 
       - name: Web-ZIP bauen + an Release hängen (Cloudflare-Dateien)
