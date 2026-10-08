@@ -110,8 +110,10 @@ struct PsdLayerSummary {
 pub fn psd_to_json(bytes: &[u8]) -> Result<String, String> {
     let file = photocraft_psd::PsdFile::from_bytes(bytes).map_err(err)?;
 
+    // layers() ist eine Methode und liefert ein Slice; im Datei-Feld steht
+    // layer_info (Option<LayerInfo>), das bei Laenge 0 auch None sein kann.
     let layers = file
-        .layers
+        .layers()
         .iter()
         .map(|l| PsdLayerSummary {
             name: l.name.clone(),
@@ -236,10 +238,14 @@ mod tests {
 
     #[test]
     fn svg_geht_rund() {
-        // Minimaldokument: reicht fuer den Weg ueber das Modell.
-        let doc: vectorcraft_doc::Document =
-            serde_json::from_str("{\"version\":1}").unwrap_or_default();
-        let svg = json_to_svg(&serde_json::to_string(&doc).unwrap()).unwrap();
-        assert!(looks_like_svg(svg.as_bytes()) || svg.contains("<svg"));
+        // Roundtrip ueber das Modell: import -> export.
+        // vectorcraft_doc::Document hat kein Default, deshalb wird das
+        // Ausgangsdokument als JSON gebaut und zurueckgelesen.
+        let svg_in = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10">
+            <rect x="0" y="0" width="20" height="10"/>
+        </svg>"#;
+        let json = svg_to_json(svg_in.as_bytes()).expect("SVG lesen");
+        let out = json_to_svg(&json).expect("SVG schreiben");
+        assert!(out.contains("<svg"), "Export enthaelt kein <svg>: {}", out);
     }
 }
