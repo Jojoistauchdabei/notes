@@ -120,9 +120,18 @@ var FederwerkMarkdown = (function () {
     var realFetch = typeof fetch === 'function' ? fetch : null;
     function fileFetch(input) {
       var p = String(input && input.url ? input.url : input);
-      if (/^[a-z]:[\\/]/i.test(p) || p.indexOf('file://') === 0) {
+      // Drei Formen muessen als Datei erkannt werden: Windows-Laufwerkspfad
+      // (C:\...), file://-URL und POSIX-Absolutpfad (/home/...). Der letzte
+      // Fall fehlte: auf Linux/terraform-Runnern kommt genau der, damit ist
+      // der Pattern nicht gegriffen, der Aufruf lief in den echten fetch und
+      // der lud keinen Dateisystempfad ("unknown scheme") - die Engine blieb
+      // null und alle render()-Aufrufe danach brachen ab.
+      var isWindowsPath = /^[a-z]:[\\/]/i.test(p);
+      var isPosixPath = p.charAt(0) === '/' && p.indexOf('//') !== 0;
+      if (isWindowsPath || isPosixPath || p.indexOf('file://') === 0) {
         try {
-          var buf = fs.readFileSync(p.replace(/^file:\/\//, ''));
+          var clean = p.replace(/^file:\/\//, '');
+          var buf = fs.readFileSync(clean);
           if (typeof Response === 'function') {
             return Promise.resolve(new Response(buf, { headers: { 'content-type': 'application/wasm' } }));
           }
