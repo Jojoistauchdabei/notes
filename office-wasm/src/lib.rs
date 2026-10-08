@@ -34,13 +34,19 @@ struct Sniffed {
     pptx: bool,
 }
 
-fn err(msg: impl std::fmt::Display) -> JsValue {
-    JsValue::from_str(&msg.to_string())
+/// Fehler werden als `String` gefuehrt, nicht als `JsValue`.
+///
+/// Grund: `JsValue::from_str` paniked ausserhalb von wasm ("cannot be used
+/// outside of wasm"), wodurch jeder native Test im Fehlerpfad abstuerzte. Mit
+/// `String` bleiben die Bruecken auch nativ testbar; wasm-bindgen wandelt das
+/// am Rand in einen `JsValue` um, weil `String: Into<JsValue>` gilt.
+fn err(msg: impl std::fmt::Display) -> String {
+    msg.to_string()
 }
 
 /// Erkennt die Dateiart anhand des ZIP-/OOXML-Inhalts, nicht der Endung.
 #[wasm_bindgen(js_name = sniff)]
-pub fn sniff(bytes: &[u8]) -> Result<String, JsValue> {
+pub fn sniff(bytes: &[u8]) -> Result<String, String> {
     // gridcraft::sniff liefert einen Format-Enum; die beiden anderen Crates
     // bringen ihre eigene Erkennung mit.
     let is_xlsx = matches!(gridcraft_xlsx::sniff(bytes), gridcraft_xlsx::Format::Xlsx);
@@ -78,7 +84,7 @@ fn zip_has_part(bytes: &[u8], part: &str) -> bool {
 
 /// DOCX -> JSON (Dokumentmodell von WordCraft).
 #[wasm_bindgen(js_name = docxToJson)]
-pub fn docx_to_json(bytes: &[u8]) -> Result<String, JsValue> {
+pub fn docx_to_json(bytes: &[u8]) -> Result<String, String> {
     let doc = wordcraft_docx::read(bytes).map_err(err)?;
     serde_json::to_string(&doc).map_err(err)
 }
@@ -86,7 +92,7 @@ pub fn docx_to_json(bytes: &[u8]) -> Result<String, JsValue> {
 /// JSON -> DOCX. Der Weg laeuft ueber `serde_json::Value`, damit ein von
 /// Federwerk geliefertes JSON direkt in das Dokumentmodell gespiegelt wird.
 #[wasm_bindgen(js_name = jsonToDocx)]
-pub fn json_to_docx(json: &str) -> Result<Vec<u8>, JsValue> {
+pub fn json_to_docx(json: &str) -> Result<Vec<u8>, String> {
     let doc: wordcraft_doc::Document = serde_json::from_str(json).map_err(err)?;
     wordcraft_docx::write(&doc).map_err(err)
 }
@@ -96,7 +102,7 @@ pub fn json_to_docx(json: &str) -> Result<Vec<u8>, JsValue> {
 /// XLSX -> JSON. Liefert `{ "workbook": ..., "warnings": [...] }`, damit die
 /// Warnungen des Readers (unbekannte Teile) nicht verloren gehen.
 #[wasm_bindgen(js_name = xlsxToJson)]
-pub fn xlsx_to_json(bytes: &[u8]) -> Result<String, JsValue> {
+pub fn xlsx_to_json(bytes: &[u8]) -> Result<String, String> {
     let (wb, report) = gridcraft_xlsx::read_xlsx(bytes).map_err(err)?;
     serde_json::to_string(&serde_json::json!({
         "workbook": wb,
@@ -108,7 +114,7 @@ pub fn xlsx_to_json(bytes: &[u8]) -> Result<String, JsValue> {
 /// JSON -> XLSX. Erwartet entweder das volle XlsxToJson-Ergebnis oder ein
 /// bloses Workbook-Objekt.
 #[wasm_bindgen(js_name = jsonToXlsx)]
-pub fn json_to_xlsx(json: &str) -> Result<Vec<u8>, JsValue> {
+pub fn json_to_xlsx(json: &str) -> Result<Vec<u8>, String> {
     let v: serde_json::Value = serde_json::from_str(json).map_err(err)?;
     let wb_value = v.get("workbook").unwrap_or(&v);
     let wb: gridcraft_model::Workbook = serde_json::from_value(wb_value.clone()).map_err(err)?;
@@ -119,14 +125,14 @@ pub fn json_to_xlsx(json: &str) -> Result<Vec<u8>, JsValue> {
 
 /// PPTX -> JSON (Praesentationsmodell von DeckCraft).
 #[wasm_bindgen(js_name = pptxToJson)]
-pub fn pptx_to_json(bytes: &[u8]) -> Result<String, JsValue> {
+pub fn pptx_to_json(bytes: &[u8]) -> Result<String, String> {
     let p = deckcraft_pptx::import(bytes).map_err(err)?;
     serde_json::to_string(&p).map_err(err)
 }
 
 /// JSON -> PPTX.
 #[wasm_bindgen(js_name = jsonToPptx)]
-pub fn json_to_pptx(json: &str) -> Result<Vec<u8>, JsValue> {
+pub fn json_to_pptx(json: &str) -> Result<Vec<u8>, String> {
     let p: deckcraft_model::Presentation = serde_json::from_str(json).map_err(err)?;
     deckcraft_pptx::export(&p).map_err(err)
 }
