@@ -1143,6 +1143,13 @@ select { cursor: pointer; }
   background: var(--surface);
 }
 
+/* DOCX-Import/Export: nach rechts in die Leiste, damit sie nicht zwischen
+   Titel und Art landen. */
+.fw-office-io {
+    display: inline-flex;
+    gap: 6px;
+    margin-left: auto;
+}
 .fw-office-bar h2 {
   margin: 0;
   font-size: 16px;

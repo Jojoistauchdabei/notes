@@ -318,6 +318,17 @@
         <button type="button" class="mini-button" id="officeBack" aria-label="Zurück zur Bibliothek">← Bibliothek</button>
         <h2 id="officeTitle">Dokument</h2>
         <span class="fw-office-kind" id="officeKind">Dokument</span>
+        <!-- DOCX über das Office-WASM. Der Import ersetzt den Inhalt des
+             geöffneten Dokuments, deshalb steht das im Titel und aria-label. -->
+        <span class="fw-office-io">
+          <button type="button" class="mini-button" id="officeImport"
+                  title="DOCX importieren – ersetzt den Inhalt dieses Dokuments"
+                  aria-label="DOCX importieren">📥 Import</button>
+          <button type="button" class="mini-button" id="officeExport"
+                  title="Als DOCX speichern"
+                  aria-label="Als DOCX exportieren">📤 Export</button>
+          <input type="file" id="officeFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+        </span>
       </div>
       <div class="fw-office-toolbar" id="officeToolbar"></div>
       <div class="fw-office-page">
@@ -630,6 +641,9 @@
 <!-- Lädt das Office-WASM erst bei Bedarf nach (office_wasm.js), deshalb steht
      hier nur der Adapter selbst im Bundle. -->
 <script src="js/office-engine.js"></script>
+<!-- Übersetzt zwischen Office-Modell und dem WordCraft-JSON. Muss nach dem
+     Adapter geladen werden, wird aber von ihm nicht referenziert. -->
+<script src="js/office-bridge.js"></script>
 <script src="js/app.js"></script>
   <script src="js/flash-ui.js"></script>
   <script src="js/presentflow.js"></script>

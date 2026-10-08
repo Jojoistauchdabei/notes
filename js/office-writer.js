@@ -389,6 +389,95 @@ function rememberSelection() {
     return String(html == null ? '' : html).replace(/<[^>]*>/g, '');
   }
 
+  /* -- DOCX rein und raus (office-bridge.js + office-engine.js) ----------- */
+
+  const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+  function sag(text) {
+    const s = el('officeStatus');
+    if (s) s.textContent = text;
+  }
+
+  function engineUndBridge() {
+    const e = (typeof window !== 'undefined') ? window.FederwerkOfficeEngine : null;
+    const b = (typeof window !== 'undefined') ? window.FederwerkOfficeBridge : null;
+    if (!e || !b) sag('Office-Engine fehlt – bitte Seite neu laden.');
+    return (e && b) ? { e, b } : null;
+  }
+
+  /* Nur der Writer hat eine Flaeche fuer Bloecke. Fuer Tabelle und Praesentation
+   * gibt es noch keine, also wird nicht still ein leeres Dokument gebaut. */
+  function pruefeDokument(book) {
+    if (!book) { sag('Kein Dokument geöffnet.'); return false; }
+    if (!book.office || book.office.kind !== 'doc') {
+      sag('DOCX gibt es nur für Dokumente – Tabelle und Präsentation folgen.');
+      return false;
+    }
+    return true;
+  }
+
+  async function importDocx(datei) {
+    const book = currentView();
+    if (!pruefeDokument(book)) return;
+    const teile = engineUndBridge();
+    if (!teile) return;
+
+    sag('DOCX wird gelesen …');
+    let r;
+    try {
+      r = await teile.e.docxToJson(new Uint8Array(await datei.arrayBuffer()));
+    } catch (e) {
+      sag('Import fehlgeschlagen: ' + (e && e.message ? e.message : String(e)));
+      return;
+    }
+    if (!r.ok) { sag('Import fehlgeschlagen: ' + r.error); return; }
+
+    let uebertragen;
+    try {
+      uebertragen = teile.b.fromDocJson(r.value);
+    } catch (e) {
+      sag('Import fehlgeschlagen: ' + (e && e.message ? e.message : String(e)));
+      return;
+    }
+
+    book.office.blocks = uebertragen.blocks;
+    if (uebertragen.title) book.title = uebertragen.title;
+    requestSave(book);
+    renderBlocks(book, el('officeBlocks'));
+    const titelFeld = el('officeTitle');
+    if (titelFeld) titelFeld.textContent = book.title;
+    updateStatusBar();
+    sag('Importiert: ' + uebertragen.blocks.length + ' Blöcke aus ' + datei.name +
+        (uebertragen.warnungen.length ? ' – ' + uebertragen.warnungen[0] : ''));
+  }
+
+  async function exportDocx() {
+    const book = currentView();
+    if (!pruefeDokument(book)) return;
+    const teile = engineUndBridge();
+    if (!teile) return;
+
+    // Ungespeichertes aus dem contenteditable holen, sonst exportiert der
+    // Export den Stand von vor dem letzten Tippen.
+    readBack(book, el('officeBlocks'));
+    sag('DOCX wird erzeugt …');
+
+    const r = await teile.e.jsonToDocx(teile.b.toDocJson(book));
+    if (!r.ok) { sag('Export fehlgeschlagen: ' + r.error); return; }
+
+    const name = teile.b.fileName(book, 'docx');
+    const blob = new Blob([r.value], { type: DOCX_MIME });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    sag('Exportiert: ' + name);
+  }
+
   /* -- Start ------------------------------------------------------------- */
 
   function boot() {
@@ -431,6 +520,19 @@ function rememberSelection() {
 
     el('officeBack').onclick = closeOffice;
 
+      const dateiFeld = el('officeFile');
+      const importKnopf = el('officeImport');
+      const exportKnopf = el('officeExport');
+      if (importKnopf && dateiFeld) {
+        importKnopf.onclick = function () { dateiFeld.click(); };
+        dateiFeld.onchange = function () {
+          const datei = dateiFeld.files && dateiFeld.files[0];
+          dateiFeld.value = '';
+          if (datei) importDocx(datei);
+        };
+      }
+      if (exportKnopf) exportKnopf.onclick = exportDocx;
+
     el('officeBlocks').addEventListener('input', () => { rememberSelection(); updateToolbar(); scheduleSave(); });
     el('officeBlocks').addEventListener('keyup', () => { rememberSelection(); updateToolbar(); });
     el('officeBlocks').addEventListener('mouseup', () => { rememberSelection(); updateToolbar(); });
@@ -456,10 +558,11 @@ function rememberSelection() {
     else boot();
   }
 
-  if (typeof window !== 'undefined') window.FederwerkOfficeWriter = {
-    openBook, closeOffice, readBack, sanitize, stripTags, updateToolbar,
-    BLOCK_TYPES, INLINE, SAVE_DEBOUNCE,
-  };
+if (typeof window !== 'undefined') window.FederwerkOfficeWriter = {
+      openBook, closeOffice, readBack, sanitize, stripTags, updateToolbar,
+      importDocx, exportDocx, DOCX_MIME,
+      BLOCK_TYPES, INLINE, SAVE_DEBOUNCE,
+    };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = { readBack, sanitize, stripTags, BLOCK_TYPES, INLINE, SAVE_DEBOUNCE };
   }
