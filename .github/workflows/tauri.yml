@@ -131,7 +131,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      - name: Office-WASM bauen (DOCX/XLSX/PPTX-Engine)
+        uses: ./.github/actions/build-office-wasm
+
+      # REQUIRE_OFFICE_WASM=1: bricht ab, wenn das WASM fehlt. Sonst entstuende
+      # ein Installer, der keine Office-Dateien lesen kann – schlimmer als ein
+      # fehlgeschlagener Build.
       - name: Web-Frontend bauen + Version stempeln
+        env:
+          REQUIRE_OFFICE_WASM: "1"
         run: npm run release-web
 
       # Signatur-Format prüfen (gibt NICHTS vom Schlüssel aus – nur Formcheck),
@@ -232,7 +240,12 @@ jobs:
           fi
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VER" >> "$GITHUB_ENV"
 
+      - name: Office-WASM bauen (DOCX/XLSX/PPTX-Engine)
+        uses: ./.github/actions/build-office-wasm
+
       - name: Web-Frontend bauen + Version stempeln
+        env:
+          REQUIRE_OFFICE_WASM: "1"
         run: npm run release-web
 
       - name: Android-Projekt initialisieren (falls neu)

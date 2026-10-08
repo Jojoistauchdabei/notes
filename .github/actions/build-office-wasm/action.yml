@@ -1,0 +1,40 @@
+name: Office-WASM bauen
+description: >-
+  Baut die Office-Engine als WebAssembly (DOCX/XLSX/PPTX-Bridge ueber die
+  headless Crates von WordCraft, GridCraft und DeckCraft) und legt das Ergebnis
+  in office-wasm/dist ab. scripts/build.js kopiert es danach nach dist/.
+
+runs:
+  using: composite
+  steps:
+    - name: Rust-Toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+
+    - name: Cargo-Cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          office-wasm/target
+          office-wasm/.tooling
+        key: office-wasm-${{ hashFiles('office-wasm/Cargo.lock') }}
+        restore-keys: |
+          office-wasm-
+
+    - name: WASM bauen
+      # Ueber `bash`, nicht ./build.sh: core.filemode ist auf Windows-Checkouts
+      # oft aus, dann fehlt im Checkout das Ausfuehrungsbit.
+      shell: bash
+      run: bash office-wasm/build.sh
+
+    - name: Groesse pruefen
+      shell: bash
+      run: |
+        wasm=office-wasm/dist/office_wasm_bg.wasm
+        test -f "$wasm" || { echo "::error::$wasm fehlt"; exit 1; }
+        mib=$(( $(stat -c%s "$wasm") / 1048576 ))
+        echo "Office-WASM: ${mib} MiB (Limit je Datei: 25 MiB)"
+        echo "Office-WASM-Größe: ${mib} MiB" >> "$GITHUB_STEP_SUMMARY"
