@@ -21,22 +21,17 @@ use wasm_bindgen::prelude::*;
 
 /// Welche Dateiart erkannt wurde. Fuer den Import, damit Federwerk nicht
 /// selbst an der Endung raten muss.
-#[wasm_bindgen]
+///
+/// Bewusst als JSON-String und nicht als `#[wasm_bindgen]`-Struct: wasm-bindgen
+/// verlangt fuer die Felder einer exportierten Struct `Copy`, `String` ist es
+/// nicht (E0277). Der JSON-Vertrag ist hier ohnehin der passende Weg.
 #[derive(Serialize)]
-pub struct Sniffed {
+struct Sniffed {
     /// "docx", "xlsx", "pptx" oder "" wenn nichts passt.
-    pub kind: String,
-    pub docx: bool,
-    pub xlsx: bool,
-    pub pptx: bool,
-}
-
-#[wasm_bindgen]
-impl Sniffed {
-    #[wasm_bindgen(js_name = toJson)]
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
-    }
+    kind: String,
+    docx: bool,
+    xlsx: bool,
+    pptx: bool,
 }
 
 fn err(msg: impl std::fmt::Display) -> JsValue {
@@ -44,13 +39,12 @@ fn err(msg: impl std::fmt::Display) -> JsValue {
 }
 
 /// Erkennt die Dateiart anhand des ZIP-/OOXML-Inhalts, nicht der Endung.
-/// Nutzt die `sniff`-Funktionen der Upstream-Crates.
 #[wasm_bindgen(js_name = sniff)]
-pub fn sniff(bytes: &[u8]) -> Result<Sniffed, JsValue> {
-    // gridcraft::sniff liefert einen Format-Enum; wir fragen die beiden anderen
-    // Crates ueber ihre eigene Erkennung und nutzen gridcraft fuer xlsx.
+pub fn sniff(bytes: &[u8]) -> Result<String, JsValue> {
+    // gridcraft::sniff liefert einen Format-Enum; die beiden anderen Crates
+    // bringen ihre eigene Erkennung mit.
     let is_xlsx = matches!(gridcraft_xlsx::sniff(bytes), gridcraft_xlsx::Format::Xlsx);
-    let is_docx = zip_is_ooxml(bytes, "word/document.xml");
+    let is_docx = zip_has_part(bytes, "word/document.xml");
     let is_pptx = deckcraft_pptx::sniff(bytes);
 
     let kind = if is_docx {
@@ -62,17 +56,18 @@ pub fn sniff(bytes: &[u8]) -> Result<Sniffed, JsValue> {
     } else {
         ""
     };
-    Ok(Sniffed {
+    serde_json::to_string(&Sniffed {
         kind: kind.to_string(),
         docx: is_docx,
         xlsx: is_xlsx,
         pptx: is_pptx,
     })
+    .map_err(err)
 }
 
-/// Sucht einen OOXML-Teileintrag im ZIP. Dafuer wird der zentrale
+/// Prueft, ob ein ZIP-Teileintrag existiert. Dafuer wird der zentrale
 /// Verzeichniseintrag gelesen - die Dateien selbst werden nicht entpackt.
-fn zip_is_ooxml(bytes: &[u8], part: &str) -> bool {
+fn zip_has_part(bytes: &[u8], part: &str) -> bool {
     match zip::ZipArchive::new(std::io::Cursor::new(bytes)) {
         Ok(mut zip) => zip.by_name(part).is_ok(),
         Err(_) => false,
@@ -145,28 +140,39 @@ mod tests {
         wordcraft_docx::write(&doc).expect("demo-docx schreiben")
     }
 
+    fn sniffed(json: &str) -> serde_json::Value {
+        serde_json::from_str(json).expect("sniff liefert JSON")
+    }
+
     #[test]
     fn docx_roundtrip() {
         let bytes = demo_docx();
-        assert!(zip_is_ooxml(&bytes, "word/document.xml"), "erzeugtes DOCX ist ein OOXML-Paket");
+        assert!(
+            zip_has_part(&bytes, "word/document.xml"),
+            "erzeugtes DOCX ist ein OOXML-Paket"
+        );
         let json = docx_to_json(&bytes).expect("lesen");
         let out = json_to_docx(&json).expect("schreiben");
-        assert!(zip_is_ooxml(&out, "word/document.xml"), "zurueckgeschriebenes DOCX ist wieder ein Paket");
+        assert!(
+            zip_has_part(&out, "word/document.xml"),
+            "zurueckgeschriebenes DOCX ist wieder ein Paket"
+        );
     }
 
     #[test]
     fn sniff_findet_eigenes_docx() {
-        let bytes = demo_docx();
-        let s = sniff(&bytes).expect("sniff");
-        assert!(s.docx, "DOCX wird erkannt");
-        assert_eq!(s.kind, "docx");
+        let s = sniffed(&sniff(&demo_docx()).expect("sniff"));
+        assert_eq!(s["docx"], serde_json::json!(true));
+        assert_eq!(s["kind"], "docx");
     }
 
     #[test]
     fn sniff_schweigt_bei_muell() {
-        let s = sniff(b"kein zip, nur text").expect("sniff darf nicht paniken");
-        assert_eq!(s.kind, "");
-        assert!(!s.docx && !s.xlsx && !s.pptx);
+        let s = sniffed(&sniff(b"kein zip, nur text").expect("sniff darf nicht paniken"));
+        assert_eq!(s["kind"], "");
+        assert_eq!(s["docx"], serde_json::json!(false));
+        assert_eq!(s["xlsx"], serde_json::json!(false));
+        assert_eq!(s["pptx"], serde_json::json!(false));
     }
 
     #[test]
