@@ -154,11 +154,24 @@ describe('office/HTML-Anbindung', () => {
     }
   });
 
+  it('jedes Office-Modul ist in index.html referenziert', () => {
+    // Regression: office-engine.js war weder im Bundle noch im ausgelieferten
+    // HTML. Der Eintrag in index.html war beim Hunk-Trennen verloren gegangen,
+    // und weil der Build alles buendelt, fiel das in keinem Test auf - erst
+    // beim Nachsehen im ausgelieferten Bundle. Der Test schlaegt hier an.
+    for (const mod of ['office-doc.js', 'office-writer.js', 'office-engine.js']) {
+      assert.ok(html.includes('<script src="js/' + mod + '"></script>'),
+        'index.html referenziert ' + mod + ' nicht');
+      assert.ok(fs.existsSync(path.join(root, 'js', mod)), 'js/' + mod + ' fehlt');
+    }
+  });
+
   it('die Module laden vor app.js und in Abhängigkeitsreihenfolge', () => {
     const iDoc = html.indexOf('js/office-doc.js');
     const iWriter = html.indexOf('js/office-writer.js');
+    const iEngine = html.indexOf('js/office-engine.js');
     const iApp = html.indexOf('js/app.js');
-    assert.ok(iDoc > 0 && iWriter > 0 && iApp > 0);
+    assert.ok(iDoc > 0 && iWriter > 0 && iEngine > 0 && iApp > 0);
     assert.ok(iDoc < iWriter, 'office-doc.js muss vor office-writer.js laden');
     assert.ok(iWriter < iApp, 'app.js braucht isOfficeDoc() beim Rendern der Karten');
   });
