@@ -47,11 +47,13 @@ fn err(msg: impl std::fmt::Display) -> String {
 /// Erkennt die Dateiart anhand des ZIP-/OOXML-Inhalts, nicht der Endung.
 #[wasm_bindgen(js_name = sniff)]
 pub fn sniff(bytes: &[u8]) -> Result<String, String> {
-    // gridcraft::sniff liefert einen Format-Enum; die beiden anderen Crates
-    // bringen ihre eigene Erkennung mit.
-    let is_xlsx = matches!(gridcraft_xlsx::sniff(bytes), gridcraft_xlsx::Format::Xlsx);
+    // Nicht gridcraft_xlsx::sniff: das erkennt jeden ZIP als XLSX, weil es nur
+    // auf die PK-Signatur prueft. Im Browser gemessen - bei einem selbst
+    // erzeugten DOCX kamen docx, xlsx und pptx alle als true zurueck.
+    // Geprueft wird stattdessen auf das jeweils charakteristische OOXML-Teil.
     let is_docx = zip_has_part(bytes, "word/document.xml");
-    let is_pptx = deckcraft_pptx::sniff(bytes);
+    let is_xlsx = zip_has_part(bytes, "xl/workbook.xml");
+    let is_pptx = zip_has_part(bytes, "ppt/presentation.xml");
 
     let kind = if is_docx {
         "docx"
@@ -170,6 +172,21 @@ mod tests {
         let s = sniffed(&sniff(&demo_docx()).expect("sniff"));
         assert_eq!(s["docx"], serde_json::json!(true));
         assert_eq!(s["kind"], "docx");
+        // Regression: gridcraft_xlsx::sniff erkennt jeden ZIP als XLSX, ein
+        // DOCX kam darum als docx *und* xlsx zurueck.
+        assert_eq!(s["xlsx"], serde_json::json!(false), "DOCX darf nicht als XLSX gelten");
+        assert_eq!(s["pptx"], serde_json::json!(false), "DOCX darf nicht als PPTX gelten");
+    }
+
+    #[test]
+    fn sniff_unterscheidet_ein_plaines_zip_von_xlsx() {
+        // ZIP ohne OOXML-Teile: keine der drei Arten.
+        let mut zip = Vec::new();
+        zip.extend_from_slice(b"PK\x03\x04");
+        zip.extend_from_slice(&[0u8; 64]);
+        let s = sniffed(&sniff(&zip).expect("sniff"));
+        assert_eq!(s["kind"], "");
+        assert_eq!(s["xlsx"], serde_json::json!(false));
     }
 
     #[test]
