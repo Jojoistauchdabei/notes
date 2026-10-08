@@ -98,14 +98,21 @@ struct PsdSummary {
 #[derive(Serialize)]
 struct PsdLayerSummary {
     name: String,
-    kind: String,
+    blend_mode: String,
     visible: bool,
     opacity: u8,
-    width: u32,
-    height: u32,
+    clipping: u8,
+    width: i32,
+    height: i32,
+    has_mask: bool,
 }
 
 /// PSD lesen und als kompaktes JSON zusammenfassen.
+///
+/// Die Felder hier sind keine Gerate: `name` sind rohe Pascal-Bytes (deshalb
+/// `from_utf8_lossy` statt `.to_string()`), die Sichtbarkeit steckt in
+/// `flags` (Bit 1 = HIDDEN) und laesst sich ueber `flags.hidden()` fragen, und
+/// `rect` ist i32 mit exklusiver rechter/unterer Kante.
 #[wasm_bindgen(js_name = psdToJson)]
 pub fn psd_to_json(bytes: &[u8]) -> Result<String, String> {
     let file = photocraft_psd::PsdFile::from_bytes(bytes).map_err(err)?;
@@ -116,12 +123,14 @@ pub fn psd_to_json(bytes: &[u8]) -> Result<String, String> {
         .layers()
         .iter()
         .map(|l| PsdLayerSummary {
-            name: l.name.clone(),
-            kind: format!("{:?}", l.kind),
-            visible: l.visible,
+            name: String::from_utf8_lossy(&l.name).to_string(),
+            blend_mode: format!("{:?}", l.blend_mode),
+            visible: !l.flags.hidden(),
             opacity: l.opacity,
+            clipping: l.clipping,
             width: l.rect.right.saturating_sub(l.rect.left),
             height: l.rect.bottom.saturating_sub(l.rect.top),
+            has_mask: !matches!(l.mask, photocraft_psd::MaskData::None),
         })
         .collect();
 
