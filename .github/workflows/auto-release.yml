@@ -124,10 +124,17 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Secret CLOUDFLARE_API_TOKEN fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Secret CLOUDFLARE_ACCOUNT_ID fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
 
+      - name: Office-WASM bauen (DOCX/XLSX/PPTX-Engine)
+        if: steps.gate.outputs.wanted == 'true'
+        uses: ./.github/actions/build-office-wasm
+
+      # REQUIRE_OFFICE_WASM=1: bricht ab, wenn das WASM fehlt. Lieber rot als
+      # eine App ausliefern, die keine Office-Dateien lesen kann.
       - name: Deploy-Verzeichnis bauen + Version stempeln (nicht eingecheckt)
         if: steps.gate.outputs.wanted == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          REQUIRE_OFFICE_WASM: "1"
         run: npm run release-web
 
       - name: Auf Cloudflare deployen (wrangler.toml → Worker „notes", wrangler@4)
