@@ -67,8 +67,11 @@ jobs:
       - name: clippy
         run: cargo clippy --lib -- -D warnings
 
+      # Ueber `bash` aufrufen, nicht als ./build.sh: core.filemode ist auf
+      # Windows-Checkouts oft aus, dann fehlt im Checkout das Ausfuehrungsbit
+      # und der Schritt bricht mit "Permission denied" ab.
       - name: WASM bauen
-        run: ./build.sh dist
+        run: bash build.sh dist
 
       - name: Artefakt hochladen (nach Dist)
         uses: actions/upload-artifact@v4
