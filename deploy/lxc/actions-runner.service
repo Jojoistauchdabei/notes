@@ -1,0 +1,29 @@
+[Unit]
+Description=GitHub Actions Self-hosted Runner (Federwerk-LXC)
+Documentation=https://docs.github.com/actions/hosting-your-own-runners
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=runner
+Group=runner
+WorkingDirectory=/opt/actions-runner
+ExecStart=/opt/actions-runner/run.sh
+Restart=always
+RestartSec=15
+KillMode=mixed
+TimeoutStopSec=60
+
+# Der Runner darf auf dem LXC deployen (sudo) und sonst nichts. Alles andere
+# ist fuer die Aufgabe nicht noetig und waere bei einer Kompromittierung des
+# Repos ein offener Weg in die Maschine.
+NoNewPrivileges=no
+PrivateTmp=yes
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gh-runner
+
+[Install]
+WantedBy=multi-user.target

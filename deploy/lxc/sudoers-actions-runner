@@ -1,0 +1,9 @@
+# GitHub Actions Runner: darf ausschliesslich das Deploy-Skript starten.
+#
+# env_keep ist noetig, weil sudo per env_reset die Umgebung leert - ohne das
+# sieht /srv/federwerk/deploy.sh sein GITHUB_WORKSPACE nicht und findet den
+# Checkout nicht. Bewusst nur DIESE eine Variable, nicht -E.
+Defaults:runner env_keep += "GITHUB_WORKSPACE"
+
+Cmnd_Alias FEDERWERK_DEPLOY = /bin/bash /srv/federwerk/deploy.sh
+runner ALL=(root) NOPASSWD: FEDERWERK_DEPLOY
