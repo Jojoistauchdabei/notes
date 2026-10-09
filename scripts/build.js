@@ -21,7 +21,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
 const { execFileSync } = require('child_process');
 
 const root = process.env.BUILD_ROOT || path.join(__dirname, '..');
@@ -59,9 +58,12 @@ async function releaseTag(slug) {
   if (process.env.FEDERWERK_WASM_RELEASE) return process.env.FEDERWERK_WASM_RELEASE;
   const ref = process.env.GITHUB_REF || '';
   const ausRef = ref.match(/^refs\/tags\/(.+)$/);
+  // FETCH_BASE nur fuer die Tests: damit laesst sich der ganze Pfad gegen einen
+  // lokalen Server fahren, ohne GitHub zu brauchen.
+  const basis = process.env.FETCH_BASE || 'https://api.github.com';
   const url = ausRef
-    ? 'https://api.github.com/repos/' + slug + '/releases/tags/' + ausRef[1]
-    : 'https://api.github.com/repos/' + slug + '/releases/latest';
+    ? basis + '/repos/' + slug + '/releases/tags/' + ausRef[1]
+    : basis + '/repos/' + slug + '/releases/latest';
   const json = await fetch(url, {
     headers: {
       accept: 'application/vnd.github+json',
@@ -76,29 +78,16 @@ async function releaseTag(slug) {
 
 /* Download nach tmpName; .part daneben, damit ein abgebrochener Lauf kein
  * halbes File in tmp/ hinterlaesst. */
-function lade(url, tmpName) {
-  return new Promise((resolve, reject) => {
-    const p = path.join(root, 'tmp', tmpName);
-    const aus = fs.createWriteStream(p);
-    const fehler = (e) => { aus.destroy(); reject(e); };
-    https.get(url, { headers: { 'user-agent': 'federwerk-build' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        aus.destroy();
-        res.resume();
-        https.get(res.headers.location, { headers: { 'user-agent': 'federwerk-build' } }, (r2) => {
-          const a2 = fs.createWriteStream(p);
-          r2.pipe(a2);
-          a2.on('finish', () => a2.close(() => resolve(p)));
-          r2.on('error', fehler);
-        }).on('error', fehler);
-        return;
-      }
-      if (res.statusCode !== 200) { fehler(new Error('HTTP ' + res.statusCode)); return; }
-      res.pipe(aus);
-      aus.on('finish', () => aus.close(() => resolve(p)));
-      res.on('error', fehler);
-    }).on('error', fehler);
+async function lade(url, tmpName) {
+  const p = path.join(root, 'tmp', tmpName);
+  const res = await fetch(url, {
+    headers: { 'user-agent': 'federwerk-build' },
+    redirect: 'follow',
   });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(p, buf);
+  return p;
 }
 
 /* Eine WebAssembly-Datei beginnt mit 00 61 73 6D. Das wird geprueft, weil der
@@ -124,7 +113,12 @@ async function holeEngine(kind, base) {
   fs.mkdirSync(path.join(root, 'tmp'), { recursive: true });
   const geholt = [];
   for (const name of [base + '.js', base + '_bg.wasm']) {
-    const url = 'https://github.com/' + slug + '/releases/download/' + tag + '/' + name;
+    // FETCH_BASE ist nur fuer die Tests gedacht und zeigt im Normalfall auf
+  // objects.githubusercontent.com, wo die Weiterleitung des Browsers landet.
+  const downloadBasis = process.env.FETCH_BASE
+    ? process.env.FETCH_BASE
+    : 'https://github.com/' + slug + '/releases/download';
+  const url = downloadBasis + '/' + tag + '/' + name;
     let datei;
     try {
       datei = await lade(url, name + '.part');

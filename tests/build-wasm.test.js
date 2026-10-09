@@ -1,5 +1,5 @@
-'use strict';
-// tests/build-wasm.test.js – scripts/build.js: die Engine kommt ins dist/,
+﻿'use strict';
+// tests/build-wasm.test.js â€“ scripts/build.js: die Engine kommt ins dist/,
 // egal ob lokal gebaut oder aus dem GitHub-Release geholt. Ohne Rust-Toolchain
 // (Cloudflare Workers Builds, fremde CI) ist genau der zweite Weg der einzige,
 // der eine vollstaendige App erzeugt (SPEC-40).
@@ -7,21 +7,22 @@ const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
+const http = require('node:http');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawn, spawnSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
 const buildJs = path.join(root, 'scripts', 'build.js');
 const src = fs.readFileSync(buildJs, 'utf8');
 
 /* Ein eigenes Arbeitsverzeichnis, damit der Test weder das echte dist/ noch das
- * tmp/ des Projekts anfasst. BUILD_ROOT/DIST_DIR sind genau dafür vorgesehen. */
+ * tmp/ des Projekts anfasst. BUILD_ROOT/DIST_DIR sind genau dafÃ¼r vorgesehen. */
 function makeRoot() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'federwerk-wasm-'));
   fs.mkdirSync(path.join(dir, 'js'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
   fs.copyFileSync(buildJs, path.join(dir, 'scripts', 'build.js'));
-  // build-dist.js wird nur gestartet, nicht ausgewertet – ein Stub reicht. Er
+  // build-dist.js wird nur gestartet, nicht ausgewertet â€“ ein Stub reicht. Er
   // muss aber dist/ anlegen, weil build.js danach dorthin kopiert.
   fs.writeFileSync(path.join(dir, 'scripts', 'build-dist.js'),
     'const fs = require("fs");\n' +
@@ -76,7 +77,7 @@ describe('build.js: Release-Assets und MIME', () => {
   });
 
   it('nutzt GITHUB_REF fuer Tag-Builds und sonst das juengste Release', () => {
-    // Der Quelltext enthaelt die Regex als /^refs\/tags\/(.+)$/ – escaped gesucht.
+    // Der Quelltext enthaelt die Regex als /^refs\/tags\/(.+)$/ â€“ escaped gesucht.
     assert.match(src, /refs\\\/tags\\\//, 'Tag-Builds nehmen ihren Tag');
     assert.match(src, /\/releases\/latest/, 'sonst das juengste Release');
   });
@@ -97,44 +98,118 @@ describe('build.js: Release-Assets und MIME', () => {
 });
 
 describe('build.js: Engine landet im dist', () => {
-  let dir;
 
-  before(() => { dir = makeRoot(); });
-  after(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+  /* Der Download-Pfad braucht Netz und ein Release mit Engine-Assets. Beides ist
+   * in fremden Umgebungen nicht garantiert, deshalb wird die Quelle simuliert:
+   * ein lokaler HTTP-Server liefert die vier Dateien, inklusive eines Faells mit
+   * kaputter Magic. So prueft der Test den echten Code ohne GitHub. */
+  /* WICHTIG: Der Server laeuft in einem eigenen Prozess. Waere er im Test-
+   Prozess, wuerde execFileSync (synchron!) dessen Event-Loop blockieren,
+   waehrend build.js auf genau diesen Server wartet - ein Deadlock. */
+function fakeRelease(tot, kaputteMagic) {
+  const script = `
+    const http = require('node:http');
+    const path = require('node:path');
+    const kaputt = ${kaputteMagic === true ? 'true' : 'false'};
+    const server = http.createServer((req, res) => {
+      // Die Release-Angabe kommt zuerst, danach die Dateien aus dem Tag.
+      if (req.url.includes('/releases/')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ tag_name: ${JSON.stringify(tot)} }));
+        return;
+      }
+      const name = path.basename(req.url);
+      const wasm = name.endsWith('.wasm');
+      const body = wasm
+        ? (kaputt ? Buffer.from('<!doctype html>') : Buffer.from([0x00, 0x61, 0x73, 0x6d, 1, 2, 3, 4]))
+        : Buffer.from('// glue ' + name);
+      res.writeHead(200, { 'content-type': wasm ? 'application/wasm' : 'text/javascript' });
+      res.end(body);
+    });
+    server.listen(0, '127.0.0.1', () => {
+      process.stdout.write(String(server.address().port));
+    });
+  `;
+  const tmpOrdner = fs.mkdtempSync(path.join(os.tmpdir(), 'federwerk-fake-'));
+  const datei = path.join(tmpOrdner, 'server.js');
+  fs.writeFileSync(datei, script);
+  const kindFn = spawn(process.execPath, [datei], {
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  return new Promise((resolve, reject) => {
+    let port = '';
+    const timer = setTimeout(() => reject(new Error('Server kam nicht hoch')), 8000);
+    kindFn.stdout.on('data', (d) => {
+      port += d.toString();
+      if (port) { clearTimeout(timer); resolve({ kindFn, ordner: tmpOrdner, port: parseInt(port, 10), url: 'http://127.0.0.1:' + port }); }
+    });
+    kindFn.on('error', reject);
+  });
+}
 
-  it('holt beide Engines aus dem Release, wenn kein Rust da ist', () => {
-    // FEDERWERK_NO_WASM_DOWNLOAD bleibt aus: das ist der Pfad, den ein Runner
-    // ohne Toolchain geht. Ueber das juengste echte Release, also ein
-    // Integrationstest gegen GitHub – deshalb nur wenn erreichbar.
-    let aus;
+function stopFake(fake) {
+  if (!fake) return;
+  try { fake.kindFn.kill(); } catch (e) { /* schon weg */ }
+  fs.rmSync(fake.ordner, { recursive: true, force: true });
+}
+
+  /* releaseTag() fragt die GitHub-API; der Server beantwortet beides ueber
+   * /latest, und der Pfad wird per FETCH_BASE umgebogen. */
+  it('holt beide Engines aus dem Release, wenn kein Rust da ist', async () => {
+    const fake = await fakeRelease('v9.9.9');
+    const d = makeRoot();
     try {
-      aus = execFileSync(process.execPath, [path.join(dir, 'scripts', 'build.js')], {
-        cwd: dir,
+      execFileSync(process.execPath, [path.join(d, 'scripts', 'build.js')], {
+        cwd: d,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
-          BUILD_ROOT: dir,
-          DIST_DIR: distDir(dir),
-          FEDERWERK_NO_WASM_DOWNLOAD: '',
-          // Das Temp-Verzeichnis hat kein git-Remote, also wird das Repo hier
-          // benannt – derselbe Weg, den ein CI-Runner ohne Checkout nimmt.
-          FEDERWERK_REPO: 'Jojoistauchdabei/notes',
+          BUILD_ROOT: d,
+          DIST_DIR: distDir(d),
+          FEDERWERK_REPO: 'test/irgendwas',
+          FETCH_BASE: fake.url,
         },
       });
-    } catch (e) {
-      if (/ETIMEDOUT|ENOTFOUND|EAI_AGAIN|getaddrinfo|offline/i.test(String(e.message) + String(e.stderr))) {
-        return; // kein Netz: der Download-Pfad ist separat unten abgesichert
-      }
-      throw e;
+      assert.ok(hatWasm(d), 'beide _bg.wasm liegen im dist');
+      const wasm = fs.readFileSync(path.join(distDir(d), 'office_wasm_bg.wasm')).subarray(0, 4);
+      assert.deepEqual(Array.from(wasm), [0x00, 0x61, 0x73, 0x6d], 'echtes WebAssembly, kein HTML');
+      const headers = fs.readFileSync(path.join(distDir(d), '_headers'), 'utf8');
+      assert.match(headers, /\/office_wasm_bg\.wasm\s*\r?\n\s*Content-Type: application\/wasm/);
+      assert.match(headers, /\/craft_wasm_bg\.wasm\s*\r?\n\s*Content-Type: application\/wasm/);
+    } finally {
+      stopFake(fake);
+      fs.rmSync(d, { recursive: true, force: true });
     }
-    assert.match(aus, /aus Release/, 'die Ausgabe sagt, dass sie geholt wurde');
-    assert.ok(hatWasm(dir), 'beide _bg.wasm liegen im dist');
-    const wasm = fs.readFileSync(path.join(distDir(dir), 'office_wasm_bg.wasm')).subarray(0, 4);
-    assert.deepEqual(Array.from(wasm), [0x00, 0x61, 0x73, 0x6d], 'echtes WebAssembly, kein HTML');
-    const headers = fs.readFileSync(path.join(distDir(dir), '_headers'), 'utf8');
-    assert.match(headers, /\/office_wasm_bg\.wasm\s*\r?\n\s*Content-Type: application\/wasm/);
-    assert.match(headers, /\/craft_wasm_bg\.wasm\s*\r?\n\s*Content-Type: application\/wasm/);
+  });
+
+  it('verwirft eine heruntergeladene Datei ohne WASM-Magic', async () => {
+    // Der Worker liefert bei fehlender Datei HTTP 200 mit der App-Shell. Ohne
+    // diese Pruefung landete HTML als "Engine" im dist.
+    const fake = await fakeRelease('v9.9.9', true);
+    const d = makeRoot();
+    try {
+      /* console.warn landet in stderr. execFileSync gibt stderr nur im Fehlerfall
+       zurueck - deshalb spawnSync, das stdout und stderr getrennt liefert. */
+      const r = spawnSync(process.execPath, [path.join(d, 'scripts', 'build.js')], {
+        cwd: d,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          BUILD_ROOT: d,
+          DIST_DIR: distDir(d),
+          FEDERWERK_REPO: 'test/irgendwas',
+          FETCH_BASE: fake.url,
+        },
+      });
+      const aus = (r.stdout || '') + (r.stderr || '');
+      assert.match(aus, /kein WebAssembly/, 'die kaputte Datei wird gemeldet');
+      assert.ok(!fs.existsSync(path.join(distDir(d), 'office_wasm_bg.wasm')),
+        'und nicht ins dist gelegt');
+    } finally {
+      stopFake(fake);
+      fs.rmSync(d, { recursive: true, force: true });
+    }
   });
 
   it('bricht streng ab, wenn die Engine fehlt und der Download nichts bringt', () => {

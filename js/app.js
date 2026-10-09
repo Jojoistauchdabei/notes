@@ -1223,11 +1223,28 @@ function isOfficeDoc(b) {
   } catch { /* Fallback unten */ }
   return !!(b && b.office && (b.office.kind === 'doc' || b.office.kind === 'sheet' || b.office.kind === 'slides'));
 }
+/* Freie Nummer fuer ein neues Office-Dokument.
+ *
+ * Warum nicht einfach zaehlen + 1: das ergab nach dem Loeschen doppelte Namen.
+ * Ein Dokument 1 und 2 loeschen, dann neu anlegen - es kam wieder "Dokument 1",
+ * obwohl "Dokument 3" existierte. Deshalb wird die hoechste vergebene Nummer
+ * gesucht und hochgezaehlt. Existiert schon ein Titel exakt ohne Zahl, wird
+ * weitergezaehlt, damit "Dokument" und "Dokument 1" nicht beide vorkommen. */
+function nextOfficeNumber(kind, label) {
+  let max = 0;
+  for (const b of (state.books || [])) {
+    if (!isOfficeDoc(b) || b.office.kind !== kind) continue;
+    const m = String(b.title || '').match(new RegExp('^' + label + '\\s+(\\d+)$'));
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+    else if (String(b.title || '').trim() === label) max = Math.max(max, 1);
+  }
+  return max + 1;
+}
 /* Office-Dokument anlegen und direkt im Editor öffnen. */
 function createOfficeDoc(kind) {
   const k = (kind === 'sheet' || kind === 'slides') ? kind : 'doc';
   const label = (typeof FederwerkOfficeDoc !== 'undefined') ? FederwerkOfficeDoc.kindLabel(k) : 'Dokument';
-  const n = state.books.filter(function (b) { return isOfficeDoc(b) && b.office.kind === k; }).length + 1;
+  const n = nextOfficeNumber(k, label);
   const b = (typeof FederwerkOfficeDoc !== 'undefined')
     ? FederwerkOfficeDoc.create(k, label + ' ' + n)
     : { id: uid(), title: label + ' ' + n, updatedAt: Date.now(), folderId: null, pages: [], office: { kind: k, blocks: [{ id: uid(), type: 'p', html: '' }] } };

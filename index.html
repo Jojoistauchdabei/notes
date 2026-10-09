@@ -54,7 +54,7 @@
           <button onclick="openGraphOverlay()" style="white-space:nowrap" aria-label="Graph-Ansicht öffnen">◈ Graph</button>
           <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
           <button onclick="createFlashDeck()" style="white-space:nowrap" aria-label="Neues Karteikarten-Deck erstellen">+ 🂠 Deck</button>
-<button onclick="createOfficeDoc('doc')" style="white-space:nowrap" aria-label="Neues Office-Dokument erstellen" title="Office (SPEC-40): Textdokument mit Überschriften, Listen und Formatierung">+ 📄 Office</button>
+<button id="newOfficeBtn" onclick="createOfficeDoc('doc')" style="white-space:nowrap" aria-label="Neues Office-Dokument erstellen und im Writer öffnen" title="Office (SPEC-40): Textdokument mit Überschriften, Listen, Formatierung und DOCX-Import/Export">+ 📄 Office</button>
         </div>
         <div class="folder-chips no-print" id="folderChips" role="tablist" aria-label="Ordner-Filter (mobil)"></div>
         <div class="library-layout">
@@ -321,6 +321,9 @@
         <!-- DOCX über das Office-WASM. Der Import ersetzt den Inhalt des
              geöffneten Dokuments, deshalb steht das im Titel und aria-label. -->
         <span class="fw-office-io">
+          <button type="button" class="mini-button" id="officeNew"
+                  title="Weiteres Dokument anlegen und direkt öffnen"
+                  aria-label="Neues Dokument anlegen">+ Neu</button>
           <button type="button" class="mini-button" id="officeImport"
                   title="DOCX importieren – ersetzt den Inhalt dieses Dokuments"
                   aria-label="DOCX importieren">📥 Import</button>
@@ -407,27 +410,21 @@
     </div>
   </div>
 
-  <!-- APPWRITE-OVERLAY: Datei-Sync mit Speicheroptimierung -->
+  <!-- SERVER-OVERLAY: Anmeldung, Datei-Sync mit Speicheroptimierung -->
   <div id="awOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkFilesUI) FederwerkFilesUI.closeSettings()">
     <div class="editor-modal" style="max-width:560px">
       <div class="editor-header">
-        <div class="editor-header-title">☁ APPWRITE-CLOUD</div>
-        <button type="button" class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.closeSettings()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Appwrite-Einstellungen schließen">✕</button>
+        <div class="editor-header-title">☁ SERVER</div>
+        <button type="button" class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.closeSettings()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Server-Einstellungen schließen">✕</button>
       </div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-        <div style="font-size:13px">Bilder/PDFs werden per <b>SHA-256-Dedupe</b> in den Storage-Bucket gespiegelt (Dateiname = Content-Hash). Vor dem Upload: <b>Recompress</b> auf max. 1600px, JPEG/WebP. Verwaiste Remote-Dateien können aufgeräumt werden. Offline-Fehlversuche landen in einer Queue.</div>
+        <div style="font-size:13px">Bilder/PDFs werden per <b>SHA-256-Dedupe</b> abgelegt (Dateiname = Content-Hash). Vor dem Upload: <b>Recompress</b> auf max. 1600px, JPEG/WebP. Verwaiste Dateien können aufgeräumt werden. Offline-Fehlversuche landen in einer Queue.</div>
         <div style="font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <span id="awSaved" aria-live="polite">Ersparnis: –</span>
           <button type="button" class="mini-button" onclick="window.FederwerkOptimizeUI && window.FederwerkOptimizeUI.optimizeLibrary()" aria-label="Bibliothek optimieren (Strokes + Bilder komprimieren)">🧹 Bibliothek optimieren</button>
         </div>
-        <div><label for="awEndpoint">Endpoint</label><input type="text" id="awEndpoint" autocomplete="off"></div>
-        <div><label for="awProject">Project-ID</label><input type="text" id="awProject" autocomplete="off"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <div style="flex:1;min-width:140px"><label for="awDatabase">Database</label><input type="text" id="awDatabase" autocomplete="off"></div>
-          <div style="flex:1;min-width:140px"><label for="awBucket">Bucket</label><input type="text" id="awBucket" autocomplete="off"></div>
-        </div>
-        <div><label for="awGuard">Liveshare-Guard-URL (optional, empfohlen)</label><input type="text" id="awGuard" autocomplete="off" placeholder="https://…/v1/functions/…/executions"></div>
-        <div style="font-size:12px;opacity:.8">Ohne Guard kann jeder eingeloggte User mit dem Share-Code Events in fremde Live-Sessions schreiben (nur Client-Filter). Mit Guard prüft eine Appwrite Function Session + Share serverseitig – Setup: <code>functions/share-events-guard/README.md</code>.</div>
+        <div><label for="awEndpoint">Server (leer = gleicher Origin)</label><input type="text" id="awEndpoint" autocomplete="off" placeholder="http://192.168.1.97:8080"></div>
+        <div style="font-size:12px;opacity:.8">Eigene SQLite-Datenbank pro Konto, Dateien liegen auf dem NAS. Prüft der Server beim Lesen, ob eine Datei noch zum Hash in ihrem Namen passt – eine beschädigte Datei wird nicht ausgeliefert, sondern als Fehler gemeldet.</div>
         <div style="font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px dashed rgba(120,85,45,.4);border-radius:8px;background:rgba(139,90,43,.06)">
           <span style="flex:1;min-width:180px">🤖 <b>KI-Agent:</b> Notizen, Ordner &amp; Karteikarten per MCP steuern lassen.</span>
           <a class="mini-button" href="agent.html" target="_blank" rel="noopener" style="text-decoration:none" aria-label="Seite für KI-Agent und MCP öffnen">Anleitung öffnen</a>
@@ -648,6 +645,7 @@
   <script src="js/flash-ui.js"></script>
   <script src="js/presentflow.js"></script>
   <script src="js/present.js"></script>
+  <script src="js/api.js"></script>
   <script src="js/appwrite-files.js"></script>
   <script src="js/appwrite-sync.js"></script>
   <script src="js/liveshare.js"></script>

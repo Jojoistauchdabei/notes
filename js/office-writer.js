@@ -533,6 +533,16 @@ function rememberSelection() {
       }
       if (exportKnopf) exportKnopf.onclick = exportDocx;
 
+      // Aus dem Writer heraus ein weiteres Dokument anlegen. Vorher gab es den
+      // Knopf nur in der Bibliothek - wer im Editor war und ein zweites
+      // Dokument brauchte, musste erst zurueckklicken.
+      const neuKnopf = el('officeNew');
+      if (neuKnopf) {
+        neuKnopf.onclick = function () {
+          if (typeof createOfficeDoc === 'function') createOfficeDoc('doc');
+        };
+      }
+
     el('officeBlocks').addEventListener('input', () => { rememberSelection(); updateToolbar(); scheduleSave(); });
     el('officeBlocks').addEventListener('keyup', () => { rememberSelection(); updateToolbar(); });
     el('officeBlocks').addEventListener('mouseup', () => { rememberSelection(); updateToolbar(); });
