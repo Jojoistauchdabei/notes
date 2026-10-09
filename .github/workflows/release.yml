@@ -79,6 +79,16 @@ jobs:
           python3 -c "import shutil; shutil.make_archive('Federwerk-${TAG}-web', 'zip', root_dir='dist')"
           python3 -m zipfile -l "$ZIP"
           gh release upload "$TAG" "$ZIP" --clobber
+            # Die Engines als einzelne Assets, nicht nur im Web-Zip: Builds ohne
+            # Rust-Toolchain (Cloudflare Workers Builds) holen sie sich so ueber
+            # scripts/build.js.
+            for f in office_wasm.js office_wasm_bg.wasm craft_wasm.js craft_wasm_bg.wasm; do
+              if [ ! -f "dist/$f" ]; then
+                echo "::error::dist/$f fehlt - Release ohne Engine waere stillschweigend kaputt."
+                exit 1
+              fi
+              gh release upload "$TAG" "dist/$f" --clobber
+            done
 
       - name: Auf Cloudflare deployen (wrangler.toml → Worker „notes", wrangler@4)
         env:

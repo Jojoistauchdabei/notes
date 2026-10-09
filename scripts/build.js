@@ -12,9 +12,16 @@
 // werden die build-Skripte vorher ausgefuehrt, und dort schlaegt der Build bei
 // fehlendem WASM fehl (REQUIRE_OFFICE_WASM=1) - sonst waere ein Release
 // stillschweigend ohne Engine.
+//
+// Zusaetzlich zum Kopieren gibt es einen Download aus dem GitHub-Release. Grund:
+// Builds, die kein Rust haben (Cloudflare Workers Builds, fremde CI), konnten
+// vorher zwar dist/ erzeugen, aber ohne Engine - und deployten damit eine App,
+// deren Import-/Export-Knoepfe ins Leere zeigen, ohne dass der Build rot wurde.
+// Die Engine liegt jetzt als Release-Asset vor und wird im Zweifel geholt.
 
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const { execFileSync } = require('child_process');
 
 const root = process.env.BUILD_ROOT || path.join(__dirname, '..');
@@ -29,59 +36,193 @@ execFileSync(process.execPath, [path.join(__dirname, 'build-dist.js')], {
 
 const required = process.env.REQUIRE_OFFICE_WASM === '1';
 
+/* -- Engine aus dem GitHub-Release -------------------------------------- */
+
+/* Das Repo kommt aus dem Remote, nicht aus einer Umgebungsvariable: so stimmt
+ * der Pfad auch bei einem Tag-Build, wo GITHUB_REPOSITORY nicht gesetzt ist. */
+function repoSlug() {
+  if (process.env.FEDERWERK_REPO) return process.env.FEDERWERK_REPO;
+  if (process.env.GITHUB_REPOSITORY) return process.env.GITHUB_REPOSITORY;
+  try {
+    const remote = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const m = remote.match(/github\.com[:/]([^/]+\/[^/.]+)/);
+    if (m) return m[1];
+  } catch (e) { /* ohne git-remote gibt es eben keinen Download */ }
+  return null;
+}
+
+/* Bei einem Tag-Build gehoert zum Tag; sonst das juengste Release, weil
+ * Auto-Release bei jedem Push auf main eines erzeugt. */
+async function releaseTag(slug) {
+  if (process.env.FEDERWERK_WASM_RELEASE) return process.env.FEDERWERK_WASM_RELEASE;
+  const ref = process.env.GITHUB_REF || '';
+  const ausRef = ref.match(/^refs\/tags\/(.+)$/);
+  const url = ausRef
+    ? 'https://api.github.com/repos/' + slug + '/releases/tags/' + ausRef[1]
+    : 'https://api.github.com/repos/' + slug + '/releases/latest';
+  const json = await fetch(url, {
+    headers: {
+      accept: 'application/vnd.github+json',
+      'user-agent': 'federwerk-build',
+      ...(process.env.GITHUB_TOKEN ? { authorization: 'Bearer ' + process.env.GITHUB_TOKEN } : {}),
+    },
+  });
+  if (!json.ok) return null;
+  const body = await json.json();
+  return body && body.tag_name ? body.tag_name : null;
+}
+
+/* Download nach tmpName; .part daneben, damit ein abgebrochener Lauf kein
+ * halbes File in tmp/ hinterlaesst. */
+function lade(url, tmpName) {
+  return new Promise((resolve, reject) => {
+    const p = path.join(root, 'tmp', tmpName);
+    const aus = fs.createWriteStream(p);
+    const fehler = (e) => { aus.destroy(); reject(e); };
+    https.get(url, { headers: { 'user-agent': 'federwerk-build' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        aus.destroy();
+        res.resume();
+        https.get(res.headers.location, { headers: { 'user-agent': 'federwerk-build' } }, (r2) => {
+          const a2 = fs.createWriteStream(p);
+          r2.pipe(a2);
+          a2.on('finish', () => a2.close(() => resolve(p)));
+          r2.on('error', fehler);
+        }).on('error', fehler);
+        return;
+      }
+      if (res.statusCode !== 200) { fehler(new Error('HTTP ' + res.statusCode)); return; }
+      res.pipe(aus);
+      aus.on('finish', () => aus.close(() => resolve(p)));
+      res.on('error', fehler);
+    }).on('error', fehler);
+  });
+}
+
+/* Eine WebAssembly-Datei beginnt mit 00 61 73 6D. Das wird geprueft, weil der
+ * Worker bei fehlender Datei mit not_found_handling die App-Shell liefert: die
+ * ist HTML, 200, und damit kein Fehler - nur kaputtes WASM im Download. */
+function istWasm(datei) {
+  try {
+    const fd = fs.openSync(datei, 'r');
+    const buf = Buffer.alloc(4);
+    const n = fs.readSync(fd, buf, 0, 4, 0);
+    fs.closeSync(fd);
+    return n === 4 && buf.equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]));
+  } catch (e) { return false; }
+}
+
+async function holeEngine(kind, base) {
+  const slug = repoSlug();
+  if (!slug) return null;
+  let tag = null;
+  try { tag = await releaseTag(slug); } catch (e) { tag = null; }
+  if (!tag) return null;
+
+  fs.mkdirSync(path.join(root, 'tmp'), { recursive: true });
+  const geholt = [];
+  for (const name of [base + '.js', base + '_bg.wasm']) {
+    const url = 'https://github.com/' + slug + '/releases/download/' + tag + '/' + name;
+    let datei;
+    try {
+      datei = await lade(url, name + '.part');
+    } catch (e) {
+      console.warn('build: Download fehlgeschlagen (' + name + ' aus ' + tag + '): ' + e.message);
+      for (const f of geholt) fs.rmSync(f, { force: true });
+      return null;
+    }
+    if (name.endsWith('.wasm') && !istWasm(datei)) {
+      fs.rmSync(datei, { force: true });
+      console.warn('build: ' + url + ' lieferte kein WebAssembly (Magic falsch) - vermutlich die App-Shell.');
+      for (const f of geholt) fs.rmSync(f, { force: true });
+      return null;
+    }
+    geholt.push(datei);
+  }
+  return { tag, dateien: geholt };
+}
+
 /* Eine WASM-Engine nach dist/ kopieren. office -> office_wasm (DOCX/XLSX/PPTX),
  * craft -> craft_wasm (PSD/SVG/IDML). Getrennt, weil die Engines selten
  * gleichzeitig gebraucht werden: so bleibt jede Datei klein und wird nur
  * geladen, wenn sie gebraucht wird.
  *
  * `requiredOnly` erlaubt einen Modifier wie REQUIRE_CRAFT_WASM=1, damit ein
- * Release auch gezielt auf das Fehlen einer bestimmten Engine reagieren kann. */
-function copyWasm(kind, requiredOnly) {
+ * Release auch gezielt auf das Fehlen einer bestimmten Engine reagieren kann.
+ *
+ * Reihenfolge: lokal gebaute Engine schlaegt Download. Ein Release baut immer
+ * selbst, damit das Release-Asset exakt die Engine dieses Commits traegt. */
+async function copyWasm(kind, requiredOnly) {
   const base = kind === 'craft' ? 'craft_wasm' : 'office_wasm';
   const srcDir = (kind === 'craft' ? process.env.CRAFT_WASM_DIR : process.env.OFFICE_WASM_DIR)
     || path.join(root, kind + '-wasm', 'dist');
   const files = [base + '.js', base + '_bg.wasm'];
+  const streng = requiredOnly || required;
 
-  if (!fs.existsSync(srcDir)) {
-    if (requiredOnly || required) {
-      console.error('build: ' + srcDir + ' fehlt - die ' + kind + '-Engine wird nicht ausgeliefert.');
-      console.error('build: erwartet Build-Schritt: ' + kind + '-wasm/build.sh');
-      process.exit(1);
-    }
-    console.warn('build: ' + kind + '-Engine fehlt (' + srcDir + '), wird nicht ausgeliefert.');
-    return;
-  }
-  for (const name of files) {
-    const from = path.join(srcDir, name);
-    if (!fs.existsSync(from)) {
-      if (requiredOnly || required) {
-        console.error('build: ' + name + ' fehlt in ' + srcDir + '.');
+  let heruntergeladen = null;
+
+  if (!fs.existsSync(srcDir) || files.some((name) => !fs.existsSync(path.join(srcDir, name)))) {
+    if (fs.existsSync(srcDir)) {
+      if (streng) {
+        console.error('build: ' + srcDir + ' ist unvollstaendig.');
         process.exit(1);
       }
-      console.warn('build: ' + name + ' fehlt in ' + srcDir + ', wird uebersprungen.');
+      console.warn('build: ' + srcDir + ' ist unvollstaendig.');
+    }
+    if (process.env.FEDERWERK_NO_WASM_DOWNLOAD !== '1') {
+      heruntergeladen = await holeEngine(kind, base);
+    }
+    if (!heruntergeladen) {
+      if (streng) {
+        console.error('build: ' + kind + '-Engine fehlt und liess sich nicht aus dem Release holen.');
+        console.error('build: erwartet Build-Schritt: ' + kind + '-wasm/build.sh');
+        process.exit(1);
+      }
+      console.warn('build: ' + kind + '-Engine fehlt (' + srcDir + '), wird nicht ausgeliefert.');
       return;
     }
   }
+
   for (const name of files) {
-    const from = path.join(srcDir, name);
+    const from = heruntergeladen
+      ? path.join(root, 'tmp', name + '.part')
+      : path.join(srcDir, name);
     fs.copyFileSync(from, path.join(dist, name));
     const kb = Math.round(fs.statSync(from).size / 1024);
-    console.log('dist/' + name + ' (' + kb + 'K)');
+    console.log('dist/' + name + ' (' + kb + 'K)' + (heruntergeladen ? ' aus Release ' + heruntergeladen.tag : ''));
+  }
+  for (const name of files) {
+    fs.rmSync(path.join(root, 'tmp', name + '.part'), { force: true });
   }
   // Der MIME-Typ fuer .wasm ist Pflicht: sonst faellt der Browser auf
   // instantiate() mit ArrayBuffer zurueck (deutlich langsameres Starten).
+  // build.sh legt dafuer <base>.headers neben die Engine. Beim Download gibt es
+  // kein build.sh, deshalb steht derselbe Inhalt hier - sonst deployte ein
+  // Build ohne Rust die WASM mit application/octet-stream.
   const headers = path.join(srcDir, base + '.headers');
-  if (fs.existsSync(headers)) {
-    const target = path.join(dist, '_headers');
-    const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
-    const add = fs.readFileSync(headers, 'utf8').trim();
-    if (!existing.includes('/' + base + '_bg.wasm')) {
-      fs.writeFileSync(target, existing.replace(/\s*$/, '\n\n') + add + '\n', 'utf8');
-      console.log('dist/_headers: ' + base + '-MIME ergaenzt');
-    }
+  const add = fs.existsSync(headers)
+    ? fs.readFileSync(headers, 'utf8').trim()
+    : [
+      '/' + base + '_bg.wasm',
+      '  Content-Type: application/wasm',
+      '/' + base + '.js',
+      '  Content-Type: text/javascript',
+    ].join('\n');
+  const target = path.join(dist, '_headers');
+  const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+  if (!existing.includes('/' + base + '_bg.wasm')) {
+    fs.writeFileSync(target, existing.replace(/\s*$/, '\n\n') + add + '\n', 'utf8');
+    console.log('dist/_headers: ' + base + '-MIME ergaenzt');
   }
 }
 
-copyWasm('office', false);
-copyWasm('craft', process.env.REQUIRE_CRAFT_WASM === '1');
-console.log('build: fertig.');
+(async function main() {
+  await copyWasm('office', false);
+  await copyWasm('craft', process.env.REQUIRE_CRAFT_WASM === '1');
+  console.log('build: fertig.');
+})().catch((e) => {
+  console.error('build: ' + (e && e.stack ? e.stack : String(e)));
+  process.exit(1);
+});
