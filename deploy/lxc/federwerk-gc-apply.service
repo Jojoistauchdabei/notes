@@ -1,0 +1,44 @@
+[Unit]
+# Fuehrt den Ausschuss wirklich aus - LOESCHT bzw. LEGT KALT.
+#
+# Bewusst NICHT per Timer aktiviert. Ein unbeaufsichtigter Loesch-Job gehoert
+# auf Zuruf, nicht in die Nacht. Erst den Bericht ansehen:
+#
+#   journalctl -u federwerk-gc-report -n 40
+#
+# Dann bewusst ausloesen:
+#
+#   systemctl start federwerk-gc-apply.service                    # nur verwaiste Dateien loeschen
+#   systemctl start federwerk-gc-apply.service --with-cold        # zusaetzlich kalt legen
+#
+# Die Sicherheitsverriegelung in gc.js greift zusaetzlich: sobald eine DB
+# Dateien, aber keine einzige Referenz enthaelt, wird der Lauf verweigert,
+# weil das nicht "alles verwaist" bedeutet, sondern "der Index ist noch nie
+# befuellt worden".
+Description=Federwerk Datei-Ausschuss AUSFUEHREN
+Documentation=https://github.com/Jojoistauchdabei/notes
+After=federwerk-files.service
+
+[Service]
+Type=oneshot
+# Root, weil in die heisse Ablage auf dem QNAP geschrieben wird und die
+# Dateien dem App-User gehoeren. Schreibzugriffe ausschliesslich ueber die
+# von gc.js berechneten Pfade.
+User=root
+Environment=NODE_ENV=production
+Environment=FW_DATA_DIR=/srv/federwerk/data
+# Ablagepfade muessen mit server/db.js uebereinstimmen, sonst sucht der GC
+# an anderer Stelle als der Server schreibt - und meldet dann zu Recht nichts.
+Environment=FW_FILES_DIR=/srv/federwerk/files
+Environment=FW_ARCHIVE_DIR=/mnt/qnap/federwerk/archive
+Environment=FW_ORPHAN_DAYS=90
+Environment=FW_COLD_DAYS=180
+EnvironmentFile=-/etc/federwerk/gc.env
+# GC_ACTION wird in /etc/federwerk/gc.env gesetzt:
+#   GC_ACTION=--delete          nur verwaiste Dateien entfernen
+#   GC_ACTION=--cold            nur kalt legen (nur diese Dateien wandern)
+#   GC_ACTION=--delete --cold   beides
+ExecStart=/usr/bin/node /srv/federwerk/app/gc.js $GC_ACTION
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=federwerk-gc-apply

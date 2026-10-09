@@ -1,0 +1,29 @@
+[Unit]
+# Bericht ueber verwaiste Dateien und Kalt-Kandidaten - LOESCHT NICHTS.
+#
+# Bewusst getrennt von einem Aufraeum-Job: ein unbeaufsichtigter Job, der
+# Dateien loescht, gehoert nicht in einen Timer. Der Bericht laeuft
+# woechentlich und schreibt ins Journal, damit man sieht, was ein
+# Aufraeumen bewirken wuerde. Ausgefuehrt wird auf Zuruf:
+#   systemctl start federwerk-gc-apply.service
+Description=Federwerk Datei-Ausschuss-Bericht
+Documentation=https://github.com/Jojoistauchdabei/notes
+After=federwerk-files.service
+
+[Service]
+Type=oneshot
+User=federwerk
+Group=federwerk
+Environment=NODE_ENV=production
+Environment=FW_DATA_DIR=/srv/federwerk/data
+# Ablagepfade muessen mit server/db.js uebereinstimmen, sonst sucht der GC
+# an anderer Stelle als der Server schreibt - und meldet dann zu Recht nichts.
+Environment=FW_FILES_DIR=/srv/federwerk/files
+Environment=FW_ARCHIVE_DIR=/mnt/qnap/federwerk/archive
+Environment=FW_ORPHAN_DAYS=90
+Environment=FW_COLD_DAYS=180
+EnvironmentFile=-/etc/federwerk/gc.env
+ExecStart=/usr/bin/node /srv/federwerk/app/gc.js
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=federwerk-gc

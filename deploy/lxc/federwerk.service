@@ -1,0 +1,52 @@
+# Federwerk-Anwendung: Node-Server (Auth, Sync, Dateien, Liveshare, MCP).
+# Der Server ist dependency-frei (Node 24 + node:sqlite); es wird kein
+# node_modules installiert - das hält den Deploy auf wenige Dateien.
+[Unit]
+Description=Federwerk (Selbsthosting)
+Documentation=https://github.com/Jojoistauchdabei/notes
+After=network-online.target remote-fs.target
+Wants=network-online.target
+# Haengt an der QNAP-Ablage. Faellt der Host-Mount aus, startet die App
+# gar nicht erst - sonst wuerde sie ihre Dateien kommentarlos auf die
+# lokale Platte schreiben, wo sie beim naechsten Start wieder weg sind.
+Requires=federwerk-files.service
+After=federwerk-files.service
+
+[Service]
+Type=simple
+User=federwerk
+Group=federwerk
+WorkingDirectory=/srv/federwerk/app
+Environment=NODE_ENV=production
+Environment=FW_DATA_DIR=/srv/federwerk/data
+Environment=FW_FILES_DIR=/srv/federwerk/files
+Environment=FW_PORT=8080
+Environment=FW_HOST=127.0.0.1
+EnvironmentFile=-/etc/federwerk/env
+ExecStart=/usr/bin/node /srv/federwerk/app/server/index.js
+Restart=on-failure
+RestartSec=5
+
+# 512 MB LXC: zurueckhaltend, aber genug fuer SQLite und Dateioperationen.
+MemoryMax=320M
+MemoryHigh=256M
+
+# Der Dienst braucht nur sein eigenes Verzeichnis und die Datenablage.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/federwerk/data /srv/federwerk/files /srv/federwerk/backups /srv/federwerk/app
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+RestrictRealtime=yes
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=federwerk
+
+[Install]
+WantedBy=multi-user.target

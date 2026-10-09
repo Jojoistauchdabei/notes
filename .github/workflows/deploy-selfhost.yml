@@ -1,0 +1,86 @@
+name: Deploy – Selbsthosting (LXC)
+
+# Ziel ist der LXC 192.168.1.97, NICHT der Cloudflare-Worker. Der Workflow
+# laeuft auf einem Self-hosted Runner, der im selben Container laeuft - sonst
+# koennte der GitHub-Runner den Container nicht erreichen.
+#
+# Ablauf je Push auf main:
+#   1. Tests (Pflicht, wie im Cloudflare-Deploy auch)
+#   2. dist/ bauen
+#   3. Server + dist/ auf den LXC legen, Dienst neustarten
+#   4. /api/health pruefen - ein Restart, der zurueckkommt, bevor der
+#      Prozess den Port belegt, gilt nicht als Erfolg
+#
+# Bewusst NICHT per Push auf Tag/Release getriggert: Der Nutzer will, dass
+# ein Push auf main live geht. Desktop- und Android-Installer bleiben in
+# tauri.yml und laufen weiter ueber Releases.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Zwei Deploys hintereinander wuerden sich gegenseitig dist/ unterschieben.
+  group: deploy-selfhost
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Tests + Deploy auf den LXC
+    runs-on: [self-hosted, lxc]
+    timeout-minutes: 20
+
+    steps:
+      - name: Auschecken
+        uses: actions/checkout@v4
+
+      - name: Node einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Abhaengigkeiten pruefen
+        # Das Repo hat bewusst keine Dependencies (Zero-Dependency-Anspruch,
+        # der Server laeuft auf node:sqlite aus dem Node-Standard). Dieser
+        # Schritt haelt die Annahme sichtbar, statt sie still vorauszusetzen.
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else echo "kein Lockfile, nichts zu installieren"; fi
+
+      - name: Tests
+        run: |
+          npm test
+          node --test server/test/server.test.js
+          node server/test/http.test.js
+
+      - name: dist/ bauen
+        run: npm run build
+
+      - name: Deploy auf /srv/federwerk
+        # Kein SSH: der Runner laeuft im Container, der Dienst laeuft im
+        # selben Container. Ein SSH-Schritt wuerde hier nur eine zweite,
+        # schlechtere Kopie desselben Wegs sein.
+        run: |
+          sudo bash deploy/lxc/deploy-app.sh "$GITHUB_WORKSPACE"
+
+      - name: Health pruefen
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/api/health
+
+      - name: Status melden
+        if: always()
+        run: |
+          echo "--- Dienste ---"
+          systemctl is-active federwerk.service federwerk-files.service federwerk-backup.timer federwerk-gc-report.timer || true
+          echo "--- Ablage auf dem QNAP ---"
+          du -sh /mnt/qnap/federwerk/* 2>/dev/null || echo "QNAP nicht gemountet"
+          echo "--- Letzte Backups ---"
+          journalctl -u federwerk-backup -n 5 --no-pager || true

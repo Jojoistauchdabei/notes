@@ -1,0 +1,13 @@
+[Unit]
+Description=Woechentlicher Federwerk Datei-Ausschuss-Bericht
+Documentation=https://github.com/Jojoistauchdabei/notes
+
+[Timer]
+# Sonntag 05:12 - nicht zur vollen Stunde und nicht auf :00/:30. Backup
+# laeuft um 03:17, das Nachfassen hier frueh genug fuer die Wochenbesprechung.
+OnCalendar=Sun *-*-* 05:12:00
+Persistent=true
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

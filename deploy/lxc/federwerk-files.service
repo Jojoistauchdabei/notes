@@ -1,0 +1,27 @@
+[Unit]
+# Bindet die QNAP-Ablage an /srv/federwerk/files. Der CIFS-Mount selbst
+# kommt vom Proxmox-Host und ist im Container schon sichtbar; hier wird er
+# nur durchgereicht.
+#
+# RemainAfterExit: der Dienst gilt danach als aktiv, damit federwerk.service
+# per Requires= darauf warten kann. Ohne diese Kopplung startet die App auch
+# dann, wenn die Ablage fehlt - und schreibt auf die lokale Platte.
+Description=Federwerk Datei-Ablage (QNAP)
+Documentation=https://github.com/Jojoistauchdabei/notes
+After=network-online.target
+Wants=network-online.target
+Before=federwerk.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/srv/federwerk/bin/bind-files.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=federwerk-files
+
+[Install]
+# Wird ohnehin ueber Requires= von federwerk.service mitgezogen; der
+# Eintrag verhindert nur die "no installation config"-Warnung und faengt
+# den Fall ab, in dem der App-Dienst noch nicht aktiviert ist.
+WantedBy=multi-user.target

@@ -1,0 +1,38 @@
+[Unit]
+Description=Federwerk Cloudflare-Tunnel
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-apps
+After=network-online.target federwerk.service
+Wants=network-online.target
+# Der Tunnel ist nur sinnvoll, wenn es dahinter etwas gibt, das antwortet.
+Requires=federwerk.service
+
+[Service]
+Type=simple
+# Der Token liegt in /etc/federwerk/tunnel.env (0600), nicht in diesem Unit -
+# Unit-Dateien sind fuer jeden lesbar, der /etc/systemd/system betreten kann.
+EnvironmentFile=/etc/federwerk/tunnel.env
+# --no-autoupdate: cloudflared bringt sich sonst selbst up; auf einem
+# Container ohne System-Paketmanager ist das eine stille Gefahrenquelle.
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --protocol quic run
+Restart=always
+RestartSec=10
+
+# Der Tunnel braucht nur ausgehenden Netzwerkzugriff, keine Schreibrechte.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=federwerk-tunnel
+
+[Install]
+WantedBy=multi-user.target

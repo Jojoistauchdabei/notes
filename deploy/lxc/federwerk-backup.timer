@@ -1,0 +1,15 @@
+[Unit]
+Description=Taegliche Federwerk-Snapshots
+Documentation=https://github.com/Jojoistauchdabei/notes
+
+[Timer]
+# 03:17 - absichtlich ungerade Minute. Die Viertelstunden-Slots um 03:15 und
+# 03:30 sind auf NAS-Backupjobs erfahrungsgemaess die beliebtesten, dort
+# moeglichst nicht mitlaufen.
+OnCalendar=*-*-* 03:17:00
+# Verpasst der LXC den Zeitpunkt (aus, Reboot), wird der Lauf nachgeholt.
+Persistent=true
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

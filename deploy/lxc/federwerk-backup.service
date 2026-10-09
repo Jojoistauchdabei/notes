@@ -1,0 +1,18 @@
+[Unit]
+Description=Federwerk SQLite-Snapshots (lokal + QNAP)
+Documentation=https://github.com/Jojoistauchdabei/notes
+
+[Service]
+Type=oneshot
+User=root
+# Root ist hier noetig: der Snapshot schreibt in /srv/federwerk/backups und
+# das QNAP-Ziel, und er muss Datenbank-Dateien lesen duerfen, die dem
+# App-User gehoeren. Schreibend wird ausschliesslich nach backups/ kopiert.
+Environment=NODE_ENV=production
+Environment=FW_DATA_DIR=/srv/federwerk/data
+Environment=FW_BACKUP_DIR=/srv/federwerk/backups
+EnvironmentFile=-/etc/federwerk/backup.env
+ExecStart=/usr/bin/node /srv/federwerk/bin/backup.js
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=federwerk-backup
