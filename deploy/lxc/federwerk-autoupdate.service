@@ -1,0 +1,40 @@
+[Unit]
+# Zieht Commits von Git, baut, testet, deployed - und rollt zurueck, wenn
+# der Dienst nach dem Neustart nicht gesund wird.
+#
+# Bewusst per Timer statt per GitHub-Actions-Runner: der Runner braucht ein
+# Registrierungs-Token und laeuft zusaetzlich mit einem Konto, das per sudo
+# deployen darf. Ein Pull braucht nichts davon - nur Lesezugriff auf ein
+# oeffentliches Repo. Der Runner-Weg lohnt sich erst, wenn zusaetzlich
+# Desktop- und Android-Artefakte gebaut werden sollen.
+Description=Federwerk Auto-Update aus Git
+Documentation=https://github.com/Jojoistauchdabei/notes
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+# Wege aus dem LXC heraus: der Repo-HTTPS-Zugang (oeffentliches Repo, anonym),
+# der Build (npx esbuild) und ein optionaler npm-Zugriff. Nicht noetig:
+# ausgehender HTTPS auf beliebige Dritte.
+Environment=NODE_ENV=production
+Environment=FW_REPO=/srv/federwerk/repo
+Environment=FW_APP_DIR=/srv/federwerk/app
+Environment=FW_PREV_DIR=/srv/federwerk/previous
+Environment=FW_STATE_FILE=/srv/federwerk/deployed.json
+Environment=FW_BRANCH=main
+Environment=HTTP_PROXY=
+Environment=HTTPS_PROXY=
+ExecStart=/srv/federwerk/bin/auto-update.sh
+
+# Ein Lauf darf bei 512 MB nicht unbegrenzt Ressourcen binden.
+MemoryMax=400M
+Nice=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=federwerk-autoupdate
+
+[Install]
+WantedBy=multi-user.target

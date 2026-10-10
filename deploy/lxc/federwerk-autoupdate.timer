@@ -1,0 +1,18 @@
+[Unit]
+Description=Federwerk Auto-Update (alle 15 Minuten)
+Documentation=https://github.com/Jojoistauchdabei/notes
+
+[Timer]
+# Viertelstunden, aber nicht auf :00 - da laufen die meisten NAS- und
+# Backup-Jobs. 07 statt 03 zusaetzlich, weil die Backups um 03:17 laufen
+# und ein Update nicht mitten im Snapshot-Fenster landen soll.
+OnCalendar=*-*-* *:07,22,37,52:00
+# War der Container aus, wird nachgeholt - sonst faellt ein Commit ueber
+# den Mittag stillschweigend aus.
+Persistent=true
+# Bis zu 3 Minuten streuen: 40 Zeilen Code sollen nicht im selben
+# Sekundenbruch auf allen Instanzen laufen.
+RandomizedDelaySec=180
+
+[Install]
+WantedBy=timers.target
