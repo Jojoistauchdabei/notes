@@ -43,6 +43,7 @@
   --shadow-sm: 0 2px 10px rgba(90, 60, 30, 0.12);
   --header-h: 64px;
   --toolbar-top: 84px;
+  --edge-gap: 6px;
   --sat: 0px;
   --sab: 0px;
   --sal: 0px;

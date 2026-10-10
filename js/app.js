@@ -750,7 +750,13 @@ function syncStageViewport() {
     // Header + Werkzeugleiste + Pane-Bar (Buchtitel-Zeile). Die Pane-Bar
     // haengt per CSS bei --toolbar-bottom, wird aber trotzdem mitgerechnet –
     // sonst waere die Buehne zu hoch und die Statuszeile laege ausserhalb.
-    const gap = 20; // --toolbar-top = Header + 20px
+    // Luecke = Header + 20px (--toolbar-top) plus derselbe --edge-gap, den
+    // .header und .toolbar in CSS oben auf die Safe-Area legen: die Pane-Bar
+    // klebt sonst 6px zu hoch unter der Werkzeugleiste.
+    let edgeGap = 0;
+    try { edgeGap = parseFloat(getComputedStyle(root).getPropertyValue('--edge-gap')) || 0; }
+    catch { /* Zuschlag optional */ }
+    const gap = 20 + edgeGap; // --toolbar-top + --edge-gap
     const toolbarBottom = hH + gap + tH;
     const barH = paneBarHeight();
     // railHeight() liest zwei getBoundingClientRect(). Das MUSS vor dem ersten
@@ -5036,7 +5042,7 @@ if ('serviceWorker' in navigator) {
  * Der Header bricht je nach Breakpoint/Orientation um (ein-/zweizeilig).
  * CSS liefert statische Fallbacks pro Breakpoint, JS korrigiert --header-h
  * auf die echte Höhe, damit .toolbar (top: var(--toolbar-top) + sat) und
- * .folder-sidebar nie unter dem glasigen Header kleben – Portrait/Landscape,
+ * .folder-sidebar nie unter der Kopfzeile kleben – Portrait/Landscape,
  * Safari-Tab (--sat≈0) wie PWA-standalone (Notch-Inset). Node-sicher (Tests). */
 (function syncHeaderH() {
   try {
@@ -5051,6 +5057,8 @@ if ('serviceWorker' in navigator) {
           root.style.setProperty('--header-h', rectH + 'px');
           // Toolbar-Offset = Header-Höhe + Lücke (12px mobil / 20px desktop-Nähe).
           // Kurz halten: Header + 20px, mindestens 66px (historischer Mobil-Wert).
+          // Den Zuschlag --edge-gap legt CSS selbst auf beide Leisten (dieselbe
+          // 6px), hier bleibt es deshalb bei der sichtbaren Lücke von 20px.
           const gap = (typeof window.innerWidth === 'number' && window.innerWidth <= 860) ? 20 : 20;
           root.style.setProperty('--toolbar-top', Math.max(66, rectH + gap) + 'px');
         }
