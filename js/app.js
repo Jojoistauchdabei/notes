@@ -4311,7 +4311,7 @@ function importAllJSON(ev) {
 }
 /* ---------- GoodNotes-Import (.goodnotes, mehrere Dateien) ---------- */
 // Nur noch eine Bezugsquelle. Ein zweiter CDN-Fallback stand hier frueher -
-// er kam von einem Cloudflare-Dienst, und die Liste war ohnehin nur eine
+// ein fremder Anbieter mehr im Ladepfad, und die Liste war ohnehin nur eine
 // Notloesung: wer den GoodNotes-PDF-Import wirklich offline braucht, vendored
 // pdf.js nach js/vendor/ (wie markdown.js). Die Liste bleibt als Array, damit
 // die Aufrufer unveraendert ueber Kandidaten iterieren koennen.

@@ -104,3 +104,24 @@ nichts wissen.
   umziehen will, exportiert sie als JSON aus der App und importiert sie neu.
 - Kein Mehrserver-Betrieb, kein Load-Balancing: ein Container, eine DB-Datei
   pro Nutzer, WAL an.
+
+## 8. Workflows: warum ein Patch beiliegt
+
+Die Cloudflare-Schritte in `.github/workflows/release.yml` und
+`auto-release.yml` (Secrets-Prüfung, `wrangler deploy`) sind entfernt – aber
+nicht über den normalen Push gelandet: GitHub lehnt Push-Vorgänge ab, die
+Workflow-Dateien ändern, wenn das Token die Berechtigung `workflows` nicht
+hat („refusing to allow a GitHub App to create or update workflow … without
+`workflows` permission"). Der Stand liegt deshalb als
+
+    deploy/lxc/workflows-ohne-cloudflare.patch
+
+bei und lässt sich mit `git apply deploy/lxc/workflows-ohne-cloudflare.patch`
+anwenden. Wer den Branch selbst pushen kann (Token mit `workflows`-Recht),
+kommt an denselben Zustand über den lokalen Branch
+`ci/workflows-ohne-cloudflare`.
+
+Inhaltlich ändert der Patch: `release.yml` und `auto-release.yml` verlieren
+den Secrets-Block und den Wrangler-Schritt, `deploy-selfhost.yml` verliert den
+Verweis auf den Worker, `tauri.yml` den Hinweis auf die Cloud-Secrets.
+
