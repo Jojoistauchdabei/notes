@@ -3,7 +3,7 @@
  *
  * Selbst-contained, damit es an drei Stellen läuft:
  *  1) mcpserver/index.js (Protokoll-Validierung),
- *  2) mcp/index.js (Appwrite Function – dort gibt es KEIN ../js/*),
+ *  2) mcpserver/backend.js (Server-API-Backend, ohne ../js/*),
  *  3) mcpserver/cli.js (lokales Demo-Backend).
  *
  * Das Fassungsvermögen ist bewusst ein "MCP-lite":
@@ -15,12 +15,12 @@
  *  - Advanced-Search-Scoring spiegelt js/search.js
  *    (Titel 10 > Tag 5 > Task 3 > Text 1).
  *
- * Content-Envelope (Appwrite notes.content):
+ * Content-Envelope (docs.content):
  *  - v1 (Web-Client, Bestand): {v:1, pages} – nur Notizseiten.
  *  - v2 (MCP): {v:2, pages, kind, cards, deckOptions, reviewLog}.
  *  Alte Clients ignorieren v2-Zusatzfelder beim Lesen, würden sie beim
  *  nächsten Push aber verwerfen – Decks daher bevorzugt per MCP pflegen,
- *  bis js/appwrite-sync.js v2 persistiert.
+ *  bis js/sync.js v2 persistiert.
  */
 
 var OFFLOAD_BYTES = 40000;

@@ -17,9 +17,9 @@
  * - Konflikt (beide Seiten geändert): Remote gewinnt, lokale Version bleibt
  *   als "(Konflikt)"-Kopie erhalten.
  * - Bild-Refs reisen als `awfile:<hash>` und werden up-/downgeloadet
- *   (js/appwrite-files.js: Dedupe + Recompress). Der Inhalt eines Dokuments
- *   liegt dagegen immer inline - die frühere 40-KB-Auslagerung war nur
- *   Appwrites Zeilenlimit geschuldet.
+ *   (js/files-sync.js: Dedupe + Recompress). Der Inhalt eines Dokuments liegt
+ *   dagegen immer inline; die frühere Auslagerung großer Inhalte in eine
+ *   eigene Datei ist ersatzlos entfallen (siehe contentToPayload).
  * - Realtime: SSE-Kanal meldet "da ist etwas neu" und triggert einen Pull.
  * - DOM-frei ladbar: Entscheidungslogik ist rein und in Node testbar.
  */
@@ -32,11 +32,15 @@
   const FOLDERMETA_KEY = 'federwerkFolderMetaV1'; // id -> {hash, remoteUpdatedAtMs}
   const CONFLICTS_KEY = 'federwerkConflictsV1'; // [{id, title, at, sourceId}] – unbestätigte Konflikt-Kopien
   const CONFLICTS_MAX = 50;
-  // Frueher 40000 - die Grenze kam von Appwrites 64-KB-Zeilenlimit. Der
-  // eigene Server hat sie nicht, Inhalte gehen immer inline (siehe
-  // contentToPayload). Die Konstante bleibt als Export bestehen, weil Tests
-  // und Aufrufer sie lesen.
+  // Frueher 40000: alles Groessere ging als eigene Datei hoch, weil das
+  // Cloud-Backend Inhalte auf 64 KB begrenzte. Der eigene Server kennt diese
+  // Grenze nicht - Inhalte gehen immer inline (siehe contentToPayload). Die
+  // Konstante bleibt als Export bestehen, weil Tests und Aufrufer sie lesen.
   const OFFLOAD_BYTES = Infinity;
+  // Marke fuer Bild-Refs im Dokumentinhalt (siehe rewriteRefs). Der Wert ist
+  // historisch und steckt in bereits geschriebenen Dokumenten - er bleibt
+  // deshalb woertlich, auch wenn das Backend, dem er seinen Namen verdankt,
+  // nicht mehr existiert.
   const AWFILE = 'awfile:';
 
   let lsBackend = null;
@@ -67,16 +71,18 @@
     return Number.isFinite(t) ? t : 0;
   }
   // Dokument-ID: ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$ – sonst mappen.
-  // Der Server akzeptiert zudem deutlich laengere IDs; die Grenze hier ist
-  // historisch und bleibt, damit vorhandene IDs stabil bleiben.
-  function rowIdForBook(id) {
+  // Lokale Buch-IDs duerfen beliebig aussehen ("Buch mit Leerzeichen!"), der
+  // Server will ^[A-Za-z0-9_.:-]{1,64}$. Die engere Regel hier bleibt: einmal
+  // vergebene IDs sollen stabil bleiben, ein erneuter Sync darf nichts
+  // umbenennen.
+  function docIdForBook(id) {
     const s = String(id || '');
     if (/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/.test(s)) return s;
     const clean = s.toLowerCase().replace(/[^a-z0-9._-]/g, '').replace(/^[^a-z0-9]+/, '');
     return ('b' + (clean || 'book')).slice(0, 36);
   }
-  function isAwFileRef(s) { return typeof s === 'string' && s.startsWith(AWFILE) && s.length > AWFILE.length + 31; }
-  function hashFromAwRef(s) { return isAwFileRef(s) ? s.slice(AWFILE.length).toLowerCase() : null; }
+  function isFileRef(s) { return typeof s === 'string' && s.startsWith(AWFILE) && s.length > AWFILE.length + 31; }
+  function hashFromFileRef(s) { return isFileRef(s) ? s.slice(AWFILE.length).toLowerCase() : null; }
   // Klont Seiten und ersetzt Bild-Refs: push (ref->hash) bzw. pull (hash->ref).
   function rewriteRefs(pages, map, dir) {
     const out = JSON.parse(JSON.stringify(pages || []));
@@ -87,7 +93,7 @@
         if (map[val]) return AWFILE + map[val];
         return val;
       }
-      const h = hashFromAwRef(val);
+      const h = hashFromFileRef(val);
       if (!h) return val;
       if (map[h]) return map[h];
       missing.push(h);
@@ -314,9 +320,9 @@
   function filesApi() {
     if (typeof window !== 'undefined' && window.FederwerkFiles) return window.FederwerkFiles;
     if (typeof require === 'function') {
-      try { return require('./appwrite-files.js'); } catch { /* ignore */ }
+      try { return require('./files-sync.js'); } catch { /* ignore */ }
     }
-    throw new Error('FederwerkFiles fehlt (js/appwrite-files.js einbinden)');
+    throw new Error('FederwerkFiles fehlt (js/files-sync.js einbinden)');
   }
   function api() {
     if (typeof window !== 'undefined' && window.FederwerkApi) return window.FederwerkApi;
@@ -330,7 +336,7 @@
    *
    * Der Server spricht {id, title, folderId, content, createdAt, updatedAt,
    * deletedAt} mit Zeitstempeln in Millisekunden. Die Sync-Logik darunter
-   * rechnet mit $id und ISO-Zeitstempeln.
+   * rechnet mit ISO-Zeitstempeln.
    *
    * Diese Anpassung liegt bewusst HIER und nicht in der Logik: planRows(),
    * die Last-Write-Entscheidung und die Konfliktbehandlung sind rein und
@@ -344,7 +350,7 @@
   }
   function toRow(d) {
     return {
-      $id: d.id,
+      id: d.id,
       title: d.title || '',
       folderId: d.folderId || null,
       content: d.content || '',
@@ -354,19 +360,14 @@
     };
   }
 
-  // Kein Query-Dialekt mehr: der Server kennt nur ?since= und ?limit=. Der Sync
-  // braucht ohnehin den vollstaendigen Bestand (sonst laesst sich "unveraendert"
-  // nicht von "lokal geloescht" unterscheiden), also genau eine Anfrage.
-  const Q = null;
-  function q() { return ''; }
-  async function tablesRest(cfg, method, path, body) {
-    return api().call(method, path, body);
-  }
-  async function listRows(cfg, table, queries) {
+  // Der Server kennt nur ?since= und ?limit=. Der Sync braucht ohnehin den
+  // vollstaendigen Bestand (sonst liesse sich "unveraendert" nicht von "lokal
+  // geloescht" unterscheiden), also genau eine Anfrage.
+  async function listRemote(table) {
     if (table === 'folders') return (await api().listFolders()).map(toRow);
     return (await api().listDocs(0, 1000)).map(toRow);
   }
-  async function upsertRow(cfg, table, rowId, data, userId) {
+  async function putRemote(table, rowId, data) {
     if (table === 'folders') {
       return api().putFolder({
         id: rowId,
@@ -424,7 +425,7 @@
     const out = {};
     const jobs = [];
     const visit = (val) => {
-      if (typeof val !== 'string' || out[val] || isAwFileRef(val)) return;
+      if (typeof val !== 'string' || out[val] || isFileRef(val)) return;
       jobs.push((async () => {
         try {
           let bytes = null, mime = '';
@@ -478,30 +479,22 @@
   /* Inhalt wird immer inline gespeichert.
    *
    * Frueher gab es OFFLOAD_BYTES: alles Groessere wurde als eigene Datei in
-   * den Bucket gelegt, weil Appwrite Zeilen auf 64 KB begrenzt hatte. Der
-   * eigene Server hat diese Grenze nicht - SQLite nimmt mehrfarbige
-   * Megabyte-JSON direkt. Damit fallen contentFileId, der Datei-Upload beim
-   * Push und der Nachladeweg beim Pull ersatzlos weg. */
+   * den Bucket gelegt, weil das Cloud-Backend Inhalte auf 64 KB begrenzt
+   * hatte. Der eigene Server hat diese Grenze nicht - SQLite nimmt
+   * mehrfarbige Megabyte-JSON direkt. Datei-Upload beim Push und Nachladeweg
+   * beim Pull sind damit ersatzlos entfallen. */
   async function contentToPayload(F, cfg, book, hashedByRef) {
     const map = {};
     for (const ref of Object.keys(hashedByRef)) map[ref] = hashedByRef[ref].hash;
     const { pages } = rewriteRefs(book.pages, map, 'push');
-    const json = JSON.stringify(bookEnvelope(book, pages));
-    return { content: json, contentFileId: null };
+    return { content: JSON.stringify(bookEnvelope(book, pages)) };
   }
   async function payloadToEnvelope(F, cfg, store, row) {
-    let json = row.content || '';
-    if (!json && row.contentFileId) {
-      try {
-        const dl = await F.downloadEntry(row.contentFileId);
-        json = new TextDecoder().decode(dl.bytes);
-      } catch { return null; }
-    }
-    const env = parseEnvelope(json);
+    const env = parseEnvelope(row.content || '');
     if (!env.pages) return null;
     // awfile-Refs einsammeln + materialisieren
     const need = new Set();
-    const scan = (v) => { const h = hashFromAwRef(v); if (h) need.add(h); };
+    const scan = (v) => { const h = hashFromFileRef(v); if (h) need.add(h); };
     for (const p of env.pages) {
       if (Array.isArray(p.images)) for (const im of p.images) if (im) scan(im.src);
       if (typeof p.bg === 'string') scan(p.bg);
@@ -517,8 +510,8 @@
   }
 
   const Sync = {
-    ROWMAP_KEY, LASTPULL_KEY, FOLDERS_KEY, OFFLOAD_BYTES, Q,
-    msToIso, isoToMs, rowIdForBook, isAwFileRef, hashFromAwRef,
+    ROWMAP_KEY, LASTPULL_KEY, FOLDERS_KEY, OFFLOAD_BYTES,
+    msToIso, isoToMs, docIdForBook, isFileRef, hashFromFileRef,
     rewriteRefs, bookContentJson, parseContentJson, folderHash,
     isDeckBook, bookEnvelope, parseEnvelope, applyEnvelopeToBook, hashableBook,
     normDeckCards, normDeckOptions, normReviewLog,
@@ -535,7 +528,6 @@
       const say = typeof progress === 'function' ? progress : () => {};
       const me = await F.session();
       if (!me) throw new Error('Bitte zuerst in den Server-Einstellungen einloggen.');
-      const userId = me.id;
       const store = getStore();
       const books = getBooks();
       const byId = {};
@@ -549,12 +541,12 @@
       // „lokal gelöscht“ unterscheiden. Der vollständige, paginierte Bestand
       // ist nötig, damit Löschungen als Tombstones synchronisiert werden.
       say('Frage Cloud-Stand ab …');
-      const rows = await listRows(cfg, 'notes', [Q.equal('userId', userId), Q.orderAsc('updatedAt')]);
+      const rows = await listRemote('notes');
       const remote = {};
       let maxSeen = lastPull.notes || null;
       for (const r of rows) {
-        const bid = books.find(b => b && b.cloudRowId === r.$id)?.id
-          || Object.keys(map).find(k => (map[k] || {}).rowId === r.$id) || r.$id;
+        const bid = books.find(b => b && b.cloudRowId === r.id)?.id
+          || Object.keys(map).find(k => (map[k] || {}).rowId === r.id) || r.id;
         remote[bid] = Object.assign(rowToNoteMeta(r), { row: r });
         if (!maxSeen || r.updatedAt > maxSeen) maxSeen = r.updatedAt;
       }
@@ -572,7 +564,7 @@
           const bid = matches[0].id;
           remote[bid] = remote[rid];
           delete remote[rid];
-          map[bid] = { rowId: remote[bid].row.$id, remoteUpdatedAtMs: remote[bid].updatedAtMs };
+          map[bid] = { rowId: remote[bid].row.id, remoteUpdatedAtMs: remote[bid].updatedAtMs };
         }
       }
       const F2 = F;
@@ -619,7 +611,7 @@
             deckOptions: env.deckOptions, reviewLog: env.reviewLog,
           })))) : 'unlesbar';
           if (rh === localClean[id].hash) {
-            touchMeta(id, { rowId: r.$id, hash: rh, remoteUpdatedAtMs: remote[id].updatedAtMs });
+            touchMeta(id, { rowId: r.id, hash: rh, remoteUpdatedAtMs: remote[id].updatedAtMs });
           } else {
             plan.conflict.push({ id });
           }
@@ -638,7 +630,7 @@
           applyEnvelopeToBook(b, env);
           b.updatedAt = remote[id].updatedAtMs;
           if (store && store.extractBook) await store.extractBook(b).catch(() => {});
-          touchMeta(id, { rowId: r.$id, hash: localClean[id] ? await contentHashOf(b) : undefined, remoteUpdatedAtMs: remote[id].updatedAtMs });
+          touchMeta(id, { rowId: r.id, hash: localClean[id] ? await contentHashOf(b) : undefined, remoteUpdatedAtMs: remote[id].updatedAtMs });
           summary.pulled++;
         } catch (e) { summary.errors.push('pull ' + id + ': ' + e.message); }
       }
@@ -655,14 +647,14 @@
           books.unshift(copy);
           // Registry fürs Konflikt-Badge (aktive Nutzerwarnung statt stiller Kopie).
           try { recordConflictCopies([{ id: copy.id, title: copy.title, at: Date.now(), sourceId: id }]); } catch { /* Anzeige-Only */ }
-          map[copy.id] = { rowId: rowIdForBook(copy.id), hash: undefined, remoteUpdatedAtMs: 0 };
+          map[copy.id] = { rowId: docIdForBook(copy.id), hash: undefined, remoteUpdatedAtMs: 0 };
           b.title = r.title || b.title;
           b.folderId = r.folderId || null;
           b.pages = env.pages;
           applyEnvelopeToBook(b, env);
           b.updatedAt = remote[id].updatedAtMs;
           if (store && store.extractBook) await store.extractBook(b).catch(() => {});
-          touchMeta(id, { rowId: r.$id, remoteUpdatedAtMs: remote[id].updatedAtMs });
+          touchMeta(id, { rowId: r.id, remoteUpdatedAtMs: remote[id].updatedAtMs });
           try { touchMeta(id, { hash: await contentHashOf(b) }); } catch { /* ignore */ }
           summary.conflicts.push(b.title);
           summary.conflictCopies.push({ id: copy.id, title: copy.title });
@@ -675,18 +667,18 @@
           const env = await payloadToEnvelope(F, cfg, store, r);
           if (!env) throw new Error('Inhalt unlesbar');
           const nb = {
-            id: r.$id && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/.test(r.$id) ? r.$id : rowIdForBook(id),
+            id: r.id && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/.test(r.id) ? r.id : docIdForBook(id),
             title: r.title || 'Importiert', paper: 'grid', updatedAt: remote[id].updatedAtMs,
             folderId: r.folderId || null, pages: env.pages,
-            cloudRowId: r.$id,
+            cloudRowId: r.id,
           };
           applyEnvelopeToBook(nb, env);
           if (store && store.extractBook) await store.extractBook(nb).catch(() => {});
           books.unshift(nb);
           byId[nb.id] = nb;
           try {
-            touchMeta(nb.id, { rowId: r.$id, hash: await contentHashOf(nb), remoteUpdatedAtMs: remote[id].updatedAtMs });
-          } catch { touchMeta(nb.id, { rowId: r.$id, remoteUpdatedAtMs: remote[id].updatedAtMs }); }
+            touchMeta(nb.id, { rowId: r.id, hash: await contentHashOf(nb), remoteUpdatedAtMs: remote[id].updatedAtMs });
+          } catch { touchMeta(nb.id, { rowId: r.id, remoteUpdatedAtMs: remote[id].updatedAtMs }); }
           summary.downloaded++;
         } catch (e) { summary.errors.push('download ' + id + ': ' + e.message); }
       }
@@ -696,23 +688,21 @@
         if (!b) continue;
         say(`Lade hoch (${reason}) …`);
         try {
-          const rowId = (byId[id] && byId[id].cloudRowId) || (map[id] && map[id].rowId) || rowIdForBook(id);
+          const rowId = (byId[id] && byId[id].cloudRowId) || (map[id] && map[id].rowId) || docIdForBook(id);
           const hashed = await hashRefsInPages(b.pages, store, F);
           await ensureUploaded(F, cfg, hashed);
           const payload = await contentToPayload(F, cfg, b, hashed);
           const nowIso = msToIso(Date.now());
           const m = map[id] || {};
           const data = {
-            userId,
             title: b.title || '',
             content: payload.content,
-            contentFileId: payload.contentFileId,
             folderId: b.folderId || null,
             createdAt: m.createdAtMs ? msToIso(m.createdAtMs) : nowIso,
             updatedAt: nowIso,
             deletedAt: null,
           };
-          await upsertRow(cfg, 'notes', rowId, data, userId);
+          await putRemote('notes', rowId, data);
           b.cloudRowId = rowId;
           touchMeta(id, {
             rowId, hash: await contentHashOf(b),
@@ -725,14 +715,14 @@
       // --- Push-Delete (lokal gelöscht -> Tombstone) ---
       for (const { id } of plan.pushDelete) {
         try {
-          const rowId = (map[id] && map[id].rowId) || rowIdForBook(id);
+          const rowId = (map[id] && map[id].rowId) || docIdForBook(id);
           const nowIso = msToIso(Date.now());
           const m = map[id] || {};
-          await upsertRow(cfg, 'notes', rowId, {
-            userId, title: '(gelöscht)', content: '', contentFileId: null, folderId: null,
+          await putRemote('notes', rowId, {
+            title: '(gelöscht)', content: '', folderId: null,
             createdAt: m.createdAtMs ? msToIso(m.createdAtMs) : nowIso,
             updatedAt: nowIso, deletedAt: nowIso,
-          }, userId);
+          });
           touchMeta(id, { rowId, remoteUpdatedAtMs: isoToMs(nowIso) });
           summary.deleted++;
         } catch (e) { summary.errors.push('tombstone ' + id + ': ' + e.message); }
@@ -747,7 +737,7 @@
       for (const { id } of plan.metaDrop) delete map[id];
 
       // --- Ordner-Spiegel ---
-      try { await Sync.syncFolders(cfg, userId, say); }
+      try { await Sync.syncFolders(cfg, say); }
       catch (e) { summary.errors.push('folders: ' + e.message); }
 
       if (maxSeen) { lastPull.notes = maxSeen; saveLastPull(lastPull); }
@@ -762,7 +752,7 @@
       return summary;
     },
 
-    async syncFolders(cfg, userId, say) {
+    async syncFolders(cfg, say) {
       say = typeof say === 'function' ? say : () => {};
       const mirror = loadFolders();
       const fmeta = loadFolderMeta();
@@ -787,21 +777,21 @@
       } catch { /* Mirror bleibt */ }
       // Ordner haben ihr eigenes updated_at (der Server legt es selbst an) -
       // attribute in the table schema.
-      const rows = await listRows(cfg, 'folders', [Q.equal('userId', userId)]);
+      const rows = await listRemote('folders');
       const remote = {};
       for (const r of rows) {
         // Lokale Ordner-IDs sind die fachliche ID; der Server verwendet daraus
         // abgeleitete Row-IDs. So bleiben auch ältere/ungültige IDs zuordenbar.
         const localId = Object.keys(mirror).find(fid =>
-          (fmeta[fid] && fmeta[fid].rowId === r.$id) || rowIdForBook(fid) === r.$id
-        ) || r.$id;
+          (fmeta[fid] && fmeta[fid].rowId === r.id) || docIdForBook(fid) === r.id
+        ) || r.id;
         remote[localId] = r;
       }
       // A folder removed locally must not survive in the cloud mirror.
       for (const fid of Object.keys(mirror)) {
         if (localFolderIds.has(String(fid))) continue;
-        const rowId = (fmeta[fid] && fmeta[fid].rowId) || rowIdForBook(fid);
-        if (remote[fid] || rows.some(r => r.$id === rowId)) {
+        const rowId = (fmeta[fid] && fmeta[fid].rowId) || docIdForBook(fid);
+        if (remote[fid] || rows.some(r => r.id === rowId)) {
           await api().deleteFolder(rowId);
           delete remote[fid];
         }
@@ -820,11 +810,11 @@
           if (r.name == null) continue;
           if (!cur || (m && curHash === m.hash)) {
             mirror[rid] = { name: r.name || '', parentId: r.parentId || null, updatedAtMs: rms };
-            fmeta[rid] = { hash: folderHash(mirror[rid]), remoteUpdatedAtMs: rms, rowId: r.$id };
+            fmeta[rid] = { hash: folderHash(mirror[rid]), remoteUpdatedAtMs: rms, rowId: r.id };
           } else {
             // beidseitig geändert -> remote gewinnt (Ordner sind billig)
             mirror[rid] = { name: r.name || '', parentId: r.parentId || null, updatedAtMs: rms };
-            fmeta[rid] = { hash: folderHash(mirror[rid]), remoteUpdatedAtMs: rms, rowId: r.$id };
+            fmeta[rid] = { hash: folderHash(mirror[rid]), remoteUpdatedAtMs: rms, rowId: r.id };
           }
         }
       }
@@ -838,7 +828,7 @@
         if (cur.deleted) {
           if (!remote[fid]) { delete mirror[fid]; delete fmeta[fid]; continue; }
           const nowIso = msToIso(Date.now());
-          const rowId = m.rowId || rowIdForBook(fid);
+          const rowId = m.rowId || docIdForBook(fid);
           await api().deleteFolder(rowId).catch(() => null);
           delete mirror[fid]; delete fmeta[fid];
           continue;
@@ -846,10 +836,10 @@
         const h = folderHash(cur);
         if (m.hash !== h) {
           const nowIso = msToIso(Date.now());
-          await upsertRow(cfg, 'folders', rowIdForBook(fid), {
-            userId, name: cur.name || '', parentId: cur.parentId || null,
-          }, userId);
-          fmeta[fid] = { hash: h, remoteUpdatedAtMs: isoToMs(nowIso), rowId: rowIdForBook(fid) };
+          await putRemote('folders', docIdForBook(fid), {
+            name: cur.name || '', parentId: cur.parentId || null,
+          });
+          fmeta[fid] = { hash: h, remoteUpdatedAtMs: isoToMs(nowIso), rowId: docIdForBook(fid) };
         }
       }
       void referenced;

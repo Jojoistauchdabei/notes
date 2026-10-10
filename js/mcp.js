@@ -4,15 +4,14 @@
  * - Minimal-API statt vollem MCP-SDK: POST /mcp/login {user, pass} -> {token},
  *   danach Authorization: Bearer <token> für POST /mcp/prompt {prompt},
  *   POST /mcp/search {query}, POST /mcp/read {bookId}, GET /mcp/tools.
- * - Dieselbe Logik läuft an drei Stellen (eine Quelle):
+ * - Dieselbe Logik läuft an zwei Stellen (eine Quelle):
  *   1) Browser (dieses Modul, window.FederwerkMCP) – sucht im lokalen State,
- *   2) Cloudflare Worker (worker.js) – prüft Bearer gegen env MCP_TOKEN,
- *   3) lokaler Node-Server (mcp-server.js) – gleiche Endpunkte via curl.
+ *   2) lokaler Node-Server (mcp-server.js) – gleiche Endpunkte via curl.
  * - Reine Helfer (verifyLogin, verifyToken, searchBooks, answerPrompt) sind
  *   DOM-frei und in Node testbar. Browser-Glue speichert die lokale
  *   MCP-Konfiguration ({user, pass, token}) in localStorage – das ist
- *   Komfortschutz für ein Single-User-Gerät, kein Ersatz für Server-Secrets
- *   (Worker: MCP_TOKEN als Secret, siehe docs/mcp.md).
+ *   Komfortschutz für ein Single-User-Gerät, kein Ersatz für den Login des
+ *   Servers (siehe docs/mcp.md).
  */
 (function () {
   'use strict';
@@ -211,15 +210,11 @@
     }
     return cfg;
   }
-  // Lokaler Login (Appwrite-Session gilt alternativ als eingeloggt).
+  // Lokaler Login: nur der Komfort-Zugang dieses Geraets (localStorage).
+  // Frueher galt hier zusaetzlich eine bestehende Cloud-Session als
+  // eingeloggt. Dieses Kriterium ist entfallen - die echte Session fuehrt der
+  // eigene Server als HttpOnly-Cookie, und die sieht dieses Modul nicht.
   function localLogin(user, pass) {
-    try {
-      const F = (typeof window !== 'undefined' && window.FederwerkFiles) ? window.FederwerkFiles : null;
-      if (F && typeof F.loadSession === 'function') {
-        const sess = F.loadSession();
-        if (sess && (sess.secret || sess.userId)) return { ok: true, via: 'appwrite', token: ensureSetup().token };
-      }
-    } catch { /* weiter mit lokal */ }
     const cfg = ensureSetup();
     if (!cfg.user || !cfg.pass) {
       return { ok: false, error: 'Kein lokaler MCP-Zugang eingerichtet – unten User/Passwort setzen.' };
