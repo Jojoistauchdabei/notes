@@ -3,8 +3,8 @@
 //! Warum ein eigener WASM-Wrapper statt des fertigen Web-Builds:
 //!
 //! - `wordcraft-web` bringt 29,75 MiB mit, weil die komplette egui-Oberflaeche
-//!   und der Fontbestand mitkompiliert werden. Ueber das 25-MiB-Limit je Datei
-//!   bei Cloudflare Workers Static Assets.
+//!   und der Fontbestand mitkompiliert werden. Das ist zu viel fuer ein Asset,
+//!   das jeder Client beim ersten Oeffnen laden muss.
 //! - Der Web-Build exportiert nur `initSync`/`default`, also gar keine
 //!   Dokument-API. Federwerks Datei-Oberflaeche kann damit nichts steuern.
 //!

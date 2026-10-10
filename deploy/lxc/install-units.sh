@@ -52,11 +52,15 @@ NODE_ENV=production
 FW_DATA_DIR=$APP_ROOT/data
 FW_FILES_DIR=$APP_ROOT/files
 FW_BACKUP_DIR=$APP_ROOT/backups
-FW_HOST=127.0.0.1
+# Ohne vorgeschalteten Proxy muss der Dienst auf der Netzwerkschnittstelle
+# lauschen, sonst erreicht ihn kein Geraet im LAN. Wer nur lokal arbeitet oder
+# einen Proxy davorstellt, setzt 127.0.0.1.
+FW_HOST=0.0.0.0
 FW_PORT=8080
 FW_SESSION_SECRET=$SECRET
-# Hinter Cloudflare-Tunnel: der Host dort ist origin.example.org.
-# FW_TRUST_PROXY=1
+# TLS uebernimmt ein Reverse-Proxy davor (nginx/Caddy). Dann hier dessen
+# oeffentliche Adresse eintragen: sie ist die einzige zusaetzlich erlaubte
+# Herkunft fuer CORS und schaltet das Secure-Flag am Session-Cookie ein.
 # FW_PUBLIC_URL=https://notes.example.org
 EOF
   chmod 600 /etc/federwerk/env

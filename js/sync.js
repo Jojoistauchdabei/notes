@@ -926,11 +926,11 @@
     const UI = {
       _errors: [],
       _el(id) { try { return document.getElementById(id); } catch { return null; } },
-      _say(t) { const el = UI._el('awDbStatus'); if (el) el.textContent = t; },
+      _say(t) { const el = UI._el('cloudDbStatus'); if (el) el.textContent = t; },
       _log(message) {
         UI._errors.push(new Date().toLocaleTimeString('de-DE') + ' ' + message);
         if (UI._errors.length > 50) UI._errors.shift();
-        const el = UI._el('awDiagnosticsLog');
+        const el = UI._el('cloudDiagnosticsLog');
         if (el) el.textContent = UI._errors.join('\n');
       },
       async syncNow() {
@@ -968,23 +968,23 @@
         } catch (e) { UI._say('☁ Realtime-Fehler: ' + e.message); }
       },
       openDiagnostics() {
-        const el = UI._el('awDiagnosticsOverlay');
+        const el = UI._el('cloudDiagnosticsOverlay');
         if (el) el.classList.add('active');
         UI.runDiagnostics();
       },
       closeDiagnostics() {
-        const el = UI._el('awDiagnosticsOverlay');
+        const el = UI._el('cloudDiagnosticsOverlay');
         if (el) el.classList.remove('active');
       },
       clearDiagnostics() {
         UI._errors = [];
-        const el = UI._el('awDiagnosticsLog');
+        const el = UI._el('cloudDiagnosticsLog');
         if (el) el.textContent = '';
-        const summary = UI._el('awDiagnosticsSummary');
+        const summary = UI._el('cloudDiagnosticsSummary');
         if (summary) summary.textContent = 'Protokoll gelöscht.';
       },
       async runDiagnostics() {
-        const summary = UI._el('awDiagnosticsSummary');
+        const summary = UI._el('cloudDiagnosticsSummary');
         const lines = [
           `Server: ${api().cfg().base || location.origin}`,
           `Realtime: ${Sync.rtStatus()}`,
@@ -1007,7 +1007,7 @@
           UI._log('Diagnose: ' + (e && e.message ? e.message : String(e)));
         }
         if (summary) summary.textContent = lines.join('\n');
-        const log = UI._el('awDiagnosticsLog');
+        const log = UI._el('cloudDiagnosticsLog');
         if (log) log.textContent = UI._errors.join('\n');
       },
       boot() {

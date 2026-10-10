@@ -2,10 +2,11 @@
 'use strict';
 /* Federwerk MCP-CLI: stdio- oder HTTP-Transport mit zwei Backends.
  *
- *  - Mit APPWRITE_API_KEY + APPWRITE_USER_ID: echte Cloud-Notizen (mcp/).
+ *  - Mit FEDERWERK_* (URL + E-Mail/Passwort oder Session-Cookie): echte
+ *    Notizen über die Server-API (/api/*).
  *  - Ohne: In-Memory-Demo mit VOLLEM Toolset (alle 21 Tools), damit eine KI
  *    bzw. ein Mensch den Umgang (Notizen, Ordner, Decks, Suche, Graph) ohne
- *    Cloud-Zugang üben kann. Der Demo-Stand verfällt beim Beenden.
+ *    Server-Zugang üben kann. Der Demo-Stand verfällt beim Beenden.
  */
 
 const http = require('node:http');
@@ -269,28 +270,23 @@ function createDemoHandler() {
 }
 
 async function getHandler() {
-  let M = null;
-  try {
-    M = require('../mcp');
-  } catch {
-    process.stderr.write('Federwerk MCP: Appwrite-Modul fehlt – Demo-Backend (flüchtig).\n');
-    return createDemoHandler();
-  }
-  const config = M.getConfig();
-  if (!config.apiKey && !config.session && !M.canLoginFromStore(config)) {
+  const B = require('./backend');
+  const L = require('./login');
+  const config = L.loadConfig();
+  if (!L.hasCredentials(config)) {
     process.stderr.write('Federwerk MCP: keine Anmeldedaten – Demo-Backend (flüchtig).\n'
       + '  Für die echten Notizen: node mcpserver/login.js --email <adresse> --save\n');
     return createDemoHandler();
   }
   // Meldet sich mit den hinterlegten Daten selbst an; wirft bei falschen
   // Credentials (kein stiller Demo-Fallback, sonst schreibt man blind ins Nichts).
-  const token = await M.ensureSession(config);
-  const userId = await M.resolveUserId(config);
+  const api = L.createApi(config);
+  const info = await api.sessionInfo();
   process.stderr.write(
-    'Federwerk MCP: Cloud-Backend als Nutzer ' + userId
-    + ' (' + (config.apiKey ? 'API-Key' : (config.session && !token ? 'Session' : 'angemeldet')) + ').\n',
+    'Federwerk MCP: Server-Backend als ' + (info.email || info.userId || '(unbekannt)')
+    + ' (' + config.url + ').\n',
   );
-  return M.createAppwriteHandler(M.withUser(config, userId));
+  return B.createServerHandler({ api, user: info.user || null });
 }
 
 async function main() {

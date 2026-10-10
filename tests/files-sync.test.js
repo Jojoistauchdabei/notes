@@ -4,13 +4,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'js', 'appwrite-files.js'), 'utf8');
-const F = require('../js/appwrite-files.js');
+const SRC = fs.readFileSync(path.join(__dirname, '..', 'js', 'files-sync.js'), 'utf8');
+const F = require('../js/files-sync.js');
 
 const H1 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'; // sha256('abc')
 const H2 = 'ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb'; // sha256('a')
 
-describe('appwrite-files/datei', () => {
+describe('files-sync/datei', () => {
   it('ist ohne DOM ladbar und degradiert ohne Browser sauber', () => {
     assert.ok(F && typeof F.planFileSync === 'function');
     // Kein localStorage in Node -> Fallbacks statt Crash
@@ -43,7 +43,7 @@ describe('appwrite-files/datei', () => {
   });
 });
 
-describe('appwrite-files/mime', () => {
+describe('files-sync/mime', () => {
   it('normalisiert und mappt Endungen', () => {
     assert.equal(F.normalizeMime('image/JPG;foo=1'), 'image/jpeg');
     assert.equal(F.extForMime('image/jpeg'), 'jpg');
@@ -55,7 +55,7 @@ describe('appwrite-files/mime', () => {
   });
 });
 
-describe('appwrite-files/ids', () => {
+describe('files-sync/ids', () => {
   it('fileId ist stabil, kurz und rundetrip-fähig', () => {
     const fid = F.fileIdForHash(H1);
     assert.match(fid, /^fw[0-9a-f]{32}$/);
@@ -79,7 +79,7 @@ describe('appwrite-files/ids', () => {
   });
 });
 
-describe('appwrite-files/pickTarget', () => {
+describe('files-sync/pickTarget', () => {
   it('große Bilder -> recompress, PDF/GIF -> keep', () => {
     assert.equal(F.pickTarget('image/jpeg', 500 * 1024).recompress, true);
     assert.equal(F.pickTarget('image/jpeg', 10 * 1024).recompress, false);
@@ -88,7 +88,7 @@ describe('appwrite-files/pickTarget', () => {
   });
 });
 
-describe('appwrite-files/plan', () => {
+describe('files-sync/plan', () => {
   const FID1 = F.fileIdForHash(H1);
   it('teilt in upload/download/upToDate', () => {
     const local = { [H1]: { size: 10 }, [H2]: { size: 20 } };
@@ -108,7 +108,7 @@ describe('appwrite-files/plan', () => {
   });
 });
 
-describe('appwrite-files/orphans', () => {
+describe('files-sync/orphans', () => {
   it('findet nur fw-Dateien ohne Referenz', () => {
     const fid1 = F.fileIdForHash(H1), fid2 = F.fileIdForHash(H2);
     assert.deepEqual(F.findOrphans([H1], [fid1, fid2]), [fid2]);
@@ -117,7 +117,7 @@ describe('appwrite-files/orphans', () => {
   });
 });
 
-describe('appwrite-files/report', () => {
+describe('files-sync/report', () => {
   it('zählt Bytes und Differenzen', () => {
     const fid1 = F.fileIdForHash(H1);
     const r = F.storageReport({ [H1]: { size: 100 }, [H2]: { size: 50 } }, { [fid1]: { size: 100 } });
@@ -129,7 +129,7 @@ describe('appwrite-files/report', () => {
   });
 });
 
-describe('appwrite-files/queue', () => {
+describe('files-sync/queue', () => {
   it('dedupliziert und liefert FIFO', () => {
     let q = F.queueAdd([], { hash: H1, ref: 'blob:x' });
     q = F.queueAdd(q, { hash: H1, ref: 'blob:x' });
@@ -142,7 +142,7 @@ describe('appwrite-files/queue', () => {
   });
 });
 
-describe('appwrite-files/collect', () => {
+describe('files-sync/collect', () => {
   it('sammelt Hashes aus Büchern (dataURL, ohne Store)', async () => {
     const du = 'data:image/jpeg;base64,' + F.bytesToBase64(new TextEncoder().encode('abc'));
     const books = [{ pages: [{ images: [{ src: du }], bg: du }] }];
@@ -162,15 +162,13 @@ describe('appwrite-files/collect', () => {
  * sind nicht "repariert", sondern ersetzt: die Zustaende sind weg, nicht die
  * Testfaehigkeit.
  *
- *   - JSON-Query-Dialekt: Appwrite-Spezifika. Der Server kennt ?since= und
- *     ?limit=, keine {method,attribute,values}-Objekte.
- *   - Secret im localStorage + X-Appwrite-Session: noetig, weil der
- *     Tauri-WebView den Third-Party-Cookie verliert. Jetzt ein HttpOnly-
- *     Cookie auf eigenem Origin - im localStorage waere es zudem fuer jeden
- *     XSS-Pfad auslesbar.
- *   - Cookie-Fallback (X-Fallback-Cookies): dieselbe Begruendung.
+ *   - JSON-Query-Dialekt: der Server kennt ?since= und ?limit=, keine
+ *     {method,attribute,values}-Objekte.
+ *   - Session-Token im localStorage: jetzt ein HttpOnly-Cookie auf eigenem
+ *     Origin - im localStorage waere es fuer jeden XSS-Pfad auslesbar.
+ *   - Cookie-Fallback fuer fremde Origins (Tauri-WebView): derselbe Grund.
  */
-describe('appwrite-files/kein-Zustand-mehr-im-localStorage', () => {
+describe('files-sync/kein-Zustand-mehr-im-localStorage', () => {
   const mem = new Map();
   const backend = {
     getItem: k => (mem.has(k) ? mem.get(k) : null),
@@ -195,12 +193,9 @@ describe('appwrite-files/kein-Zustand-mehr-im-localStorage', () => {
     // Same-Origin-Regel des Servers loesen, die er prueft.
     assert.deepEqual(F.authHeaders(), {});
   });
-  it('hat keinen Query-Bauer mehr', () => {
-    assert.equal(F.Q, null);
-  });
 });
 
-describe('appwrite-files/config-ls', () => {
+describe('files-sync/config-ls', () => {
   it('Map-Roundtrip über injizierten Speicher', () => {
     const mem = new Map();
     F._internals._setLsBackend({

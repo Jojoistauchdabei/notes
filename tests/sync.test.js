@@ -2,20 +2,20 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
-const S = require('../js/appwrite-sync.js');
+const S = require('../js/sync.js');
 
 const H1 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
 const H2 = 'ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb';
 
-describe('appwrite-sync/datei', () => {
+describe('sync/datei', () => {
   it('ist ohne DOM ladbar', () => {
     assert.ok(S && typeof S.planRows === 'function');
     assert.deepEqual(S.loadRowMap(), {});
     assert.deepEqual(S.loadFolders(), {});
   });
   it('exportiert die vereinbarte API', () => {
-    for (const k of ['msToIso', 'isoToMs', 'rowIdForBook', 'isAwFileRef',
-      'hashFromAwRef', 'rewriteRefs', 'bookContentJson', 'parseContentJson',
+    for (const k of ['msToIso', 'isoToMs', 'docIdForBook', 'isFileRef',
+      'hashFromFileRef', 'rewriteRefs', 'bookContentJson', 'parseContentJson',
       'folderHash', 'planRows', 'makeConflictTitle', 'rowToNoteMeta',
       'isDeckBook', 'bookEnvelope', 'parseEnvelope', 'applyEnvelopeToBook',
       'hashableBook', 'normDeckCards', 'normDeckOptions', 'normReviewLog',
@@ -25,35 +25,27 @@ describe('appwrite-sync/datei', () => {
   });
 });
 
-describe('appwrite-sync/queries', () => {
-  it('hat keinen Query-Bauer mehr', () => {
-    // Der Server kennt nur noch ?since= und ?limit=. Der Appwrite-Dialekt
-    // aus {method,attribute,values}-Objekten ist mit ihm zusammen verschwunden.
-    assert.equal(S.Q, null);
-  });
-});
-
-describe('appwrite-sync/zeit-und-ids', () => {
+describe('sync/zeit-und-ids', () => {
   it('ISO roundtrip, robust bei Müll', () => {
     assert.equal(S.isoToMs(S.msToIso(1700000000000)), 1700000000000);
     assert.equal(S.isoToMs('kein-datum'), 0);
     assert.equal(S.isoToMs(null), 0);
   });
-  it('rowId: gültige bleiben, Rest wird gemappt', () => {
-    assert.equal(S.rowIdForBook('abc123XYZ'), 'abc123XYZ');
-    const m = S.rowIdForBook('Buch mit Leerzeichen!');
+  it('docId: gültige bleiben, Rest wird gemappt', () => {
+    assert.equal(S.docIdForBook('abc123XYZ'), 'abc123XYZ');
+    const m = S.docIdForBook('Buch mit Leerzeichen!');
     assert.match(m, /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/);
-    assert.match(S.rowIdForBook(''), /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/);
+    assert.match(S.docIdForBook(''), /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/);
   });
   it('awfile-Refs erkennen', () => {
-    assert.ok(S.isAwFileRef('awfile:' + H1));
-    assert.equal(S.hashFromAwRef('awfile:' + H1), H1);
-    assert.ok(!S.isAwFileRef('blob:xyz'));
-    assert.equal(S.hashFromAwRef('blob:xyz'), null);
+    assert.ok(S.isFileRef('awfile:' + H1));
+    assert.equal(S.hashFromFileRef('awfile:' + H1), H1);
+    assert.ok(!S.isFileRef('blob:xyz'));
+    assert.equal(S.hashFromFileRef('blob:xyz'), null);
   });
 });
 
-describe('appwrite-sync/refs', () => {
+describe('sync/refs', () => {
   const pages = [{ images: [{ src: 'blob:a' }, { src: 'data:x' }], bg: 'blob:b' }];
   it('push: ref -> awfile-Hash', () => {
     const { pages: out, missing } = S.rewriteRefs(pages, { 'blob:a': H1, 'blob:b': H2 }, 'push');
@@ -131,7 +123,7 @@ describe('appwrite-sync/refs', () => {
   });
 });
 
-describe('appwrite-sync/plan', () => {
+describe('sync/plan', () => {
   const L = (hash, t) => ({ hash, updatedAtMs: t });
   const R = (t, d) => ({ updatedAtMs: t, deletedAtMs: d || null });
   const M = (hash, t) => ({ rowId: 'r', hash, remoteUpdatedAtMs: t });
@@ -185,7 +177,7 @@ describe('appwrite-sync/plan', () => {
   });
 });
 
-describe('appwrite-sync/folders', () => {
+describe('sync/folders', () => {
   it('folderHash unterscheidet Inhalt', () => {
     assert.equal(S.folderHash({ name: 'A', parentId: null }), S.folderHash({ name: 'A', parentId: null }));
     assert.notEqual(S.folderHash({ name: 'A' }), S.folderHash({ name: 'B' }));
@@ -200,7 +192,7 @@ describe('appwrite-sync/folders', () => {
   });
 });
 
-describe('appwrite-sync/realtime', () => {
+describe('sync/realtime', () => {
   it('Channels benennen Dokumente und Ordner', () => {
     const ch = S.rtChannels();
     assert.ok(ch.includes('docs'));

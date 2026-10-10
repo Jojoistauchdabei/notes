@@ -127,7 +127,7 @@ test('docs: Delta-Pull liefert nur, was nach since passiert ist', () => {
   assert.strictEqual(docs.since(u.id, 0, 'note').length, 2, 'since=0 -> alles');
 });
 
-test('docs: Ordner haben ein eigenes updatedAt (keine Appwrite-Asymmetrie)', () => {
+test('docs: Ordner haben ein eigenes updatedAt (Symmetrie zu Dokumenten)', () => {
   const u = auth.createUser('ord@example.org', 'passwort123');
   const t = Date.now();
   docs.upsertFolder(u.id, { id: 'f1', name: 'Schule', updatedAt: t });
@@ -272,7 +272,7 @@ test('shares: der Code IST die Berechtigung - Fremde duerfen mit, nicht aendern'
   const fremd = auth.createUser('fremd6@example.org', 'passwort123');
   const s = shares.create(owner.id, { bookId: 'b1', mode: 'edit' });
 
-  // Das ist Absicht und war es auch vorher (read("users") in Appwrite): wer
+  // Das ist Absicht: wer
   // den Link hat, darf teilnehmen. Deshalb ist der Code kurz, aus crypto
   // erzeugt und jederzeit widerrufbar - nicht aus als Sitzungsersatz gedacht.
   assert.strictEqual(shares.readShare(fremd.id, s.shareId).shareId, s.shareId);

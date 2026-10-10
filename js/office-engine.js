@@ -4,7 +4,7 @@
  * DeckCraft). Es wird nur geladen, wenn es wirklich gebraucht wird: 3 MiB
  * sollen nicht jeder beim Oeffnen des ersten Notizbuchs fliessen. Beim ersten
  * Bedarf wird office_wasm.js als Modul nachgeladen und die Datei im Browser
- * gecacht (Cache-Control immutable aus _headers).
+ * gecacht (der Server erkennt den gehashten Namen und schickt immutable).
  *
  * Vertrag des WASM (alle Fn arbeiten auf Uint8Array/ArrayBuffer und JSON):
  *   await Engine.ready()                       -> bool (true = geladen)

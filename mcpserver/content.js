@@ -23,17 +23,12 @@
  *  bis js/sync.js v2 persistiert.
  */
 
-var OFFLOAD_BYTES = 40000;
-// Live gemessen (Appwrite 2.3, Tabelle `notes`): `content` akzeptiert 60 KB
-// inline, ab 64 KB lehnt Appwrite die Row ab. Der Bucket `attachments`
-// erlaubt je nach Config nur Bild-/PDF-Endungen – deshalb dieser Wert als
-// Notfallgrenze, wenn der Offload am Dateityp scheitert.
-var INLINE_ROW_MAX = 60000;
 var INLINE_MARKDOWN_MAX = 8000;
 var CONTENT_MAX_BYTES = 200000;
 var TITLE_MAX = 200;
 var BULK_CARDS_MAX = 100;
-var ROW_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/;
+// Server-IDs (server/docs.js validId): genau dieser Zeichenvorrat, max 64.
+var DOC_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 function nowMs() { return Date.now(); }
 function nowIso(ms) {
@@ -56,12 +51,14 @@ function newId(prefix) {
   return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
-// Appwrite Row-ID: ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$ – sonst mappen.
-function rowIdFor(id, prefix) {
+// Server-IDs dürfen nur [A-Za-z0-9_.:-] sein (server/docs.js validId);
+// unpassende Zeichen fallen weg, statt am Server-400 zu scheitern.
+
+function docIdFor(id, prefix) {
   var s = String(id || '');
-  if (ROW_ID_RE.test(s)) return s;
-  var clean = s.toLowerCase().replace(/[^a-z0-9._-]/g, '').replace(/^[^a-z0-9]+/, '');
-  return ((prefix || 'b') + (clean || 'doc')).slice(0, 36);
+  if (DOC_ID_RE.test(s)) return s;
+  var clean = s.replace(/[^A-Za-z0-9_.:-]/g, '');
+  return ((prefix || 'b') + clean).slice(0, 64) || (prefix || 'b');
 }
 
 function normTitle(t, fallback) {
@@ -262,56 +259,58 @@ function snippetFor(text, tokens, maxLen) {
   return (from > 0 ? '… ' : '') + flat.slice(from, from + maxLen) + ' …';
 }
 
-/* Row (Appwrite) <-> Doc (MCP) */
+/* Server-Doc <-> MCP-Doc */
 
-function docFromRow(row, opts) {
+// Server-Dokumente tragen Zeitstempel in Millisekunden (server/docs.js);
+// die MCP-Ausgabe ist ISO, damit sie zu den App-eigenen Werten passt.
+function docFromServerDoc(doc, opts) {
   var o = opts || {};
-  var dec = decodeContent(row && (row.content || ''));
+  var dec = decodeContent(doc && (doc.content || ''));
   var md = pagesToMarkdown(dec.pages);
-  var doc = {
-    id: (row && (row.$id || row.id)) || '',
-    title: (row && row.title) || 'Unbenannt',
-    folderId: (row && (row.folderId || null)) || null,
+  var max = o.markdownMax == null ? INLINE_MARKDOWN_MAX + 500 : o.markdownMax;
+  var out = {
+    id: (doc && doc.id) || '',
+    title: (doc && doc.title) || 'Unbenannt',
+    folderId: (doc && (doc.folderId || null)) || null,
     kind: dec.kind,
-    updatedAt: (row && (row.updatedAt || row.$updatedAt)) || null,
+    updatedAt: doc && isFinite(Number(doc.updatedAt)) ? nowIso(Number(doc.updatedAt)) : null,
     pages: dec.pages.length,
   };
   if (o.includeContent !== false) {
-    doc.markdown = md.slice(0, INLINE_MARKDOWN_MAX + 500);
-    doc.truncated = md.length > INLINE_MARKDOWN_MAX + 500;
+    out.markdown = md.slice(0, max);
+    out.truncated = md.length > max;
   }
   if (dec.kind === 'flashcards') {
-    var max = Math.max(1, Math.min(200, num(o.cardsLimit, 200)));
-    doc.cards = dec.cards.slice(0, max).map(function (c) { return normalizeCard(c); });
-    doc.cardsTruncated = dec.cards.length > max;
-    doc.cardsTotal = dec.cards.length;
-    doc.deckOptions = normalizeDeckOptions(dec.deckOptions);
+    var cardsMax = Math.max(1, Math.min(200, num(o.cardsLimit, 200)));
+    out.cards = dec.cards.slice(0, cardsMax).map(function (c) { return normalizeCard(c); });
+    out.cardsTruncated = dec.cards.length > cardsMax;
+    out.cardsTotal = dec.cards.length;
+    out.deckOptions = normalizeDeckOptions(dec.deckOptions);
   }
-  return doc;
+  return out;
 }
 
-function rowDataFromDocParts(parts, userId, existing) {
+// Arbeitskopie -> Server-PUT. Der Server ersetzt die Zeile komplett
+// (server/docs.js upsert), deshalb muss der Inhalt immer mit.
+function serverDataFromDocParts(parts, existing) {
+  var p = parts || {};
   var ex = existing || {};
   var content = encodeContent({
-    pages: parts.pages !== undefined ? parts.pages : (ex.pages || []),
-    kind: parts.kind !== undefined ? parts.kind : ex.kind,
-    cards: parts.cards !== undefined ? parts.cards : ex.cards,
-    deckOptions: parts.deckOptions !== undefined ? parts.deckOptions : ex.deckOptions,
-    reviewLog: parts.reviewLog !== undefined ? parts.reviewLog : ex.reviewLog,
+    pages: p.pages !== undefined ? p.pages : (ex.pages || []),
+    kind: p.kind !== undefined ? p.kind : ex.kind,
+    cards: p.cards !== undefined ? p.cards : ex.cards,
+    deckOptions: p.deckOptions !== undefined ? p.deckOptions : ex.deckOptions,
+    reviewLog: p.reviewLog !== undefined ? p.reviewLog : ex.reviewLog,
   });
   var t = nowMs();
   return {
+    id: p.id !== undefined ? String(p.id) : (ex.id || ''),
+    title: p.title !== undefined ? p.title : (ex.title || 'Unbenannt'),
+    folderId: p.folderId !== undefined ? (p.folderId || null) : (ex.folderId || null),
     content: content,
-    data: {
-      userId: userId,
-      title: parts.title !== undefined ? parts.title : (ex.title || 'Unbenannt'),
-      content: content,
-      contentFileId: ex.contentFileId || null,
-      folderId: parts.folderId !== undefined ? (parts.folderId || null) : (ex.folderId || null),
-      createdAt: ex.createdAt || nowIso(t),
-      updatedAt: nowIso(t),
-      deletedAt: null,
-    },
+    createdAt: p.createdAt != null ? Number(p.createdAt) : (ex.createdAt || t),
+    updatedAt: t,
+    deletedAt: null,
   };
 }
 
@@ -693,15 +692,14 @@ function checkCards(cards, required) {
 }
 
 module.exports = {
-  OFFLOAD_BYTES: OFFLOAD_BYTES, INLINE_ROW_MAX: INLINE_ROW_MAX,
   INLINE_MARKDOWN_MAX: INLINE_MARKDOWN_MAX,
   TITLE_MAX: TITLE_MAX, BULK_CARDS_MAX: BULK_CARDS_MAX,
-  nowMs: nowMs, nowIso: nowIso, newId: newId, rowIdFor: rowIdFor, normTitle: normTitle,
+  nowMs: nowMs, nowIso: nowIso, newId: newId, docIdFor: docIdFor, normTitle: normTitle,
   escHtml: escHtml, mdToHtmlLite: mdToHtmlLite, htmlToMdLite: htmlToMdLite,
   blankPage: blankPage, contentToPages: contentToPages, pagesToMarkdown: pagesToMarkdown,
   stripTagsLite: stripTagsLite, pageText: pageText,
   encodeContent: encodeContent, decodeContent: decodeContent, docText: docText, snippetFor: snippetFor,
-  docFromRow: docFromRow, rowDataFromDocParts: rowDataFromDocParts,
+  docFromServerDoc: docFromServerDoc, serverDataFromDocParts: serverDataFromDocParts,
   GRADES: GRADES, normalizeGrade: normalizeGrade, newCard: newCard, normalizeCard: normalizeCard,
   normalizeDeckOptions: normalizeDeckOptions, normalizeReviewLog: normalizeReviewLog,
   previewIntervals: previewIntervals, gradeCardInPlace: gradeCardInPlace, isDue: isDue, deckStats: deckStats,

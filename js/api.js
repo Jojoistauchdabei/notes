@@ -1,12 +1,14 @@
-/* Federwerk: Client-Transport fuer den eigenen Server (server/).
+/* Federwerk: Client-Transport zum eigenen Server (server/).
  *
- * Ersetzt die bisherige Appwrite-Schicht. Zwei Dinge fallen weg:
+ * Das ist die EINZIGE Stelle, an der die App mit dem Backend spricht. Zwei
+ * Dinge gibt es hier bewusst nicht:
  *
- * - das Session-Secret im localStorage samt X-Appwrite-Session-Header. Jetzt
- *   ein HttpOnly-Cookie; der Browser haengt es von selbst an. Genau deshalb
- *   gibt es hier keine authHeaders()-Funktion mehr - es gibt nichts zu setzen.
- * - der Cookie-Fallback (X-Fallback-Cookies) fuer den Tauri-WebView, der
- *   Third-Party-Cookies verliert. Auf eigenem Origin faellt das weg.
+ * - kein Session-Secret im localStorage und keinen Auth-Header. Die Session
+ *   ist ein HttpOnly-Cookie; der Browser haengt es von selbst an. Genau
+ *   deshalb gibt es auch keine authHeaders()-Funktion - es gibt nichts zu
+ *   setzen.
+ * - keinen Cookie-Fallback fuer fremde Origins (Tauri-WebView). Auf eigenem
+ *   Origin faellt das weg.
  *
  * Und eines kommt dazu: der Pfad ist meistens leer, also Same-Origin. Das
  * ist Absicht - dadurch greifen die Service-Worker-Regeln aus sw.js auch fuer

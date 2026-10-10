@@ -9,11 +9,11 @@
 -- Warum das ueberhaupt noetig ist
 --
 -- Die App ist offline-first und weiss clientseitig, welche Datei zu welchem
--- Dokument gehoert (js/appwrite-files.js: collectLocalEntries). Serverseitig
--- war diese Beziehung bisher nur implizit: Appwrite hat Dateien und Zeilen
--- unabhaengig verwaltet, die Verknuepfung ergab sich aus dem Dateinamen
--- fw<hash> im Referenzstring. Damit liess sich serverseitig nicht beantworten,
--- welche Datei noch gebraucht wird - die Datei-Existenz allein sagt nichts.
+-- Dokument gehoert (js/files-sync.js: collectLocalEntries). Serverseitig war
+-- diese Beziehung bisher nur implizit: Dateien und Zeilen wurden unabhaengig
+-- verwaltet, die Verknuepfung ergab sich aus dem Dateinamen fw<hash> im
+-- Referenzstring. Damit liess sich serverseitig nicht beantworten, welche
+-- Datei noch gebraucht wird - die Datei-Existenz allein sagt nichts.
 --
 -- file_refs schliesst diese Luecke: der Server schreibt bei jedem
 -- Dokument-PUT die enthaltenen Datei-Referenzen mit. Damit ist die

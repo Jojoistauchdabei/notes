@@ -139,11 +139,14 @@ function assertBuilt(dist, eol) {
   assert.ok(fs.existsSync(path.join(dist, 'docs', 'mcp.md')), 'docs/mcp.md im dist');
   assert.ok(sw.includes('agent.html'), 'SW precacht agent.html (offline nutzbar)');
 
-  const headers = fs.readFileSync(path.join(dist, '_headers'), 'utf8');
-  assert.ok(headers.includes('/' + scripts[0]), 'immutable für Bundle');
-  assert.ok(headers.includes('X-Content-Type-Options: nosniff'), 'Security-Header');
-  assert.ok(headers.includes('X-Frame-Options: DENY'), 'X-Frame-Options');
-  assert.ok(/index\.html\n {2}Cache-Control: public, max-age=0, must-revalidate/.test(headers), 'HTML revalidiert');
+  // Kein dist/_headers mehr: die Header setzt der ausliefernde Server
+  // (server/index.js). Eine Konfigurationsdatei neben der App waere beim
+  // Selbsthosting ein Artefakt, das niemand liest - der Server ist die
+  // einzige Instanz zwischen Client und Datei.
+  assert.ok(!fs.existsSync(path.join(dist, '_headers')), 'kein CDN-Headerfile im dist');
+  const serverSrc = fs.readFileSync(path.join(root, 'server', 'index.js'), 'utf8');
+  assert.ok(serverSrc.includes("'X-Frame-Options': 'DENY'"), 'Server setzt X-Frame-Options');
+  assert.ok(serverSrc.includes("'Referrer-Policy'"), 'Server setzt Referrer-Policy');
 }
 
 describe('scripts/build-dist.js', () => {
@@ -190,10 +193,7 @@ describe('scripts/build-dist.js', () => {
     assert.ok(sw.includes('present.html'), 'SW precacht present.html (offline präsentierbar)');
     assert.ok(sw.includes(scripts[0]), 'SW precacht das Empfänger-Bundle');
 
-    const headers = fs.readFileSync(path.join(dist, '_headers'), 'utf8');
-    assert.ok(headers.includes('/' + scripts[0]), 'immutable für das Empfänger-Bundle');
-    assert.match(headers, /present\.html\n {2}Cache-Control: public, max-age=0, must-revalidate/,
-      'present.html revalidiert – sonst kämen neue Releases nicht an');
+    // Caching/Header: siehe der _headers-Block oben - der Server macht das.
   });
 
   it('ohne present.html läuft der Build weiter (alter Checkout, unvollständige Fixture)', () => {
@@ -201,7 +201,6 @@ describe('scripts/build-dist.js', () => {
     const dist = runBuild();
     assert.ok(fs.existsSync(path.join(dist, 'index.html')));
     assert.ok(!fs.existsSync(path.join(dist, 'present.html')));
-    const headers = fs.readFileSync(path.join(dist, '_headers'), 'utf8');
-    assert.ok(!headers.includes('present.html'));
+    assert.ok(!fs.existsSync(path.join(dist, '_headers')), 'kein CDN-Headerfile im dist');
   });
 });

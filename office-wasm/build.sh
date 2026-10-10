@@ -101,30 +101,18 @@ if [ -f "$wasm" ]; then
   kib=$(( (bytes / 1024) % 1024 ))
   echo "WASM: ${mib} MiB ${kib} KiB (${bytes} Bytes)"
   echo "::endgroup::"
-  # Cloudflare Workers Static Assets: 25 MiB je Datei. Darueber kann die
-  # Engine nicht als Asset ausgeliefert werden - dann lieber hier abbrechen,
-  # als still ein zu grosses Asset zu veroeffentlichen.
+  # 25 MiB ist eine Hausnummer, keine harte Grenze: die Engine wird bei jedem
+  # Start geladen, und ein LXC mit 512 MB soll daran nicht ersticken. Lieber
+  # hier abbrechen als still ein unbrauchbar grosses Asset auszuliefern.
   if [ "$mib" -ge 25 ]; then
-    echo "::error::WASM ist ${mib} MiB und damit groesser als das 25-MiB-Limit je Datei bei Cloudflare."
+    echo "::error::WASM ist ${mib} MiB - zu gross fuer schmale Clients (Grenze 25 MiB)."
     exit 1
   fi
-  echo "Groesse liegt unter dem 25-MiB-Limit."
+  echo "Groesse liegt unter der 25-MiB-Grenze."
 else
   echo "::group::"
   echo "::error::office_wasm_bg.wasm fehlt nach wasm-bindgen"
   exit 1
 fi
-
-# _headers-Eintraege fuer das WASM: der richtige MIME-Typ ist Pflicht, sonst
-# scheitert instantiateStreaming und der Browser faellt auf einen langsameren
-# Weg zurueck.
-cat > "$out/office_wasm.headers" <<'HEADERS'
-/office_wasm_bg.wasm
-  Content-Type: application/wasm
-  Cache-Control: public, max-age=31536000, immutable
-
-/office_wasm.js
-  Cache-Control: public, max-age=31536000, immutable
-HEADERS
 
 echo "fertig: $out"

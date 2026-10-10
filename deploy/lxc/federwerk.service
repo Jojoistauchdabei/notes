@@ -21,7 +21,10 @@ Environment=NODE_ENV=production
 Environment=FW_DATA_DIR=/srv/federwerk/data
 Environment=FW_FILES_DIR=/srv/federwerk/files
 Environment=FW_PORT=8080
-Environment=FW_HOST=127.0.0.1
+# 0.0.0.0, damit Geraete im LAN den Dienst erreichen - ohne Tunnel gibt es
+# keinen zweiten Weg hinein. Absicherung ist die Authentifizierung plus der
+# Origin-Check in server/index.js, nicht das Interface.
+Environment=FW_HOST=0.0.0.0
 EnvironmentFile=-/etc/federwerk/env
 ExecStart=/usr/bin/node /srv/federwerk/app/server/index.js
 Restart=on-failure

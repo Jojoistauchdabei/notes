@@ -1,21 +1,19 @@
-/* Federwerk Liveshare – gemeinsam auf einer Seite schreiben (Appwrite-only).
+/* Federwerk Liveshare – gemeinsam auf einer Seite schreiben (eigener Server).
  *
- * V1: kein eigener Server, kein Tracking-Drittanbieter. Zwei neue
- * Appwrite-Tabellen (TablesDB) neben `notes`/`folders`:
- *   - `shares`: eine Row pro Freigabe (code = Row-ID, lesbar für alle
- *     Eingeloggten, schreibbar nur für Owner).
- *   - `share_events`: Append-only Events (Strokes, Texte, Cursor,
- *     Presence, Sync). Lesbar für alle Eingeloggten, anlegbar von allen
- *     Eingeloggten – der Code (12 Zeichen) + Ablaufdatum begrenzen Zugriff.
- *     HINWEIS: Row-Permissions können nicht prüfen, ob ein Event zu einem
- *     Share gehört, dem der Schreiber beigetreten ist – dafür liegt eine
- *     Appwrite Function als Guard bei (`functions/share-events-guard/`,
- *     siehe specs/36-liveshare.md). Ohne Guard kann jeder Eingeloggte, der
- *     den Code kennt, Events injizieren; der Client ignoriert unbefugte
- *     Mutationen (isEventAllowed), zeigt sie aber ggf. als Presence.
+ * Zwei Tabellen in server/shares.js:
+ *   - `shares`: eine Zeile pro Freigabe. Der Server erzeugt den Code selbst
+ *     (11 Zeichen aus crypto) und gibt ihn erst nach dem Anlegen heraus.
+ *   - `share_events`: Append-only Ereignisse (Striche, Texte, Cursor,
+ *     Presence, Sync) mit streng monotoner `seq` als Cursor.
  *
- * Live-Transport: Appwrite Realtime-WebSocket auf beide Tabellen
- * (Client filtert nach shareId), mit Polling-Fallback alle 4s.
+ * Wer mitschreiben darf, entscheidet der Server im selben Prozess: die
+ * Freigabe muss existieren, darf nicht widerrufen und nicht abgelaufen sein.
+ * Frueher lag diese Pruefung in einer separaten Cloud-Function, weil die
+ * Zeilenrechte des Backends keine Freigabe-Mitgliedschaft kannten - mit
+ * eigenem Server waere das nur ein Umweg um dieselbe Pruefung.
+ *
+ * Live-Transport: SSE (`/api/events`) meldet "da ist etwas neu" und triggert
+ * einen Pull; der Poll alle 4s bleibt als Rueckfallweg.
  * Merge: Last-Writer-Wins pro Stroke/Text-ID (SPEC-35, kein Full-Overwrite).
  * Remote-Cursor: als DIV-Overlay (kein Canvas-Konflikt mit Laser/Hover).
  *
@@ -25,8 +23,6 @@
 (function () {
   'use strict';
 
-  const SHARE_TABLE = 'shares';
-  const EVENT_TABLE = 'share_events';
   const CODE_RE = /^s[a-z0-9]{11}$/;
   const MODES = ['read', 'edit'];
   const KINDS = [
@@ -126,7 +122,7 @@
   }
   function shareUsable(shareRow, atMs) {
     const r = shareRow || {};
-    if (!r.shareId && !r.$id) return { ok: false, reason: 'unbekannt' };
+    if (!r.shareId) return { ok: false, reason: 'unbekannt' };
     if (isRevoked(r)) return { ok: false, reason: 'zurückgezogen' };
     if (isExpired(r.expiresAt, atMs)) return { ok: false, reason: 'abgelaufen' };
     return { ok: true, reason: '' };
@@ -149,7 +145,7 @@
   const OWNER_ONLY_KINDS = ['sync-state', 'sync-chunk'];
   function isMutatingKind(kind) { return MUTATING_KINDS.indexOf(kind) >= 0; }
   // Darf DIESER Absender (senderIsOwner) diese Kind bei diesem Modus senden?
-  // Rein clientseitig – ersetzt keine serverseitige Prüfung (Guard-Function).
+  // Rein clientseitig – die verbindliche Pruefung macht server/shares.js.
   function canSendKind(kind, senderIsOwner, mode) {
     if (KINDS.indexOf(kind) < 0) return false;
     if (!isMutatingKind(kind)) return true; // Presence/Cursor/Sync-Request: jeder Teilnehmer
@@ -407,29 +403,9 @@
     return ((atMs == null ? nowMs() : +atMs) - (lastSentMs || 0)) >= m;
   }
 
-  /* ---------- Appwrite-Zeilen (rein: Body/Perms/Queries) ---------- */
+  /* ---------- Freigabe-Body (rein, ohne Transport) ---------- */
 
-  function sharePerms(ownerId) {
-    const o = String(ownerId || '');
-    return [
-      'read("users")',
-      'update("user:' + o + '")',
-      'delete("user:' + o + '")',
-    ];
-  }
-  // Append-only: Events werden nie aktualisiert (kein update-Perm) –
-  // eigene Rows darf der Autor löschen (Aufräumen), fremde nie.
-  // HINWEIS: Das begrenzt nicht, FÜR WELCHE shareId jemand Events anlegt
-  // (Appwrite-Row-Perms kennen keine Share-Mitgliedschaft) – dafür ist die
-  // Guard-Function zuständig (functions/share-events-guard/).
-  function eventPerms(userId) {
-    const u = String(userId || '');
-    return [
-      'read("users")',
-      'delete("user:' + u + '")',
-    ];
-  }
-  function shareRowBody(input) {
+  function shareBody(input) {
     const i = input || {};
     return {
       shareId: normalizeCode(i.shareId),
@@ -446,38 +422,10 @@
       updatedAt: i.updatedAt || msToIso(nowMs()),
     };
   }
-  function eventRowBody(ev, permsFor) {
-    if (!validateEvent(ev)) throw new Error('Event ungültig');
-    return {
-      row: {
-        shareId: ev.shareId,
-        userId: ev.userId,
-        userName: ev.userName,
-        userColor: ev.userColor,
-        kind: ev.kind,
-        payload: ev.payload,
-        createdAt: ev.createdAt,
-      },
-      permissions: permsFor || eventPerms(ev.userId),
-    };
-  }
-  const EQ = {
-    limit: n => JSON.stringify({ method: 'limit', values: [n] }),
-    orderAsc: a => JSON.stringify({ method: 'orderAsc', attribute: a }),
-    orderDesc: a => JSON.stringify({ method: 'orderDesc', attribute: a }),
-    equal: (a, v) => JSON.stringify({ method: 'equal', attribute: a, values: [v] }),
-    greaterThan: (a, v) => JSON.stringify({ method: 'greaterThan', attribute: a, values: [v] }),
-    cursorAfter: id => JSON.stringify({ method: 'cursorAfter', values: [id] }),
-  };
-  function eventQueries(shareId, sinceIso) {
-    const qs = [EQ.equal('shareId', shareId), EQ.orderAsc('$createdAt'), EQ.limit(100)];
-    if (sinceIso) qs.push(EQ.greaterThan('$createdAt', sinceIso));
-    return qs;
-  }
 
   const Live = {
     // Konstanten + Reines
-    SHARE_TABLE, EVENT_TABLE, MODES, KINDS,
+    MODES, KINDS,
     PRESENCE_TIMEOUT_MS, HEARTBEAT_MS, CURSOR_MIN_MS,
     SNAPSHOT_MAX_BYTES, CHUNK_SIZE, CHUNK_MAX, POLL_MS,
     makeShareCode, isValidShareCode, normalizeCode,
@@ -491,7 +439,7 @@
     buildPageSnapshot, snapshotBytes, snapshotFits, applyPageSnapshot,
     chunkString, makeSyncChunks, collectSyncChunks,
     presenceNew, presenceSee, presencePrune, presenceList, shouldSendCursor,
-    sharePerms, eventPerms, shareRowBody, eventRowBody, eventQueries, EQ,
+    shareBody,
   };
 
   /* ---------- Browser-Transport + Session (nur Browser) ---------- */
@@ -519,7 +467,7 @@
 
     function filesApi() {
       if (window.FederwerkFiles) return window.FederwerkFiles;
-      throw new Error('FederwerkFiles fehlt – Appwrite in ⚙ einrichten');
+      throw new Error('FederwerkFiles fehlt – Server in ⚙ einrichten');
     }
     function cfg() { return filesApi().loadConfig(); }
     function api() {
@@ -528,12 +476,6 @@
         try { return require('./api.js'); } catch { /* ignore */ }
       }
       throw new Error('FederwerkApi fehlt (js/api.js einbinden)');
-    }
-    function q(params) {
-      return '?' + params.map((p, i) => 'queries[' + i + ']=' + encodeURIComponent(p)).join('&');
-    }
-    async function rest(method, path, body) {
-      return api().call(method, path, body);
     }
     async function currentUser() {
       const me = await filesApi().session();
@@ -557,7 +499,7 @@
         snapshot: body.snapshot,
         ownerName: body.ownerName,
       });
-      return { ...body, $id: share.shareId, shareId: share.shareId };
+      return { ...body, shareId: share.shareId };
     }
     async function getShareRow(code) {
       const share = await api().shareGet(code);
@@ -582,7 +524,6 @@
     function shareToRow(s) {
       if (!s) return null;
       return {
-        $id: s.shareId,
         shareId: s.shareId,
         bookId: s.bookId,
         ownerId: s.ownerId,
@@ -600,12 +541,11 @@
 
     /* ----- Events -----
      *
-     * Der Guard-Proxy ist entfallen und war nicht verhandelbar: In Appwrite
-     * waren share_events fuer jeden angemeldeten Nutzer lesbar und brauchten
-     * eine separate Function, um beschreibbar zu sein. Jetzt prueft der
-     * Server im selben Prozess, ob die Freigabe existiert, nicht widerrufen
-     * und nicht abgelaufen ist - genau auf dem Weg, den der Code wirklich
-     * nimmt. Ein zusaetzlicher Proxy koennte diese Pruefung nur umgehen.
+     * Ereignisse werden ueber /api/shares/<code>/events angehaengt. Der Server
+     * prueft dabei im selben Prozess, ob die Freigabe existiert, nicht
+     * widerrufen und nicht abgelaufen ist - genau auf dem Weg, den der Aufruf
+     * wirklich nimmt. Ein vorgeschalteter Proxy koennte diese Pruefung nur
+     * umgehen, deshalb gibt es keinen.
      */
     async function postEvent(ev) {
       return api().shareAppend(ev.shareId || S.share && S.share.shareId, {
@@ -618,7 +558,6 @@
     async function listEvents(code, sinceSeq) {
       const j = await api().shareEvents(code, sinceSeq, 200);
       return (j.items || []).map((e) => ({
-        $id: String(e.seq),
         seq: e.seq,
         shareId: e.shareId,
         userId: e.userId,
@@ -709,7 +648,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
           createdAt: row.createdAt || row.$createdAt || null,
         };
         if (!validateEvent(ev)) return;
-        if (ev.shareId !== (S.share && (S.share.shareId || S.share.$id))) return;
+        if (ev.shareId !== (S.share && (S.share.shareId))) return;
         if (ev.userId === myId()) {
           // Eigene Presence trotzdem sehen (Heartbeat-Echo ignorieren)
           return;
@@ -739,8 +678,9 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
       // Absender prüfen statt eigener Schreibrechte: Die userId/userName im
       // Event ist clientseitig gesetzt (spoofbar) – felt aber grobe
       // Fremdschreibversuche raus (z. B. stroke-add im read-Modus von
-      // Nicht-Ownern). Echte Sicherheit liefert nur die Guard-Function
-      // (functions/share-events-guard/), die die Identität serverseitig prüft.
+      // Nicht-Ownern). Verbindlich ist das nicht: die Identitaet im Ereignis
+      // ist clientseitig gesetzt. Serverseitig haelt server/shares.js dagegen,
+      // dass ohne gueltige Freigabe gar kein Ereignis angenommen wird.
       const senderOwner = (S.share && ev.userId === S.share.ownerId) || !!payload.isOwner;
       const senderAllowed = S.share
         ? isEventAllowed(S.share, senderOwner, ev.kind, nowMs())
@@ -820,10 +760,10 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
     async function send(kind, payload) {
       if (!S.share || !S.me) return;
       // Eigene Sendeberechtigung (Gast im read-Modus sendet keine Mutationen).
-      // Schützt die UI-Pfade; direkte postEvent-Aufrufe begrenzt nur der Guard.
+      // Schützt die UI-Pfade; direkte postEvent-Aufrufe begrenzt der Server.
       if (!canSendKind(kind, S.isOwner, (S.share && S.share.mode) || 'read')) return;
       const ev = buildEvent({
-        shareId: S.share.shareId || S.share.$id,
+        shareId: S.share.shareId,
         userId: S.me.userId, userName: S.me.userName, userColor: S.me.userColor,
         kind, payload: Object.assign({ pageId: currentPageId(), isOwner: S.isOwner }, payload || {}),
       });
@@ -852,7 +792,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
           await send('sync-state', { snapshot: snap });
         } else {
           const chunks = makeSyncChunks(
-            S.share.shareId || S.share.$id, S.me, json);
+            S.share.shareId, S.me, json);
           for (const c of chunks) await postEvent(c).catch(() => null);
         }
       } catch { /* ignore */ }
@@ -873,7 +813,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
     function startRealtime() {
       stopRealtime();
       try {
-        const code = S.share && (S.share.shareId || S.share.$id);
+        const code = S.share && (S.share.shareId);
         if (!code) return; // noch keine Freigabe - nichts zu abonnieren
         const handle = api().subscribe(rtChannels(), code, () => { pollOnce(); });
         S.es = handle.es;
@@ -897,7 +837,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
     async function pollOnce() {
       if (!S.share || !S.joined) return;
       try {
-        const rows = await listEvents(S.share.shareId || S.share.$id, S.lastEventAt);
+        const rows = await listEvents(S.share.shareId, S.lastEventAt);
         for (const r of rows) handleRemoteRow(r);
       } catch { /* offline -> still */ }
     }
@@ -925,14 +865,14 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
     function ensureLiveBook(shareRow, snapshot) {
       const A = appGlobals();
       if (!A.state) throw new Error('App-State fehlt');
-      const id = 'live-' + (shareRow.shareId || shareRow.$id);
+      const id = 'live-' + shareRow.shareId;
       let b = (A.state.books || []).find(x => x && x.id === id);
       if (!b) {
         b = {
           id, title: '🔴 ' + (shareRow.title || 'Live'),
           kind: 'notebook', paper: 'grid-a4', updatedAt: Date.now(),
           folderId: null, pages: [{ id: (shareRow.pageId || 'p1'), strokes: [], texts: [], images: [], bg: null }],
-          _liveShareId: (shareRow.shareId || shareRow.$id),
+          _liveShareId: shareRow.shareId,
           _liveReadonly: normalizeMode(shareRow.mode) === 'read',
         };
         A.state.books.unshift(b);
@@ -951,7 +891,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
       try {
         const A = appGlobals();
         if (!A.state || !S.share) return;
-        const id = 'live-' + (S.share.shareId || S.share.$id);
+        const id = 'live-' + (S.share.shareId);
         const ix = (A.state.books || []).findIndex(x => x && x.id === id);
         if (ix >= 0) {
           // Gast-Kopie ist Wegwerf-Sicht: nicht in Cloud syncen, einfach entfernen.
@@ -986,7 +926,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
       const dots = peers.map(p =>
         '<span class="live-avatar" title="' + esc(p.userName) + '" style="background:' + esc(p.userColor) + '">' +
         esc(String(p.userName || '?').slice(0, 1).toUpperCase()) + '</span>').join('');
-      // Gleiche Barschreibweise wie renderCursors() unten: ohne den Guard
+      // Gleiche Barschreibweise wie renderCursors() unten: ohne den Vergleich
       // wurde bar.innerHTML bei JEDEM Event neu geparst und der Bar komplett
       // neu gebaut – auch bei reinen Cursor-Events, von denen jeder Peer bis zu
       // alle 120ms schickt. presenceSee() kann newue Peers hinzufuegen, darum
@@ -1056,7 +996,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
           if (cur) sel.value = cur.id;
         }
         const link = el('liveLink');
-        if (link) link.value = S.share ? encodeShareLink(location.origin, location.pathname, S.share.shareId || S.share.$id) : '';
+        if (link) link.value = S.share ? encodeShareLink(location.origin, location.pathname, S.share.shareId) : '';
         const meta = el('liveHostMeta');
         if (meta) {
           meta.textContent = S.share
@@ -1092,7 +1032,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
         ensureStrokeIds(page.strokes || []);
         const snap = buildPageSnapshot(page);
         const code = makeShareCode();
-        const body = shareRowBody({
+        const body = shareBody({
           shareId: code, bookId: book.id, ownerId: S.me.userId,
           ownerName: S.me.userName, title: book.title || 'Geteilte Seite',
           mode, pageId: page.id, expiresAt: expiryIso(Number.isFinite(ttl) ? ttl : null),
@@ -1208,7 +1148,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
       if (!S.share || !S.isOwner) return;
       const msg = el('liveMsg');
       try {
-        const code = S.share.shareId || S.share.$id;
+        const code = S.share.shareId;
         await patchShareRow(code, { revoked: true, updatedAt: msToIso(nowMs()) });
         S.share.revoked = true;
         if (msg) msg.textContent = 'Freigabe zurückgezogen.';
@@ -1220,7 +1160,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
       const msg = el('liveMsg');
       try {
         const m = normalizeMode(mode != null ? mode : ((el('liveMode') || {}).value || 'read'));
-        const code = S.share.shareId || S.share.$id;
+        const code = S.share.shareId;
         await patchShareRow(code, { mode: m, updatedAt: msToIso(nowMs()) });
         S.share.mode = m;
         if (msg) msg.textContent = 'Modus: ' + (m === 'edit' ? '✎ Edit' : '👁 Lesen') + '.';
@@ -1230,7 +1170,7 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
     async function copyLink() {
       try {
         if (!S.share) return;
-        const link = encodeShareLink(location.origin, location.pathname, S.share.shareId || S.share.$id);
+        const link = encodeShareLink(location.origin, location.pathname, S.share.shareId);
         await navigator.clipboard.writeText(link);
         const msg = el('liveMsg');
         if (msg) msg.textContent = 'Link kopiert.';
@@ -1325,16 +1265,15 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
     window.addEventListener('beforeunload', () => {
       try {
         if (S.joined && S.share && S.me) {
-          const code = S.share.shareId || S.share.$id;
+          const code = S.share.shareId;
           const ev = buildEvent({
             shareId: code,
             userId: S.me.userId, userName: S.me.userName, userColor: S.me.userColor,
             kind: 'bye', payload: {},
           });
-          // sendBeacon nimmt keine Header mit. Gegen Appwrite war das ein
-          // stiller Fehler: das Ereignis ging ohne Session raus und wurde
-          // verworfen. Same-Origin haengt der Browser das Session-Cookie an
-          // einen Beacon automatisch mit - der Weg funktioniert jetzt.
+          // sendBeacon nimmt keine Header mit - auf eigenem Origin aber auch
+          // keine Header mitnehmen. Der Browser haengt das Session-Cookie an
+          // einen Beacon automatisch an, deshalb kommt das Ereignis an.
           const base = api().cfg().base;
           navigator.sendBeacon && navigator.sendBeacon(
             base + '/api/shares/' + encodeURIComponent(code) + '/events',

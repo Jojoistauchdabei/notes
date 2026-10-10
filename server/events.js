@@ -2,9 +2,9 @@
 /* Federwerk: Live-Benachrichtigungen (Server-Sent Events).
  *
  * Warum SSE und nicht WebSocket: der alte Weg hatte zwei handgebaute
- * Sockets (Appwrite-Realtime) mit eigenem Auth-Frame, eigenem Ping und
- * eigenem Reconnect. SSE braucht davon nichts - reconnect, Last-Event-ID
- * und die HTTP-Semantik sind schon drin. Ausserdem ist die Verbindung in
+ * Sockets mit eigenem Auth-Frame, eigenem Ping und eigenem Reconnect. SSE
+ * braucht davon nichts - reconnect, Last-Event-ID und die HTTP-Semantik sind
+ * schon drin. Ausserdem ist die Verbindung in
  * eine Richtung, was hier genau der Fall ist: der Server sagt "da ist etwas
  * neu", der Client holt den Delta-Pull ueber normales HTTP.
  *

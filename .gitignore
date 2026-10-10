@@ -2,9 +2,9 @@ tmp/
 .DS_Store
 dist/
 # dist/ ist ein reines Build-Artefakt (npm run build) und wird NICHT
-# eingecheckt: Jedes GitHub Release enthält Federwerk-<version>-web.zip
-# mit den fertigen Cloudflare-Dateien (release.yml baut + lädt hoch),
-# die Desktop-/Android-Installer baut tauri.yml dazu.
+# eingecheckt: der Deploy auf den LXC baut es im Checkout (deploy-app.sh),
+# und jedes GitHub Release haengt Federwerk-<version>-web.zip mit denselben
+# Dateien an; die Desktop-/Android-Installer baut tauri.yml dazu.
 # Tauri: privater Updater-Signierschlüssel (NIE committen – Inhalt als
 # GitHub-Secret TAURI_SIGNING_PRIVATE_KEY hinterlegen) + Build-Artefakte.
 src-tauri/updater-key

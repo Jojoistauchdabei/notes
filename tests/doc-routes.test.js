@@ -1,92 +1,90 @@
 'use strict';
-/* Doku-Routen des Workers: GET /agent (HTML) und GET /mcp (text/markdown).
+/* Doku-Routen des eigenen Servers: GET /agent (HTML) und GET /mcp
+ * (text/markdown).
  *
- * /mcp war früher ein Alias der Tool-Liste der Legacy-API – die Doku-Route hat
- * ihn jetzt belegt (API weiter unter /mcp/tools, /mcp/login, …). Ohne
- * Regressionstest käme das still zurück. */
+ * Beide Adressen sind aelter als dieser Server. Sie bleiben gueltig, weil
+ * Lesezeichen, Links und die Anleitungen selbst darauf zeigen.
+ * Ohne Regressionstest faellt das still in den SPA-Fallback zurueck - dann
+ * liefert /mcp die App statt der Anleitung. */
 
-const { describe, it } = require('node:test');
+const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { PassThrough } = require('node:stream');
 
-async function loadWorker() {
-  // worker.js ist ein ES-Modul; der Test lädt es deshalb per data-URL-Import.
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const src = fs.readFileSync(path.join(__dirname, '..', 'worker.js'), 'utf8');
-  const mod = await import('data:text/javascript;base64,' + Buffer.from(src).toString('base64'));
-  return mod.default;
+let appDir = null;
+let serveStatic = null;
+
+before(() => {
+  appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fw-doc-'));
+  const dist = path.join(appDir, 'dist');
+  fs.mkdirSync(dist, { recursive: true });
+  fs.writeFileSync(path.join(dist, 'agent.html'), '<!DOCTYPE html><title>KI-Agent &amp; MCP</title>');
+  fs.writeFileSync(path.join(dist, 'MCP_AI.md'), '# Federwerk MCP\n\n24 Tools\n');
+  fs.writeFileSync(path.join(dist, 'index.html'), '<!DOCTYPE html><title>App</title>');
+  // FW_APP_DIR wird beim Laden von server/index.js gelesen - deshalb erst hier
+  // setzen und dann requiren.
+  process.env.FW_APP_DIR = appDir;
+  ({ serveStatic } = require('../server/index.js'));
+});
+
+after(() => {
+  if (appDir) fs.rmSync(appDir, { recursive: true, force: true });
+});
+
+/* Kleiner Antwort-Faenger: serveStatic schreibt in einen Stream, den es fuer
+ * einen http.ServerResponse haelt. Mehr als writeHead/pipe/end braucht es
+ * nicht - und so laeuft der Test ohne echten Socket. */
+function get(pathname) {
+  const chunks = [];
+  const res = new PassThrough();
+  res.writeHead = (status, headers) => { res.statusCode = status; res.headers = headers || {}; };
+  res.on('data', (c) => chunks.push(c));
+  const hit = serveStatic(null, res, pathname);
+  if (!hit) return Promise.resolve({ status: 404, headers: {}, body: '' });
+  return new Promise((resolve) => res.on('end', () => resolve({
+    status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8'),
+  })));
 }
 
-const FILES = {
-  '/agent.html': { type: 'text/html', body: '<!DOCTYPE html><title>KI-Agent &amp; MCP</title>' },
-  '/MCP_AI.md': { type: 'text/markdown', body: '# Federwerk MCP\n\n24 Tools\n' },
-  '/index.html': { type: 'text/html', body: '<!DOCTYPE html><title>App</title>' },
-};
-
-function makeEnv() {
-  return {
-    MCP_TOKEN: 'test-token',
-    ASSETS: {
-      async fetch(req) {
-        let p = new URL(req.url).pathname;
-        if (p === '/') p = '/index.html';
-        const f = FILES[p];
-        if (!f) return new Response('Not found', { status: 404 });
-        return new Response(f.body, { status: 200, headers: { 'Content-Type': f.type } });
-      },
-    },
-  };
-}
-
-describe('worker/doku-routen', () => {
+describe('server/doku-routen', () => {
   it('/agent liefert die KI-Agent-Seite als HTML', async () => {
-    const worker = await loadWorker();
     for (const p of ['/agent', '/agent/']) {
-      const res = await worker.fetch(new Request('https://t.test' + p), makeEnv(), {});
+      const res = await get(p);
       assert.equal(res.status, 200, p);
-      assert.match(res.headers.get('content-type') || '', /text\/html/);
-      assert.match(await res.text(), /KI-Agent/);
+      assert.match(res.headers['Content-Type'], /text\/html/, p);
+      assert.match(res.body, /KI-Agent/, p);
     }
   });
 
   it('/mcp liefert die Anleitung als text/markdown', async () => {
-    const worker = await loadWorker();
-    const res = await worker.fetch(new Request('https://t.test/mcp'), makeEnv(), {});
+    const res = await get('/mcp');
     assert.equal(res.status, 200);
-    assert.match(res.headers.get('content-type') || '', /text\/markdown/);
-    assert.match(await res.text(), /Federwerk MCP/);
-  });
-
-  it('/mcp beantwortet HEAD ohne Body', async () => {
-    const worker = await loadWorker();
-    const res = await worker.fetch(new Request('https://t.test/mcp', { method: 'HEAD' }), makeEnv(), {});
-    assert.equal(res.status, 200);
-    assert.equal(await res.text(), '');
-  });
-
-  it('die Legacy-API bleibt unter /mcp/… erreichbar', async () => {
-    const worker = await loadWorker();
-    const tools = await worker.fetch(new Request('https://t.test/mcp/tools'), makeEnv(), {});
-    assert.equal(tools.status, 200);
-    assert.match(await tools.text(), /mcp\.login/);
-    const health = await worker.fetch(new Request('https://t.test/mcp/health'), makeEnv(), {});
-    assert.equal(health.status, 200);
-    // Schreibende Route ohne Bearer bleibt geschützt.
-    const search = await worker.fetch(new Request('https://t.test/mcp/search', { method: 'POST' }), makeEnv(), {});
-    assert.equal(search.status, 401);
+    assert.match(res.headers['Content-Type'], /text\/markdown/);
+    assert.match(res.body, /Federwerk MCP/);
   });
 
   it('/ liefert weiterhin die App', async () => {
-    const worker = await loadWorker();
-    const res = await worker.fetch(new Request('https://t.test/'), makeEnv(), {});
+    const res = await get('/');
     assert.equal(res.status, 200);
-    assert.match(await res.text(), /App/);
+    assert.match(res.body, /App/);
+  });
+
+  it('unbekannte Pfade ohne Endung sind kein Treffer (SPA-Fallback im Aufrufer)', () => {
+    assert.equal(serveStatic(null, new PassThrough(), '/gibtsnicht'), false);
+  });
+
+  it('setzt die Header, die frueher die CDN-Konfiguration gesetzt hat', async () => {
+    const res = await get('/agent');
+    assert.equal(res.headers['X-Frame-Options'], 'DENY');
+    assert.equal(res.headers['X-Content-Type-Options'], 'nosniff');
+    assert.equal(res.headers['Referrer-Policy'], 'strict-origin-when-cross-origin');
   });
 });
 
 describe('doku-dateien', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
   const root = path.join(__dirname, '..');
 
   it('agent.html verlinkt die KI-Anleitung und zurück in die App', () => {

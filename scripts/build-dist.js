@@ -1,19 +1,21 @@
 // scripts/build-dist.js – baut ein frisches dist/ plattformübergreifend
-// (Linux/macOS/Windows) für Web-Release und Tauri beforeBuildCommand.
+// (Linux/macOS/Windows) für den LXC-Deploy, das Web-Release und Tauri
+// beforeBuildCommand.
 //
-// CDN-Optimierung (Cloudflare Workers Static Assets):
+// Auslieferungs-Optimierung (ausgeliefert wird dist/ vom Node-Server in
+// server/index.js, der auch die Header setzt):
 // - altes_Papier.png (2,5 MB) bleibt Quell-Asset, kommt NICHT ins dist/.
-//   Stattdessen WebP + JPEG-Fallback, beide inhalts-gehasht (cachebar mit immutable).
+//   Stattdessen WebP + JPEG-Fallback, beide inhalts-gehasht. Gehashte Namen
+//   erkennt der Server als immutable (server/index.js:serveStatic).
 // - Die 26 Seiten-Skripte aus index.html werden in EIN Bundle gelegt und
 //   minifiziert: 27 Requests -> 1, ~37 % weniger Bytes (über gzip ~37 %).
 // - css/styles.css wird minifiziert und gehasht.
 // - dist/index.html lädt genau ein Bundle (defer) + ein gehashtes Stylesheet.
 // - dist/sw.js precacht nur noch die App-Shell statt aller Einzeldateien.
-// - dist/_headers: immutable für gehashte Assets, must-revalidate für HTML/SW.
 //
-// Minifiziert wird mit esbuild (npx, wie wrangler@4 im Release-Workflow).
-// Ohne Netz/ohne esbuild baut der Schritt ohne Minifizierung weiter – die
-// Bundle-/Hash-/Caching-Optimierungen greifen unabhängig davon immer.
+// Minifiziert wird mit esbuild (npx). Ohne Netz/ohne esbuild baut der Schritt
+// ohne Minifizierung weiter – die Bundle-/Hash-Optimierungen greifen
+// unabhängig davon immer.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -297,41 +299,6 @@ for (const rel of ['js/gnpdf-worker.js', 'js/mcp.js', 'js/storage-usage.js', 'js
   }
   s = s.replace(/const ASSETS = \[[^\]]*\];/, arr);
   fs.writeFileSync(p, s);
-}
-
-// 8) _headers: lange Cache-TTL für gehashte/unveränderte Dateien
-{
-  const immutable = [
-    `/js/${appPage.bundleName}`,
-    `/css/${cssName}`,
-    `/${paperFiles.webp}`,
-    `/${paperFiles.jpg}`,
-    '/icons/*',
-  ];
-  const revalidate = [
-    '/index.html',
-    '/agent.html',
-    '/MCP_AI.md',
-    '/sw.js',
-    '/manifest.webmanifest',
-  ];
-  if (presentPage) {
-    immutable.push(`/js/${presentPage.bundleName}`);
-    revalidate.push('/present.html');
-  }
-  if (mdPage) {
-    immutable.push(`/js/${mdPage.bundleName}`);
-    // Ungehashte Editor-Dateien: müssen bei einem Release zuverlässig ankommen.
-    revalidate.push('/md.html', '/css/md-editor.css', '/js/vendor/markdown.js', '/js/vendor/markdown.wasm');
-  }
-  const headers = [
-    ...immutable.map((route) => `${route}\n  Cache-Control: public, max-age=31536000, immutable`),
-    '/screenshots/*\n  Cache-Control: public, max-age=604800',
-    '/docs/*\n  Cache-Control: public, max-age=0, must-revalidate',
-    ...revalidate.map((route) => `${route}\n  Cache-Control: public, max-age=0, must-revalidate`),
-    '/*\n  X-Content-Type-Options: nosniff\n  X-Frame-Options: DENY\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()\n  Content-Security-Policy: frame-ancestors \'none\'',
-  ].join('\n\n') + '\n';
-  fs.writeFileSync(path.join(dist, '_headers'), headers);
 }
 
 function listFiles(dir, base = dist, out = []) {

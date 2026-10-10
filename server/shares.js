@@ -4,13 +4,11 @@
  * Freigabe-Code ist die Zeilen-ID (wie bisher s + 11 Zeichen), damit ein
  * geteilter Link keine zweite Zuordnung braucht.
  *
- * Der Sicherheitskern dieser Datei ist readShare() plus appendEvent(). In
- * Appwrite hat das eine Function erzwungen (functions/share-events-guard):
- * share_events waren fuer jeden angemeldeten Nutzer lesbar, aber nur ueber
- * eine Function beschreibbar, die Session und Freigabestatus selbst prueft.
- * Hier laeuft beides im selben Prozess - die Pruefung ist damit nicht mehr
- * von einem erreichbaren Nebenpfad abhaengig, sondern vom einen Weg, den der
- * Code auch wirklich nimmt.
+ * Der Sicherheitskern dieser Datei ist readShare() plus appendEvent().
+ * Beides laeuft im selben Prozess: Lesen und Schreiben sind an eine gueltige,
+ * nicht widerrufene und nicht abgelaufene Freigabe gebunden. Die Pruefung ist
+ * damit nicht von einem erreichbaren Nebenpfad abhaengig, sondern von dem
+ * einen Weg, den der Aufruf auch wirklich nimmt.
  *
  * ---- Warum eine geteilte Datenbank ----
  * Freigaben sind die einzige Datenklasse, die nutzeruebergreifend ist: der

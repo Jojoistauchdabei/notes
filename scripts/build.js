@@ -14,9 +14,9 @@
 // stillschweigend ohne Engine.
 //
 // Zusaetzlich zum Kopieren gibt es einen Download aus dem GitHub-Release. Grund:
-// Builds, die kein Rust haben (Cloudflare Workers Builds, fremde CI), konnten
-// vorher zwar dist/ erzeugen, aber ohne Engine - und deployten damit eine App,
-// deren Import-/Export-Knoepfe ins Leere zeigen, ohne dass der Build rot wurde.
+// Builds ohne Rust-Toolchain (fremde CI, frischer Checkout) konnten vorher zwar
+// dist/ erzeugen, aber ohne Engine - und lieferten damit eine App aus, deren
+// Import-/Export-Knoepfe ins Leere zeigen, ohne dass der Build rot wurde.
 // Die Engine liegt jetzt als Release-Asset vor und wird im Zweifel geholt.
 
 const fs = require('fs');
@@ -90,9 +90,9 @@ async function lade(url, tmpName) {
   return p;
 }
 
-/* Eine WebAssembly-Datei beginnt mit 00 61 73 6D. Das wird geprueft, weil der
- * Worker bei fehlender Datei mit not_found_handling die App-Shell liefert: die
- * ist HTML, 200, und damit kein Fehler - nur kaputtes WASM im Download. */
+/* Eine WebAssembly-Datei beginnt mit 00 61 73 6D. Das wird geprueft, weil ein
+ * Proxy oder ein Fehlerseiten-Fallback eine HTML-Seite mit HTTP 200 liefern
+ * kann: die ist dann kein Fehler, nur kaputtes WASM im Download. */
 function istWasm(datei) {
   try {
     const fd = fs.openSync(datei, 'r');
@@ -192,24 +192,8 @@ async function copyWasm(kind, requiredOnly) {
   }
   // Der MIME-Typ fuer .wasm ist Pflicht: sonst faellt der Browser auf
   // instantiate() mit ArrayBuffer zurueck (deutlich langsameres Starten).
-  // build.sh legt dafuer <base>.headers neben die Engine. Beim Download gibt es
-  // kein build.sh, deshalb steht derselbe Inhalt hier - sonst deployte ein
-  // Build ohne Rust die WASM mit application/octet-stream.
-  const headers = path.join(srcDir, base + '.headers');
-  const add = fs.existsSync(headers)
-    ? fs.readFileSync(headers, 'utf8').trim()
-    : [
-      '/' + base + '_bg.wasm',
-      '  Content-Type: application/wasm',
-      '/' + base + '.js',
-      '  Content-Type: text/javascript',
-    ].join('\n');
-  const target = path.join(dist, '_headers');
-  const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
-  if (!existing.includes('/' + base + '_bg.wasm')) {
-    fs.writeFileSync(target, existing.replace(/\s*$/, '\n\n') + add + '\n', 'utf8');
-    console.log('dist/_headers: ' + base + '-MIME ergaenzt');
-  }
+  // Gesetzt wird er vom ausliefernden Server (server/index.js, MIME['.wasm']),
+  // nicht mehr per Header-Datei neben dem dist/ - siehe specs/41.
 }
 
 (async function main() {

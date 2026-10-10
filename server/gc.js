@@ -54,7 +54,7 @@ const day = 86400000;
 const now = Date.now();
 const log = (...a) => { if (!JSON_OUT) console.log(...a); };
 
-/* Spiegelt extForMime() aus js/appwrite-files.js:65. Beide Seiten MUESSEN
+/* Spiegelt extForMime() aus js/files-sync.js. Beide Seiten MUESSEN
  * dieselbe Endung liefern, sonst findet der GC die Datei nicht, die der
  * Server hingelegt hat. */
 function extFromMime(mime) {

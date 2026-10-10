@@ -32,7 +32,7 @@ deckcraft-pptx = { git = "https://github.com/storytold/deckcraft.git", rev = "28
 [profile.release]
 # small = wasm-opt -Oz: DAS ist der Hebel fuer die Groesse. Ohne das landet
 # ein Release um ein Vielfaches groesser als der Upstream-Web-Build (29,75 MiB
-# bei wordcraft), und das Cloudflare-Limit je Datei liegt bei 25 MiB.
+# bei wordcraft) - und das muss jeder Client beim ersten Oeffnen laden.
 opt-level = "z"
 lto = true
 codegen-units = 1

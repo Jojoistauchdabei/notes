@@ -1,11 +1,12 @@
-/* Federwerk Datei-Sync mit Speicheroptimierung (Appwrite Storage).
+/* Federwerk Datei-Sync mit Speicheroptimierung (eigener Server, server/files.js).
  *
  * Idee: Bilder/PDFs liegen lokal als `blob:<id>`-Refs (js/store.js, bereits
- * JPEG-komprimiert). Dieses Modul spiegelt sie per Content-Hash in den
- * Appwrite-Bucket `attachments`:
+ * JPEG-komprimiert). Dieses Modul spiegelt sie per Content-Hash auf den
+ * Server, der sie unter ihrem SHA-256 ablegt:
  *
- * - Dedupe: Dateiname = `fw` + SHA-256 (32 Zeichen). Existiert die Datei
- *   remote schon (409 beim Upload), wird nichts doppelt hochgeladen.
+ * - Dedupe: Dateiname = `fw` + SHA-256 (32 Zeichen). Der Server erkennt den
+ *   Inhalt selbst wieder (Antwortfeld `deduplicated`), es wird nichts doppelt
+ *   gespeichert.
  * - Recompress: Bilder werden vor dem Upload auf max. 1600px lange Kante
  *   skaliert; opake Bilder als JPEG (0.82), mit Alpha als WebP/PNG.
  *   Was nicht kleiner wird, wird unverändert hochgeladen.
@@ -71,7 +72,7 @@
       default: return 'bin';
     }
   }
-  // Stabile, Appwrite-taugliche Datei-ID (34 Zeichen, alphanumerisch).
+  // Stabile Datei-ID (34 Zeichen, alphanumerisch) fuer den lokalen Abgleich.
   function fileIdForHash(hash) {
     const h = String(hash || '').toLowerCase().replace(/[^0-9a-f]/g, '');
     if (h.length < 32) throw new Error('hash zu kurz');
@@ -424,7 +425,7 @@
     collectLocalEntries, optimizeImage, uploadEntry, downloadEntry, listAllFiles,
 
     /* ---- Auth ----
-     * Die Antwort ist jetzt {user}, kein Appwrite-Konto-Objekt. Die Aufrufer
+     * Die Antwort ist {user} - die Aufrufer
      * in UI, Sync und Liveshare brauchen nur, dass es funktioniert hat. */
     async session() {
       try { return await api().session(); }
@@ -461,7 +462,7 @@
       const cfg = loadConfig();
       const say = typeof progress === 'function' ? progress : () => {};
       const me = await Files.session();
-      if (!me) throw new Error('Bitte zuerst in den Appwrite-Einstellungen einloggen.');
+      if (!me) throw new Error('Bitte zuerst in den Server-Einstellungen einloggen.');
       const books = (typeof window !== 'undefined' && window.state && Array.isArray(window.state.books))
         ? window.state.books : [];
       const store = (typeof window !== 'undefined' && window.GrimoireStore) ? window.GrimoireStore : null;
@@ -567,29 +568,29 @@
     const UI = {
       _authTab: 'login',
       _el(id) { try { return document.getElementById(id); } catch { return null; } },
-      _say(t) { const el = UI._el('awStatus'); if (el) el.textContent = t; },
+      _say(t) { const el = UI._el('cloudStatus'); if (el) el.textContent = t; },
       _msg(t, isErr) {
-        const el = UI._el('awMsg');
-        if (el) { el.textContent = t; el.style.color = isErr ? 'var(--aw-err, #a33)' : ''; }
+        const el = UI._el('cloudMsg');
+        if (el) { el.textContent = t; el.style.color = isErr ? 'var(--cloud-err, #a33)' : ''; }
       },
       switchAuthTab(tab) {
         UI._authTab = tab === 'register' ? 'register' : 'login';
         const isReg = UI._authTab === 'register';
-        const tL = UI._el('awTabLogin'), tR = UI._el('awTabRegister');
+        const tL = UI._el('cloudTabLogin'), tR = UI._el('cloudTabRegister');
         if (tL) { tL.classList.toggle('active', !isReg); tL.setAttribute('aria-selected', String(!isReg)); }
         if (tR) { tR.classList.toggle('active', isReg); tR.setAttribute('aria-selected', String(isReg)); }
-        const pL = UI._el('awLoginPane'), pR = UI._el('awRegisterPane');
+        const pL = UI._el('cloudLoginPane'), pR = UI._el('cloudRegisterPane');
         if (pL) pL.hidden = isReg;
         if (pR) pR.hidden = !isReg;
-        const bL = UI._el('awBtnLogin'), bR = UI._el('awBtnRegister');
+        const bL = UI._el('cloudBtnLogin'), bR = UI._el('cloudBtnRegister');
         if (bL) bL.style.display = isReg ? 'none' : '';
         if (bR) bR.style.display = isReg ? '' : 'none';
         UI._msg('');
         UI.updatePwStrength();
       },
       updatePwStrength() {
-        const pwEl = UI._el('awRegPass');
-        const hint = UI._el('awPwHint');
+        const pwEl = UI._el('cloudRegPass');
+        const hint = UI._el('cloudPwHint');
         if (!hint) return;
         try {
           const s = Files.passwordStrength(pwEl ? pwEl.value : '');
@@ -616,24 +617,24 @@
         // Die Elemente werden nicht mehr befüllt, damit das vorhandene ⚙-Fenster
         // weiter bedienbar bleibt, ohne dass hier Felder erfunden werden.
         const set = (id, v) => { const el = UI._el(id); if (el) el.value = v || ''; };
-        set('awEndpoint', cfg.base);
-        const rt = UI._el('awRealtime'); if (rt) rt.checked = !!cfg.realtime;
+        set('cloudEndpoint', cfg.base);
+        const rt = UI._el('cloudRealtime'); if (rt) rt.checked = !!cfg.realtime;
         UI._msg('');
-        const ov = UI._el('awOverlay');
+        const ov = UI._el('cloudOverlay');
         if (ov) ov.classList.add('active');
         UI.switchAuthTab(UI._authTab || 'login');
         UI.refresh(true);
       },
-      closeSettings() { const ov = UI._el('awOverlay'); if (ov) ov.classList.remove('active'); },
+      closeSettings() { const ov = UI._el('cloudOverlay'); if (ov) ov.classList.remove('active'); },
       save() {
         const get = id => { const el = UI._el(id); return el ? el.value.trim() : ''; };
-        const base = get('awEndpoint');
+        const base = get('cloudEndpoint');
         if (base) {
           try {
             localStorage.setItem('federwerkApiV1', JSON.stringify({ base }));
           } catch { /* ignore */ }
         }
-        Files.saveConfig({ realtime: !!(UI._el('awRealtime') || {}).checked });
+        Files.saveConfig({ realtime: !!(UI._el('cloudRealtime') || {}).checked });
         UI._msg(`Gespeichert: ${base || location.origin}`);
         UI.refresh(true);
       },
@@ -641,8 +642,8 @@
         const get = id => { const el = UI._el(id); return el ? el.value : ''; };
         UI._msg('Logge ein …');
         try {
-          await Files.loginEmail(get('awEmail'), get('awPass'));
-          const pw = UI._el('awPass'); if (pw) pw.value = '';
+          await Files.loginEmail(get('cloudEmail'), get('cloudPass'));
+          const pw = UI._el('cloudPass'); if (pw) pw.value = '';
           UI._msg('Eingeloggt.');
           UI.refresh(true);
         } catch (e) { UI._msg('Login fehlgeschlagen: ' + e.message, true); }
@@ -650,10 +651,10 @@
       async register() {
         const get = id => { const el = UI._el(id); return el ? el.value : ''; };
         const input = {
-          name: get('awRegName'),
-          email: get('awRegEmail'),
-          password: get('awRegPass'),
-          confirm: get('awRegPass2'),
+          name: get('cloudRegName'),
+          email: get('cloudRegEmail'),
+          password: get('cloudRegPass'),
+          confirm: get('cloudRegPass2'),
         };
         const v = Files.validateRegister(input);
         if (!v.ok) {
@@ -663,7 +664,7 @@
         UI._msg('Registriere …');
         try {
           await Files.registerAccount({ name: input.name, email: input.email, password: input.password });
-          for (const id of ['awRegPass', 'awRegPass2']) {
+          for (const id of ['cloudRegPass', 'cloudRegPass2']) {
             const el = UI._el(id); if (el) el.value = '';
           }
           UI.updatePwStrength();

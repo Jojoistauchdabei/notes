@@ -1,13 +1,13 @@
 'use strict';
 /* Federwerk: Konten und Sessions.
  *
- * Bewusste Abweichungen von dem, was Appwrite gemacht hat:
+ * Zwei Entscheidungen praegen diese Datei:
  *
- * - EIN HttpOnly-Cookie statt Session-Secret im localStorage PLUS Cookie.
- *   Appwrite brauchte beides, weil der Tauri-WebView den Third-Party-Cookie
- *   verliert; auf eigenem Origin mit eigenem Protokoll gibt es dieses
- *   Problem nicht mehr. Ein Cookie im localStorage ist zudem fuer jeden
- *   XSS-Pfad lesbar - der HttpOnly-Cookie nicht.
+ * - EIN HttpOnly-Cookie, kein Session-Secret im localStorage. Frueher gab es
+ *   beides, weil der Tauri-WebView den Third-Party-Cookie verliert; auf
+ *   eigenem Origin gibt es dieses Problem nicht mehr. Ein Token im
+ *   localStorage ist zudem fuer jeden XSS-Pfad lesbar - der HttpOnly-Cookie
+ *   nicht.
  * - Sessions sind serverseitig widerrufbar (DELETE /api/auth/logout
  *   beendet genau die eine Session, die das Cookie traegt).
  * - Passwoerter mit scrypt. Bewusst keine bcrypt-Abhaengigkeit, damit das
@@ -41,7 +41,7 @@ function validateCredentials(email, password) {
   const e = String(email || '').trim().toLowerCase();
   const p = String(password || '');
   if (!e || !p) throw httpError(400, 'E-Mail und Passwort erforderlich.');
-  // Gleiche Obergrenze wie im Client (js/appwrite-files.js:validateRegister),
+  // Gleiche Obergrenze wie im Client (js/files-sync.js:validateRegister),
   // damit die Validierung nicht von der Seite des Clients abhaengt.
   if (p.length < 8) throw httpError(400, 'Passwort muss mindestens 8 Zeichen haben.');
   if (p.length > 512) throw httpError(400, 'Passwort ist zu lang.');

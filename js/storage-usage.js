@@ -179,7 +179,7 @@
         '<div><span>Inhalt</span><b>' + esc(String(r.state.books)) + ' Bücher · ' + esc(String(r.state.pages)) +
         ' Seiten · ' + esc(String(r.state.strokes)) + ' Strokes · ' + esc(String(r.state.texts)) + ' Texte/Karten</b></div>' +
         '</div>' +
-        '<div style="font-size:12px;opacity:.75;margin-top:8px">Tipp: „Bibliothek optimieren“ komprimiert Strokes + Bilder (siehe Ersparnis in ☁ Appwrite-Cloud). Große PDFs/Bilder als Erstes prüfen.</div>';
+        '<div style="font-size:12px;opacity:.75;margin-top:8px">Tipp: „Bibliothek optimieren“ komprimiert Strokes + Bilder (siehe Ersparnis in ☁ Server-Sync). Große PDFs/Bilder als Erstes prüfen.</div>';
       const badge = el('storageBadge');
       if (badge) {
         const icon = s.level === 'full' ? '🟥' : s.level === 'warn' ? '🟨' : '💾';

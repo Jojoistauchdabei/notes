@@ -1,0 +1,220 @@
+diff --git a/.github/workflows/auto-release.yml b/.github/workflows/auto-release.yml
+index 5baff0d..fa1c18e 100644
+--- a/.github/workflows/auto-release.yml
++++ b/.github/workflows/auto-release.yml
+@@ -1,4 +1,4 @@
+-name: Auto-Release – Test + Release + Deploy
++name: Auto-Release – Test + Release
+ 
+ # Release-Automation (Alternative zum manuellen Release im Web-UI):
+ # - Manuell: Actions → „Auto-Release" → Run workflow → Version (z. B. v1.7.0)
+@@ -7,18 +7,18 @@ name: Auto-Release – Test + Release + Deploy
+ #   hochgezählt (v1.7.2 → v1.7.3 …), bis der Tag frei ist. Für Minor/Major
+ #   die Version vorher in package.json erhöhen (+ `npm run sync-version`).
+ # - Opt-out: Commit-Message mit „[skip release]" oder „[no release]".
+-# Ablauf: Tests (Pflicht, sonst Stopp) → Tag + GitHub Release → Web-ZIP → Deploy
++# Ablauf: Tests (Pflicht, sonst Stopp) → Tag + GitHub Release → Web-ZIP
+ # → Tauri-Installer (als wiederverwendbarer Workflow im selben Lauf).
+ # Bei manuell (Web-UI) erstellten Releases laufen automatisch:
+-# - release.yml: baut dist/ frisch (nicht eingecheckt), hängt
+-#   Federwerk-<tag>-web.zip ans Release und deployed auf Cloudflare.
++# - release.yml: baut dist/ frisch (nicht eingecheckt) und hängt
++#   Federwerk-<tag>-web.zip ans Release.
+ # - tauri.yml: hängt Linux- (deb/AppImage/rpm), Windows- und Android-Installer
+ #   + latest.json (Desktop-Autoupdate) an dasselbe Release.
+ # Office hat keinen eigenen Worker mehr: der ONLYOFFICE-Editor wird als
+ # Komponente in Federwerks Oberfläche eingebettet, nichts wird separat deployed.
+ # Hinweis: Ein per GITHUB_TOKEN erstelltes Release startet KEINE weiteren
+ # Workflow-Läufe (GitHub unterdrückt Workflow-Ketten) – darum passieren
+-# Web-ZIP, Deploy und Tauri-Builds für diesen Weg direkt hier im selben Lauf.
++# Web-ZIP und Tauri-Builds für diesen Weg direkt hier im selben Lauf.
+ 
+ "on":
+   workflow_dispatch:
+@@ -39,7 +39,7 @@ concurrency:
+ 
+ jobs:
+   release:
+-    name: Test + Release + Deploy
++    name: Test + Release
+     runs-on: ubuntu-latest
+     outputs:
+       version: ${{ steps.version.outputs.version }}
+@@ -115,15 +115,6 @@ jobs:
+           gh release create "$VERSION" --title "$VERSION" --generate-notes --target "$GITHUB_SHA"
+           echo "released=true" >> "$GITHUB_OUTPUT"
+ 
+-      - name: Secrets prüfen
+-        if: steps.gate.outputs.wanted == 'true'
+-        env:
+-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+-        run: |
+-          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Secret CLOUDFLARE_API_TOKEN fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
+-          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Secret CLOUDFLARE_ACCOUNT_ID fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
+-
+       - name: Office-WASM bauen (DOCX/XLSX/PPTX-Engine)
+         if: steps.gate.outputs.wanted == 'true'
+         uses: ./.github/actions/build-office-wasm
+@@ -134,7 +125,7 @@ jobs:
+ 
+       # REQUIRE_OFFICE_WASM=1: bricht ab, wenn das WASM fehlt. Lieber rot als
+       # eine App ausliefern, die keine Office-Dateien lesen kann.
+-      - name: Deploy-Verzeichnis bauen + Version stempeln (nicht eingecheckt)
++      - name: dist/ bauen + Version stempeln (nicht eingecheckt)
+         if: steps.gate.outputs.wanted == 'true'
+         env:
+           VERSION: ${{ steps.version.outputs.version }}
+@@ -142,14 +133,7 @@ jobs:
+           REQUIRE_CRAFT_WASM: "1"
+         run: npm run release-web
+ 
+-      - name: Auf Cloudflare deployen (wrangler.toml → Worker „notes", wrangler@4)
+-        if: steps.gate.outputs.wanted == 'true'
+-        env:
+-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+-        run: npx --yes wrangler@4 deploy
+-
+-      - name: Web-ZIP bauen + an Release hängen (Cloudflare-Dateien, dist/ ist nicht eingecheckt)
++      - name: Web-ZIP bauen + an Release hängen (statische App, dist/ ist nicht eingecheckt)
+         if: steps.gate.outputs.wanted == 'true'
+         env:
+           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+@@ -159,9 +143,9 @@ jobs:
+           python3 -c "import shutil; shutil.make_archive('Federwerk-${VERSION}-web', 'zip', root_dir='dist')"
+           python3 -m zipfile -l "$ZIP"
+           gh release upload "$VERSION" "$ZIP" --clobber
+-            # Die Engines als einzelne Assets, nicht nur im Web-Zip: Builds ohne
+-            # Rust-Toolchain (Cloudflare Workers Builds) holen sie sich so ueber
+-            # scripts/build.js. Sonst deployen sie eine App ohne Engine.
++            # Die Engines zusaetzlich als einzelne Assets, nicht nur im Web-Zip:
++            # ein Build ohne Rust-Toolchain holt sie sich so ueber scripts/build.js
++            # (siehe specs/40). Sonst entstuende eine App ohne Engine.
+             for f in office_wasm.js office_wasm_bg.wasm craft_wasm.js craft_wasm_bg.wasm; do
+               if [ ! -f "dist/$f" ]; then
+                 echo "::error::dist/$f fehlt - Release ohne Engine waere stillschweigend kaputt."
+diff --git a/.github/workflows/deploy-selfhost.yml b/.github/workflows/deploy-selfhost.yml
+index e3a9470..006b423 100644
+--- a/.github/workflows/deploy-selfhost.yml
++++ b/.github/workflows/deploy-selfhost.yml
+@@ -1,11 +1,11 @@
+ name: Deploy – Selbsthosting (LXC)
+ 
+-# Ziel ist der LXC 192.168.1.97, NICHT der Cloudflare-Worker. Der Workflow
+-# laeuft auf einem Self-hosted Runner, der im selben Container laeuft - sonst
+-# koennte der GitHub-Runner den Container nicht erreichen.
++# Ziel ist der LXC 192.168.1.97. Der Workflow laeuft auf einem Self-hosted
++# Runner, der im selben Container laeuft - sonst koennte der GitHub-Runner den
++# Container nicht erreichen.
+ #
+ # Ablauf je Push auf main:
+-#   1. Tests (Pflicht, wie im Cloudflare-Deploy auch)
++#   1. Tests (Pflicht)
+ #   2. dist/ bauen
+ #   3. Server + dist/ auf den LXC legen, Dienst neustarten
+ #   4. /api/health pruefen - ein Restart, der zurueckkommt, bevor der
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 1907693..f2a735a 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -1,16 +1,14 @@
+-name: Release – Test + Web-ZIP + Cloudflare Deploy
++name: Release – Test + Web-ZIP
+ 
+ # Läuft, wenn ein GitHub Release veröffentlicht wird:
+-# 1. Tests (müssen grün sein, sonst kein Deploy)
++# 1. Tests (müssen grün sein, sonst kein Artefakt)
+ # 2. dist/ frisch bauen (wird NICHT eingecheckt, siehe .gitignore) →
+-#    Federwerk-<tag>-web.zip ans Release hängen (fertige Cloudflare-Dateien:
+-#    entpacken und z. B. per `wrangler deploy` mit assets-Verzeichnis nutzen)
+-# 3. Deploy des Release-Tags per Wrangler auf den Cloudflare Worker
++#    Federwerk-<tag>-web.zip ans Release hängen. Das ist die statische App;
++#    ins dist/ des LXC entpacken (siehe deploy/lxc/README.md).
+ # Die nativen Installer (deb/AppImage/rpm/Windows/APK + latest.json) hängt
+ # parallel .github/workflows/tauri.yml an dasselbe Release.
+-# Benötigte Repo-Secrets (Settings → Secrets and variables → Actions):
+-#   CLOUDFLARE_API_TOKEN  – Token mit Berechtigung „Workers Scripts: Edit“
+-#   CLOUDFLARE_ACCOUNT_ID – Account-ID (Cloudflare Dashboard, rechte Seitenleiste)
++# Ausgeliefert wird an den LXC: .github/workflows/deploy-selfhost.yml.
++# Es sind keine Cloud-Secrets nötig.
+ 
+ "on":
+   release:
+@@ -38,7 +36,7 @@ jobs:
+         run: npm test
+ 
+   deploy:
+-    name: Web-ZIP + Deploy auf Cloudflare
++    name: Web-ZIP (statische App)
+     needs: test
+     runs-on: ubuntu-latest
+     steps:
+@@ -47,21 +45,13 @@ jobs:
+         with:
+           ref: ${{ github.event.release.tag_name }}
+ 
+-      - name: Secrets prüfen
+-        env:
+-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+-        run: |
+-          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Secret CLOUDFLARE_API_TOKEN fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
+-          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Secret CLOUDFLARE_ACCOUNT_ID fehlt (Repo → Settings → Secrets and variables → Actions)."; exit 1; }
+-
+       - name: Office-WASM bauen (DOCX/XLSX/PPTX-Engine)
+         uses: ./.github/actions/build-office-wasm
+ 
+       - name: Craft-WASM bauen (PSD/SVG/IDML-Engine)
+         uses: ./.github/actions/build-craft-wasm
+ 
+-      - name: Deploy-Verzeichnis bauen + Version stempeln (nicht eingecheckt)
++      - name: dist/ bauen + Version stempeln (nicht eingecheckt)
+         env:
+           VERSION: ${{ github.event.release.tag_name }}
+           # Ohne WASM darf kein Release entstehen: lieber rot als eine App
+@@ -70,7 +60,7 @@ jobs:
+           REQUIRE_CRAFT_WASM: "1"
+         run: npm run release-web
+ 
+-      - name: Web-ZIP bauen + an Release hängen (Cloudflare-Dateien)
++      - name: Web-ZIP bauen + an Release hängen (statische App)
+         env:
+           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+         run: |
+@@ -79,9 +69,9 @@ jobs:
+           python3 -c "import shutil; shutil.make_archive('Federwerk-${TAG}-web', 'zip', root_dir='dist')"
+           python3 -m zipfile -l "$ZIP"
+           gh release upload "$TAG" "$ZIP" --clobber
+-            # Die Engines als einzelne Assets, nicht nur im Web-Zip: Builds ohne
+-            # Rust-Toolchain (Cloudflare Workers Builds) holen sie sich so ueber
+-            # scripts/build.js.
++            # Die Engines zusaetzlich als einzelne Assets, nicht nur im Web-Zip:
++            # ein Build ohne Rust-Toolchain holt sie sich so ueber
++            # scripts/build.js (siehe specs/40).
+             for f in office_wasm.js office_wasm_bg.wasm craft_wasm.js craft_wasm_bg.wasm; do
+               if [ ! -f "dist/$f" ]; then
+                 echo "::error::dist/$f fehlt - Release ohne Engine waere stillschweigend kaputt."
+@@ -89,9 +79,3 @@ jobs:
+               fi
+               gh release upload "$TAG" "dist/$f" --clobber
+             done
+-
+-      - name: Auf Cloudflare deployen (wrangler.toml → Worker „notes", wrangler@4)
+-        env:
+-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+-        run: npx --yes wrangler@4 deploy
+diff --git a/.github/workflows/tauri.yml b/.github/workflows/tauri.yml
+index 68c3a31..f948c91 100644
+--- a/.github/workflows/tauri.yml
++++ b/.github/workflows/tauri.yml
+@@ -18,7 +18,7 @@ name: Tauri – Linux / Windows / Android
+ #   TAURI_SIGNING_PRIVATE_KEY – Inhalt von src-tauri/updater-key ( приват-Datei,
+ #     NIE committen). Public Key steht in src-tauri/tauri.conf.json → plugins.updater.
+ #     Ohne dieses Secret schlägt der signierte Desktop-Build fehl.
+-#   CLOUDFLARE_… – nicht nötig hier (Deploy macht release.yml).
++#   Keine Cloud-Secrets – der Web-Deploy laeuft in deploy-selfhost.yml.
+ # Optional für stabile Android-Updatekette (gleiche Signatur über Releases):
+ #   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+ #   ANDROID_KEY_PASSWORD. Ohne diese Secrets wird ein Debug-APK gebaut

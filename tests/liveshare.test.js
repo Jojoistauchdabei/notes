@@ -226,26 +226,14 @@ describe('liveshare/presence-und-cursor', () => {
   });
 });
 
-describe('liveshare/appwrite-zeilen', () => {
-  it('shareRowBody + perms', () => {
+describe('liveshare/freigabe-body', () => {
+  it('shareBody normalisiert Code, Modus und Snapshot', () => {
     const code = L.makeShareCode();
-    const b = L.shareRowBody({ shareId: code, bookId: 'b1', ownerId: 'u1', mode: 'edit' });
+    const b = L.shareBody({ shareId: code, bookId: 'b1', ownerId: 'u1', mode: 'edit' });
     assert.equal(b.shareId, code);
     assert.equal(b.mode, 'edit');
-    assert.ok(L.sharePerms('u1').some(s => s.includes('u1')));
-    assert.ok(L.eventPerms('u9').some(s => s.includes('u9')));
-  });
-  it('eventRowBody validiert', () => {
-    const code = L.makeShareCode();
-    const ev = L.buildEvent({ shareId: code, userId: 'u1', kind: 'cursor', payload: {} });
-    const b = L.eventRowBody(ev);
-    assert.equal(b.row.shareId, code);
-    assert.throws(() => L.eventRowBody({ kind: 'cursor' }));
-  });
-  it('eventQueries baut 2.x-Queries', () => {
-    const code = L.makeShareCode();
-    const qs = L.eventQueries(code, '2026-01-01T00:00:00.000Z');
-    assert.ok(qs.length >= 3);
-    assert.deepEqual(JSON.parse(qs[0]), { method: 'equal', attribute: 'shareId', values: [code] });
+    assert.equal(b.snapshot, '{}');
+    assert.equal(L.shareBody({ shareId: code, mode: 'quatsch' }).mode, 'read');
+    assert.equal(L.shareBody({}).title, 'Geteilte Seite');
   });
 });

@@ -10,7 +10,7 @@
  *   (Epsilon aus penSize), Pressure (p) bleibt erhalten (Punkt-Objekte
  *   werden referenziert, nicht neu gebaut), Duplikate entfernt.
  * - Dedupe via SHA-256 (fileIdForHash-Schema `fw`+32 Hex, kompatibel zu
- *   js/appwrite-files.js).
+ *   js/files-sync.js).
  * - estimateSize(), optimizeBookStats() für "X MB gespart"-Anzeige.
  *
  * Kein Build, plain <script> (global `FederwerkOptimize` +
@@ -539,15 +539,15 @@
 
   function statusSay(t) {
     try {
-      const el = (typeof document !== 'undefined' && document.getElementById('awStatus')) || null;
+      const el = (typeof document !== 'undefined' && document.getElementById('cloudStatus')) || null;
       if (el) el.textContent = t;
-      const msg = (typeof document !== 'undefined' && document.getElementById('awMsg')) || null;
+      const msg = (typeof document !== 'undefined' && document.getElementById('cloudMsg')) || null;
       if (msg) msg.textContent = t;
     } catch { /* ignore */ }
   }
   function savedSay(stats) {
     try {
-      const el = (typeof document !== 'undefined' && document.getElementById('awSaved')) || null;
+      const el = (typeof document !== 'undefined' && document.getElementById('cloudSaved')) || null;
       if (el && stats) el.textContent = 'Ersparnis: ' + (stats.label || formatBytes(stats.savedBytes || 0));
     } catch { /* ignore */ }
   }

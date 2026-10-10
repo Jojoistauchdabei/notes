@@ -3,8 +3,8 @@
  *
  * Stateless Protokoll-Engine: Alle Fachoperationen kommen als injizierte
  * Handler herein, damit derselbe Kern an drei Stellen läuft:
- *  1) Appwrite Function (mcp/index.js, mit APPWRITE_API_KEY),
- *  2) lokaler stdio/HTTP-Server (mcpserver/cli.js, Demo- oder Appwrite-Backend),
+ *  1) Server-API-Backend (mcpserver/backend.js gegen /api/*),
+ *  2) lokaler stdio/HTTP-Server (mcpserver/cli.js, Demo- oder Server-Backend),
  *  3) Node-Tests (Mocks).
  *
  * Tools (21):
@@ -46,17 +46,17 @@ function createMcpHandler(deps) {
   const tools = [
     {
       name: 'session_info',
-      description: 'Show the current Appwrite login: signed in as (email, userId), whether the session belongs to this MCP (ownedByMcp) and when it expires. Never returns passwords.',
+      description: 'Show the current Federwerk login: signed in as (email, userId), whether the session belongs to this MCP (ownedByMcp) and when it expires. Never returns passwords.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'login',
-      description: 'Sign in with the configured Appwrite credentials (E-Mail/Passwort from env or the credential store) and create a session. Use after a session error or to switch users.',
+      description: 'Sign in with the configured Federwerk credentials (E-Mail/Passwort from env or the credential store) and create a session. Use after a session error or to switch users.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'logout',
-      description: 'Sign out: ends the session this MCP created. Refuses to delete sessions it does not own (e.g. a browser session passed in as APPWRITE_SESSION) so the app stays logged in.',
+      description: 'Sign out: ends the session this MCP created. Refuses to delete sessions it does not own (e.g. a browser session passed in as FEDERWERK_SESSION) so the app stays logged in.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
@@ -73,7 +73,7 @@ function createMcpHandler(deps) {
     },
     {
       name: 'get_document',
-      description: 'Get one Federwerk document by its Appwrite row ID (with markdown content; decks include cards).',
+      description: 'Get one Federwerk document by its document ID (with markdown content; decks include cards).',
       inputSchema: {
         type: 'object',
         properties: { id: { type: 'string', minLength: 1, description: 'Document ID' } },
@@ -463,7 +463,7 @@ function createMcpHandler(deps) {
           result: {
             protocolVersion: clientVersion || PROTOCOL_VERSION,
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: 'federwerk-appwrite', version: SERVER_VERSION },
+            serverInfo: { name: 'federwerk-mcp', version: SERVER_VERSION },
           },
         };
       }

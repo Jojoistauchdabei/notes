@@ -130,14 +130,10 @@ describe('sanitize/Verdrahtung', () => {
     assert.ok(/githubusercontent\.com/.test(up), 'nur GitHub-Hosts erlaubt');
   });
 
-  it('MCP-Server/Worker: timing-sicherer Vergleich, CORS aus, Rate-Limit', () => {
-    const w = read('worker.js');
+  it('MCP-Server: timing-sicherer Vergleich, CORS aus, Rate-Limit', () => {
+    // Der frueher hier mitgepruefte Worker ist entfallen (specs/41); der lokale
+    // MCP-Server (mcp-server.js) traegt dieselben Zusagen weiter.
     const s = read('mcp-server.js');
-    assert.ok(w.includes('timingSafeEqual(bearerOf(request)'), 'Worker: timingSafeEqual');
-    assert.ok(!/bearerOf\(request\) !== String\(env\.MCP_TOKEN\)/.test(w), 'kein direkter !==-Vergleich');
-    assert.ok(w.includes('MCP_ALLOW_ORIGIN'), 'Worker: CORS nur opt-in');
-    assert.ok(!w.includes("'Access-Control-Allow-Origin': '*'"), 'kein Wildcard-CORS im Worker');
-    assert.ok(w.includes('tooManyLogins'), 'Worker: Login-Rate-Limit');
     assert.ok(s.includes('timingSafeEqual(bearerOf(req), TOKEN)'), 'MCP-Server: timingSafeEqual');
     assert.ok(!s.includes("'Access-Control-Allow-Origin': '*'"), 'kein Wildcard-CORS im MCP-Server');
     assert.ok(s.includes("arg('host'"), 'MCP-Server: Host konfigurierbar (Default 127.0.0.1)');

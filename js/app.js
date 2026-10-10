@@ -74,7 +74,7 @@ function naturalSizeOfDataUrl(url) {
 }
 
 let state = { books: [], folders: [], openBookId: null, openPageId: null };
-// Cloud-Sync (js/appwrite-files.js, js/appwrite-sync.js) liest window.state.
+// Cloud-Sync (js/files-sync.js, js/sync.js) liest window.state.
 // Top-level `let` landet bei klassischen <script>s NICHT auf window – daher
 // als Getter/Setter spiegeln (überlebt auch Reassignments wie `state = p`).
 try {
@@ -1216,7 +1216,7 @@ function createFlashDeck() {
 }
 /* Office (SPEC-40): eigenes Office in derselben Bibliothek. Ein Office-Dokument
    ist ein Buch mit office-Feld, kein eigener Bestand – Ordner, Suche und der
-   Appwrite-Sync laufen dadurch unverändert mit. */
+   Server-Sync laufen dadurch unverändert mit. */
 function isOfficeDoc(b) {
   try {
     if (typeof FederwerkOfficeDoc !== 'undefined' && FederwerkOfficeDoc.isOfficeBook) return FederwerkOfficeDoc.isOfficeBook(b);
@@ -1383,7 +1383,7 @@ async function deleteBook(id, ev) {
     syncSplitToState();
   } catch { /* ignore */ }
   persistNow(); renderLibrary(); renderAll();
-  // Hinweis: Cloud-Tombstone übernimmt der Appwrite-Sync per Meta-Diff.
+  // Hinweis: Cloud-Tombstone übernimmt der Server-Sync per Meta-Diff.
 }
 function duplicateBook(id, ev) {
   if (ev) ev.stopPropagation();
@@ -4310,9 +4310,13 @@ function importAllJSON(ev) {
   });
 }
 /* ---------- GoodNotes-Import (.goodnotes, mehrere Dateien) ---------- */
+// Nur noch eine Bezugsquelle. Ein zweiter CDN-Fallback stand hier frueher -
+// er kam von einem Cloudflare-Dienst, und die Liste war ohnehin nur eine
+// Notloesung: wer den GoodNotes-PDF-Import wirklich offline braucht, vendored
+// pdf.js nach js/vendor/ (wie markdown.js). Die Liste bleibt als Array, damit
+// die Aufrufer unveraendert ueber Kandidaten iterieren koennen.
 const GN_PDFJS = [
-  { lib: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs', worker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs' },
-  { lib: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs', worker: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs' }
+  { lib: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs', worker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs' }
 ];
 let gnPdfJsPromise = null;
 function gnPdfJs() {
@@ -4760,7 +4764,7 @@ document.addEventListener('keydown', e => {
     const overlayOpen = ($('editorOverlay') && $('editorOverlay').classList.contains('active'))
       || ($('previewOverlay') && $('previewOverlay').classList.contains('active'))
       || ($('graphOverlay') && $('graphOverlay').classList.contains('active'))
-      || ($('awOverlay') && $('awOverlay').classList.contains('active'));
+      || ($('cloudOverlay') && $('cloudOverlay').classList.contains('active'));
     if (!typing && !overlayOpen && $('viewBook') && $('viewBook').classList.contains('active')) {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 'b' && e.shiftKey) { e.preventDefault(); toggleSplit(); return; }

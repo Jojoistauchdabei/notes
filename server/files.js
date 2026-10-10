@@ -29,7 +29,7 @@ const db = require('./db.js');
 const VERIFY_READ = process.env.FW_VERIFY_READ !== '0';
 const HEX64 = /^[0-9a-f]{64}$/;
 
-/* Spiegelt extForMime() aus js/appwrite-files.js:65. Beide Seiten MUESSEN
+/* Spiegelt extForMime() aus js/files-sync.js. Beide Seiten MUESSEN
  * dieselbe Endung liefern - sonst findet der Server eine Datei nicht, die
  * der Client unter einem anderen Namen abgelegt hat. */
 function extForMime(mime) {

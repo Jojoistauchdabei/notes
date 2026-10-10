@@ -89,19 +89,13 @@ bytes="$(stat -c%s "$wasm")"
 mib=$(( bytes / 1048576 ))
 kib=$(( (bytes / 1024) % 1024 ))
 echo "WASM: ${mib} MiB ${kib} KiB (${bytes} Bytes)"
+# 25 MiB ist eine Hausnummer, keine harte Grenze: die Engine wird bei jedem
+# Start geladen, und ein LXC mit 512 MB soll daran nicht ersticken. Lieber
+# hier abbrechen als still ein unbrauchbar grosses Asset auszuliefern.
 if [ "$mib" -ge 25 ]; then
-  echo "::error::Craft-WASM ist ${mib} MiB und damit groesser als das 25-MiB-Limit je Datei bei Cloudflare."
+  echo "::error::Craft-WASM ist ${mib} MiB - zu gross fuer schmale Clients (Grenze 25 MiB)."
   exit 1
 fi
-echo "Groesse liegt unter dem 25-MiB-Limit."
-
-cat > "$out/craft_wasm.headers" <<'HEADERS'
-/craft_wasm_bg.wasm
-  Content-Type: application/wasm
-  Cache-Control: public, max-age=31536000, immutable
-
-/craft_wasm.js
-  Cache-Control: public, max-age=31536000, immutable
-HEADERS
+echo "Groesse liegt unter der 25-MiB-Grenze."
 
 echo "fertig: $out"

@@ -560,38 +560,38 @@ select { cursor: pointer; }
 #previewCanvas { flex: 1; min-width: 0; width: 100%; height: auto; aspect-ratio: 210 / 297; background: #fffdf6; border: 1px solid var(--border); border-radius: 6px; }
 .preview-nav { font-size: 16px; padding: 10px 8px; flex: 0 0 auto; }
 
-/* ===== Cloud-Dialog (Appwrite) ===== */
+/* ===== Cloud-Dialog (Server-Sync) ===== */
 #cloudPass { font-family: 'Crimson Text', serif; }
 .cloud-status-wrap { font-size: 14px; }
-#awMsg { font-size: 13px; min-height: 18px; margin-top: 8px; }
-:root { --aw-err: #a33; --aw-tab-bg: var(--surface-strong); }
+#cloudMsg { font-size: 13px; min-height: 18px; margin-top: 8px; }
+:root { --cloud-err: #a33; --cloud-tab-bg: var(--surface-strong); }
 @media (prefers-color-scheme: dark) {
-  :root { --aw-err: #f0a8a8; }
+  :root { --cloud-err: #f0a8a8; }
 }
 /* Auth-Tabs Login/Registrieren */
-.aw-auth-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-.aw-auth-tab {
+.cloud-auth-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.cloud-auth-tab {
   flex: 1 1 auto;
   font-family: 'Cinzel', serif; font-size: 11px; letter-spacing: 1px;
   padding: 8px 12px; min-height: 36px;
-  background: var(--aw-tab-bg); color: var(--accent-muted);
+  background: var(--cloud-tab-bg); color: var(--accent-muted);
   border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
   box-shadow: none;
 }
-.aw-auth-tab:hover { background: var(--mini-button-hover-bg); }
-.aw-auth-tab.active { background: var(--accent); color: var(--button-text); border-color: var(--accent); }
-.aw-auth-pane { display: flex; flex-direction: column; gap: 10px; }
-.aw-auth-pane[hidden] { display: none; }
-.aw-pw-hint { font-size: 12px; color: var(--accent-muted); min-height: 16px; }
-.aw-pw-hint[data-score="3"], .aw-pw-hint[data-score="4"] { color: #3a7d44; }
+.cloud-auth-tab:hover { background: var(--mini-button-hover-bg); }
+.cloud-auth-tab.active { background: var(--accent); color: var(--button-text); border-color: var(--accent); }
+.cloud-auth-pane { display: flex; flex-direction: column; gap: 10px; }
+.cloud-auth-pane[hidden] { display: none; }
+.cloud-pw-hint { font-size: 12px; color: var(--accent-muted); min-height: 16px; }
+.cloud-pw-hint[data-score="3"], .cloud-pw-hint[data-score="4"] { color: #3a7d44; }
 @media (prefers-color-scheme: dark) {
-  .aw-pw-hint[data-score="3"], .aw-pw-hint[data-score="4"] { color: #8fd49a; }
+  .cloud-pw-hint[data-score="3"], .cloud-pw-hint[data-score="4"] { color: #8fd49a; }
 }
-.aw-privacy-note { font-size: 12px; opacity: 0.8; line-height: 1.4; }
+.cloud-privacy-note { font-size: 12px; opacity: 0.8; line-height: 1.4; }
 @media (max-width: 560px) {
-  .aw-auth-tabs { gap: 6px; }
-  .aw-auth-tab { flex: 1 1 45%; min-height: 44px; font-size: 12px; }
-  .aw-privacy-note { font-size: 13px; }
+  .cloud-auth-tabs { gap: 6px; }
+  .cloud-auth-tab { flex: 1 1 45%; min-height: 44px; font-size: 12px; }
+  .cloud-privacy-note { font-size: 13px; }
 }
 
 /* ===== Texteditor-Overlay ===== */

@@ -9,7 +9,7 @@
 //   sind nicht im Precache, sondern werden nach dem Start bei Bedarf
 //   gecacht (Stale-While-Revalidate unten) – so bleibt die App-Shell schlank.
 const CACHE = 'federwerk-v1.9.0';
-const ASSETS = ['.', 'index.html', 'agent.html', 'present.html', 'md.html', 'css/styles.css', 'css/md-editor.css', 'js/themes.js', 'js/sanitize.js', 'js/pencil.js', 'js/inkdraw.js', 'js/folders.js', 'js/split.js', 'js/markdown.js', 'js/editor.js', 'js/md-render.js', 'js/md-store.js', 'js/md-editor.js', 'js/vendor/markdown.js', 'js/vendor/markdown.wasm', 'js/gnzip.js', 'js/goodnotes.js', 'js/gnpdf-worker.js', 'js/optimize.js', 'js/store.js', 'js/pages-import.js', 'js/paper-templates.js', 'js/erase.js', 'js/laser.js', 'js/ink-index.js', 'js/graph.js', 'js/search.js', 'js/format-doc.js', 'js/pageflow.js', 'js/presentflow.js', 'js/flashcards.js', 'js/dialog.js', 'js/app.js', 'js/flash-ui.js', 'js/present.js', 'js/present-view.js', 'js/appwrite-files.js', 'js/appwrite-sync.js', 'js/liveshare.js', 'js/updater.js', 'manifest.webmanifest', 'altes_Papier.webp', 'altes_Papier.jpg', 'icons/logo.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
+const ASSETS = ['.', 'index.html', 'agent.html', 'present.html', 'md.html', 'css/styles.css', 'css/md-editor.css', 'js/themes.js', 'js/sanitize.js', 'js/pencil.js', 'js/inkdraw.js', 'js/folders.js', 'js/split.js', 'js/markdown.js', 'js/editor.js', 'js/md-render.js', 'js/md-store.js', 'js/md-editor.js', 'js/vendor/markdown.js', 'js/vendor/markdown.wasm', 'js/gnzip.js', 'js/goodnotes.js', 'js/gnpdf-worker.js', 'js/optimize.js', 'js/store.js', 'js/pages-import.js', 'js/paper-templates.js', 'js/erase.js', 'js/laser.js', 'js/ink-index.js', 'js/graph.js', 'js/search.js', 'js/format-doc.js', 'js/pageflow.js', 'js/presentflow.js', 'js/flashcards.js', 'js/dialog.js', 'js/app.js', 'js/flash-ui.js', 'js/present.js', 'js/present-view.js', 'js/files-sync.js', 'js/sync.js', 'js/liveshare.js', 'js/updater.js', 'manifest.webmanifest', 'altes_Papier.webp', 'altes_Papier.jpg', 'icons/logo.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()).catch(() => {}));
 });
@@ -42,9 +42,11 @@ self.addEventListener('fetch', e => {
     return;
   }
   // Statische Assets: Cache zuerst, im Hintergrund aktualisieren.
-  // /mcp (KI-Doku) und /mcp/ (API) werden nicht gecacht: Doku soll frisch
-  // sein, die API ist ohnehin dynamisch (Bearer).
-  if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/') || req.headers.has('authorization')) return;
+  // Alles mit Authorization-Kopf und die MCP-Doku gehen nie durch den Cache:
+  // die Doku soll frisch sein, und autorisierte Antworten gehoeren keinem
+  // Cache. /api/* bleibt ohnehin aussen vor - der Server schickt dafuer
+  // Cache-Control: no-store.
+  if (url.pathname === '/mcp' || url.pathname === '/MCP_AI.md' || req.headers.has('authorization')) return;
   e.respondWith(caches.match(req).then((hit) => {
     const miss = fetch(req).then((res) => {
       if (res && res.ok) {

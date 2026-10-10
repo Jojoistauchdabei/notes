@@ -83,13 +83,13 @@
       </div>
       <div class="box">
         <div class="section-title">Über Federwerk</div>
-        <div style="font-size:14px">Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Rich-Text-Editor, Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ Appwrite-Cloud</b> für Notizen- und Datei-Sync zwischen Geräten – siehe „Appwrite-Cloud“ unten.</div>
+        <div style="font-size:14px">Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Rich-Text-Editor, Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ Server-Sync</b> gegen deinen eigenen Federwerk-Server (Notizen, Dateien, Liveshare) – siehe „☁ Server-Sync“ unten.</div>
       </div>
       <div class="box">
         <div class="section-title">🔴 Liveshare</div>
         <div class="cloud-status-wrap">
           <div id="liveStatus" aria-live="polite">Liveshare: aus – über „🔴 Live“ starten.</div>
-          <div style="font-size:13px;opacity:.85">Seite live mit anderen teilen: Share-Link (Lesen/Edit, mit Ablauf) + Live-Cursor. Läuft über deine Appwrite-Tabellen <code>shares</code>/<code>share_events</code> – Login in ⚙ nötig, kein Drittanbieter.</div>
+          <div style="font-size:13px;opacity:.85">Seite live mit anderen teilen: Share-Link (Lesen/Edit, mit Ablauf) + Live-Cursor. Läuft über die Freigabe-Tabellen deines eigenen Servers – Login in ⚙ nötig, kein Drittanbieter.</div>
           <div class="live-status-wrap no-print">
             <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('host')" aria-label="Seite live teilen">🔴 Hosten</button>
             <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('join')" aria-label="Live-Session beitreten">➕ Beitreten</button>
@@ -97,15 +97,15 @@
         </div>
       </div>
       <div class="box">
-        <div class="section-title">☁ Appwrite-Cloud</div>
+        <div class="section-title">☁ Server-Sync</div>
         <div class="cloud-status-wrap">
-          <div id="awStatus" aria-live="polite">Appwrite-Dateien: Sync über ⚙ einrichten.</div>
-          <div id="awDbStatus" aria-live="polite" style="font-size:13px;opacity:.85">Notizen-Sync bereit.</div>
+          <div id="cloudStatus" aria-live="polite">Datei-Sync: über ⚙ einrichten.</div>
+          <div id="cloudDbStatus" aria-live="polite" style="font-size:13px;opacity:.85">Notizen-Sync bereit.</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" class="no-print">
-            <button class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.syncNow()" aria-label="Notizen mit Appwrite synchronisieren">🗂 Notizen syncen</button>
-            <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien mit Appwrite synchronisieren">⬆⬇ Dateien syncen</button>
-            <button class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.openDiagnostics()" aria-label="Appwrite-Synchronisation diagnostizieren">🛠 Diagnose</button>
-            <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.openSettings()" aria-label="Appwrite-Einstellungen öffnen">⚙ Einstellungen</button>
+            <button class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.syncNow()" aria-label="Notizen mit dem Server synchronisieren">🗂 Notizen syncen</button>
+            <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien mit dem Server synchronisieren">⬆⬇ Dateien syncen</button>
+            <button class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.openDiagnostics()" aria-label="Synchronisation diagnostizieren">🛠 Diagnose</button>
+            <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.openSettings()" aria-label="Server-Einstellungen öffnen">⚙ Einstellungen</button>
           </div>
         </div>
       </div>
@@ -310,7 +310,7 @@
 
   <!-- OFFICE (SPEC-40) ===================================================
        Office-Dokumente liegen als Bücher in derselben Bibliothek (Ordner,
-       Suche, Appwrite-Sync). Diese Ansicht ist nur die Editorfläche.
+       Suche, Server-Sync). Diese Ansicht ist nur die Editorfläche.
        Der Writer hängt die Toolbar zur Laufzeit an #officeToolbar. -->
   <div class="view" id="viewOffice">
     <div class="fw-office">
@@ -411,7 +411,7 @@
   </div>
 
   <!-- SERVER-OVERLAY: Anmeldung, Datei-Sync mit Speicheroptimierung -->
-  <div id="awOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkFilesUI) FederwerkFilesUI.closeSettings()">
+  <div id="cloudOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkFilesUI) FederwerkFilesUI.closeSettings()">
     <div class="editor-modal" style="max-width:560px">
       <div class="editor-header">
         <div class="editor-header-title">☁ SERVER</div>
@@ -420,42 +420,42 @@
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
         <div style="font-size:13px">Bilder/PDFs werden per <b>SHA-256-Dedupe</b> abgelegt (Dateiname = Content-Hash). Vor dem Upload: <b>Recompress</b> auf max. 1600px, JPEG/WebP. Verwaiste Dateien können aufgeräumt werden. Offline-Fehlversuche landen in einer Queue.</div>
         <div style="font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <span id="awSaved" aria-live="polite">Ersparnis: –</span>
+          <span id="cloudSaved" aria-live="polite">Ersparnis: –</span>
           <button type="button" class="mini-button" onclick="window.FederwerkOptimizeUI && window.FederwerkOptimizeUI.optimizeLibrary()" aria-label="Bibliothek optimieren (Strokes + Bilder komprimieren)">🧹 Bibliothek optimieren</button>
         </div>
-        <div><label for="awEndpoint">Server (leer = gleicher Origin)</label><input type="text" id="awEndpoint" autocomplete="off" placeholder="http://192.168.1.97:8080"></div>
+        <div><label for="cloudEndpoint">Server (leer = gleicher Origin)</label><input type="text" id="cloudEndpoint" autocomplete="off" placeholder="http://192.168.1.97:8080"></div>
         <div style="font-size:12px;opacity:.8">Eigene SQLite-Datenbank pro Konto, Dateien liegen auf dem NAS. Prüft der Server beim Lesen, ob eine Datei noch zum Hash in ihrem Namen passt – eine beschädigte Datei wird nicht ausgeliefert, sondern als Fehler gemeldet.</div>
         <div style="font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px dashed rgba(120,85,45,.4);border-radius:8px;background:rgba(139,90,43,.06)">
           <span style="flex:1;min-width:180px">🤖 <b>KI-Agent:</b> Notizen, Ordner &amp; Karteikarten per MCP steuern lassen.</span>
           <a class="mini-button" href="agent.html" target="_blank" rel="noopener" style="text-decoration:none" aria-label="Seite für KI-Agent und MCP öffnen">Anleitung öffnen</a>
         </div>
-        <div class="aw-auth-tabs" role="tablist" aria-label="Anmeldung oder Registrierung">
-          <button type="button" id="awTabLogin" class="aw-auth-tab active" role="tab" aria-selected="true" aria-controls="awLoginPane" onclick="window.FederwerkFilesUI && FederwerkFilesUI.switchAuthTab('login')">Login</button>
-          <button type="button" id="awTabRegister" class="aw-auth-tab" role="tab" aria-selected="false" aria-controls="awRegisterPane" onclick="window.FederwerkFilesUI && FederwerkFilesUI.switchAuthTab('register')">Registrieren</button>
+        <div class="cloud-auth-tabs" role="tablist" aria-label="Anmeldung oder Registrierung">
+          <button type="button" id="cloudTabLogin" class="cloud-auth-tab active" role="tab" aria-selected="true" aria-controls="cloudLoginPane" onclick="window.FederwerkFilesUI && FederwerkFilesUI.switchAuthTab('login')">Login</button>
+          <button type="button" id="cloudTabRegister" class="cloud-auth-tab" role="tab" aria-selected="false" aria-controls="cloudRegisterPane" onclick="window.FederwerkFilesUI && FederwerkFilesUI.switchAuthTab('register')">Registrieren</button>
         </div>
-        <div id="awLoginPane" class="aw-auth-pane" role="tabpanel" aria-labelledby="awTabLogin">
+        <div id="cloudLoginPane" class="cloud-auth-pane" role="tabpanel" aria-labelledby="cloudTabLogin">
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <div style="flex:1;min-width:140px"><label for="awEmail">E-Mail (Login)</label><input type="text" id="awEmail" autocomplete="username"></div>
-            <div style="flex:1;min-width:140px"><label for="awPass">Passwort</label><input type="password" id="awPass" autocomplete="current-password"></div>
+            <div style="flex:1;min-width:140px"><label for="cloudEmail">E-Mail (Login)</label><input type="text" id="cloudEmail" autocomplete="username"></div>
+            <div style="flex:1;min-width:140px"><label for="cloudPass">Passwort</label><input type="password" id="cloudPass" autocomplete="current-password"></div>
           </div>
         </div>
-        <div id="awRegisterPane" class="aw-auth-pane" role="tabpanel" aria-labelledby="awTabRegister" hidden>
+        <div id="cloudRegisterPane" class="cloud-auth-pane" role="tabpanel" aria-labelledby="cloudTabRegister" hidden>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <div style="flex:1;min-width:140px"><label for="awRegName">Name (optional)</label><input type="text" id="awRegName" autocomplete="nickname" maxlength="128" placeholder="Anzeigename"></div>
-            <div style="flex:1;min-width:140px"><label for="awRegEmail">E-Mail</label><input type="text" id="awRegEmail" autocomplete="email" inputmode="email" placeholder="name@beispiel.de"></div>
+            <div style="flex:1;min-width:140px"><label for="cloudRegName">Name (optional)</label><input type="text" id="cloudRegName" autocomplete="nickname" maxlength="128" placeholder="Anzeigename"></div>
+            <div style="flex:1;min-width:140px"><label for="cloudRegEmail">E-Mail</label><input type="text" id="cloudRegEmail" autocomplete="email" inputmode="email" placeholder="name@beispiel.de"></div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <div style="flex:1;min-width:140px"><label for="awRegPass">Passwort (min. 8 Zeichen)</label><input type="password" id="awRegPass" autocomplete="new-password" minlength="8" oninput="window.FederwerkFilesUI && FederwerkFilesUI.updatePwStrength()"></div>
-            <div style="flex:1;min-width:140px"><label for="awRegPass2">Passwort wiederholen</label><input type="password" id="awRegPass2" autocomplete="new-password"></div>
+            <div style="flex:1;min-width:140px"><label for="cloudRegPass">Passwort (min. 8 Zeichen)</label><input type="password" id="cloudRegPass" autocomplete="new-password" minlength="8" oninput="window.FederwerkFilesUI && FederwerkFilesUI.updatePwStrength()"></div>
+            <div style="flex:1;min-width:140px"><label for="cloudRegPass2">Passwort wiederholen</label><input type="password" id="cloudRegPass2" autocomplete="new-password"></div>
           </div>
-          <div id="awPwHint" class="aw-pw-hint" aria-live="polite">Mind. 8 Zeichen, am besten lang + gemischt.</div>
-          <div class="aw-privacy-note">Mit Registrieren stimmst du der Speicherung deines Kontos bei Appwrite zu. Es gibt kein Tracking ohne Opt-in – Sync nur auf Knopfdruck bzw. Realtime-Opt-in.</div>
+          <div id="cloudPwHint" class="cloud-pw-hint" aria-live="polite">Mind. 8 Zeichen, am besten lang + gemischt.</div>
+          <div class="cloud-privacy-note">Das Konto liegt auf deinem eigenen Server – kein Drittanbieter, kein Tracking. Sync nur auf Knopfdruck bzw. Realtime-Opt-in.</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="awRealtime" style="width:auto" onchange="window.FederwerkSyncUI && FederwerkSyncUI.toggleRealtime(this.checked)" aria-label="Realtime-Sync aktivieren"> Realtime-Sync (Auto bei Cloud-Änderung)</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="cloudRealtime" style="width:auto" onchange="window.FederwerkSyncUI && FederwerkSyncUI.toggleRealtime(this.checked)" aria-label="Realtime-Sync aktivieren"> Realtime-Sync (Auto bei Cloud-Änderung)</label>
           <button type="button" class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.syncNow()" aria-label="Notizen synchronisieren">🗂 Notizen syncen</button>
         </div>
-        <div id="awMsg" style="font-size:13px;min-height:18px" aria-live="polite"></div>
+        <div id="cloudMsg" style="font-size:13px;min-height:18px" aria-live="polite"></div>
       </div>
       <div class="editor-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
         <span style="display:flex;gap:8px;flex-wrap:wrap">
@@ -463,8 +463,8 @@
           <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.cleanup()" aria-label="Verwaiste Dateien löschen">Orphans löschen</button>
         </span>
         <span style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" id="awBtnLogin" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.login()" aria-label="Einloggen">Login</button>
-          <button type="button" id="awBtnRegister" class="inactive" style="display:none" onclick="window.FederwerkFilesUI && FederwerkFilesUI.register()" aria-label="Konto registrieren">Registrieren</button>
+          <button type="button" id="cloudBtnLogin" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.login()" aria-label="Einloggen">Login</button>
+          <button type="button" id="cloudBtnRegister" class="inactive" style="display:none" onclick="window.FederwerkFilesUI && FederwerkFilesUI.register()" aria-label="Konto registrieren">Registrieren</button>
           <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.logout()" aria-label="Ausloggen">Logout</button>
           <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien synchronisieren">⬆⬇ Sync</button>
           <button type="button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.save()" aria-label="Einstellungen speichern">💾 Speichern</button>
@@ -473,15 +473,15 @@
     </div>
   </div>
 
-  <div id="awDiagnosticsOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkSyncUI) FederwerkSyncUI.closeDiagnostics()">
+  <div id="cloudDiagnosticsOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkSyncUI) FederwerkSyncUI.closeDiagnostics()">
     <div class="editor-modal" style="max-width:620px">
       <div class="editor-header">
         <div class="editor-header-title">🛠 SYNC-DIAGNOSE</div>
         <button type="button" class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.closeDiagnostics()" aria-label="Diagnose schließen">✕</button>
       </div>
       <div style="padding:14px 16px">
-        <div id="awDiagnosticsSummary" style="font-size:13px;white-space:pre-wrap" aria-live="polite">Noch kein Test ausgeführt.</div>
-        <pre id="awDiagnosticsLog" style="max-height:220px;overflow:auto;background:var(--field-bg);padding:8px;font-size:11px;white-space:pre-wrap"></pre>
+        <div id="cloudDiagnosticsSummary" style="font-size:13px;white-space:pre-wrap" aria-live="polite">Noch kein Test ausgeführt.</div>
+        <pre id="cloudDiagnosticsLog" style="max-height:220px;overflow:auto;background:var(--field-bg);padding:8px;font-size:11px;white-space:pre-wrap"></pre>
       </div>
       <div class="editor-footer" style="justify-content:space-between">
         <button type="button" class="inactive" onclick="window.FederwerkSyncUI && FederwerkSyncUI.clearDiagnostics()">Protokoll löschen</button>
@@ -549,7 +549,7 @@
     </div>
   </div>
 
-  <!-- LIVESHARE-OVERLAY: Hosten + Beitreten (js/liveshare.js, Appwrite-only) -->
+  <!-- LIVESHARE-OVERLAY: Hosten + Beitreten (js/liveshare.js, eigener Server) -->
   <div id="liveOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkLive) FederwerkLive.closeDialog()">
     <div class="editor-modal" style="max-width:560px">
       <div class="editor-header">
@@ -561,7 +561,7 @@
         <button type="button" id="liveTabJoin" class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('join')" aria-label="Session beitreten">➕ Beitreten</button>
       </div>
       <div id="liveHostPane" class="live-pane">
-        <div style="font-size:13px">Teilt die <b>aktuelle Seite</b> live: Striche + Texte syncen per LWW (kein Overwrite), Cursor farbig. Gäste brauchen denselben Appwrite-Login.</div>
+        <div style="font-size:13px">Teilt die <b>aktuelle Seite</b> live: Striche + Texte syncen per LWW (kein Overwrite), Cursor farbig. Gäste brauchen ein Konto auf derselben Instanz.</div>
         <label>Buch
           <select id="liveBookSel" aria-label="Zu teilendes Buch"></select>
         </label>
@@ -594,7 +594,7 @@
         </div>
       </div>
       <div id="liveJoinPane" class="live-pane" style="display:none">
-        <div style="font-size:13px">Link einfügen (…<code>#share=s…</code>) oder Code direkt – du brauchst einen Appwrite-Login auf derselben Instanz.</div>
+        <div style="font-size:13px">Link einfügen (…<code>#share=s…</code>) oder Code direkt – du brauchst ein Konto auf derselben Instanz.</div>
         <label>Share-Link oder Code
           <input type="text" id="liveCode" autocomplete="off" placeholder="https://…#share=s… oder Code" aria-label="Share-Code">
         </label>
@@ -646,8 +646,8 @@
   <script src="js/presentflow.js"></script>
   <script src="js/present.js"></script>
   <script src="js/api.js"></script>
-  <script src="js/appwrite-files.js"></script>
-  <script src="js/appwrite-sync.js"></script>
+  <script src="js/files-sync.js"></script>
+  <script src="js/sync.js"></script>
   <script src="js/liveshare.js"></script>
   <script src="js/updater.js"></script>
 </body>

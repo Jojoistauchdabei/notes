@@ -2,7 +2,7 @@
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 
-const F = require('../js/appwrite-files.js');
+const F = require('../js/files-sync.js');
 
 describe('register/validateRegister', () => {
   it('akzeptiert gültige Eingaben (Name optional)', () => {

@@ -1,13 +1,13 @@
 /* Federwerk Office -- Dokumentmodell (DOM-frei, in Node testbar).
  *
  * Ein Office-Dokument ist ein Buch mit `office`-Feld, kein eigener Bestand:
- * Ordner, Ordnerfilter, moveBook, Suche, Duplizieren und der Appwrite-Sync
+ * Ordner, Ordnerfilter, moveBook, Suche, Duplizieren und der Server-Sync
  * laufen dadurch unverändert mit. Gleiches Muster wie die Kartenstapel, die
  * schon heute ueber isFlashDeck(b) einen eigenen Buchtyp im Bibliotheksraster
  * bekommen. Siehe SPEC-40.
  *
  * Bewusst DOM-frei: die reine Logik (Modell, Klartext, Statistik) laesst sich so
- * in Node pruefen, wie es im Repo ueblich ist (js/store.js, js/appwrite-files.js).
+ * in Node pruefen, wie es im Repo ueblich ist (js/store.js, js/files-sync.js).
  * Das Rendern und die Toolbar liegen in js/office-writer.js.
  */
 (function () {

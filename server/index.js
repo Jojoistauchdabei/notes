@@ -4,12 +4,16 @@
  * Dependency-frei auf node:http - kein Express. Passt zum Repo und heisst
  * fuenf Abhaengigkeiten weniger auf einem LXC mit 512 MB.
  *
- * Laeuft auf 127.0.0.1 und wird ueber den Cloudflare-Tunnel erreicht. Der
- * Grund ist nicht Misstrauen in die eigene Firewall, sondern: die
- * Authentifizierung laeuft bei HTTPS plus Hostname-Check, und ein
- * Reverse-Proxy vor dem Prozess ist die Stelle, an der man Header setzt,
- * Logs sammelt und spaeter TLS beendet. Der Prozess selbst muss davon
- * nichts wissen.
+ * Er ist die einzige Instanz zwischen Client und Daten: er liefert die
+ * statische App aus UND die API. Genau deshalb setzt er auch die Header, die
+ * frueher eine CDN-Konfigurationsdatei (dist/_headers) gesetzt hat - MIME,
+ * Cache und Sicherheit. Eine Konfigurationsdatei neben der App waere beim
+ * Selbsthosting ein Artefakt, das niemand liest.
+ *
+ * Bindung und TLS: ohne vorgeschalteten Proxy muss er auf der
+ * Netzwerkschnittstelle lauschen, sonst erreicht ihn kein Geraet im LAN. Wer
+ * TLS will, stellt einen Reverse-Proxy davor und setzt FW_PUBLIC_URL; der
+ * Prozess selbst muss davon nichts wissen.
  */
 
 const http = require('http');
@@ -25,14 +29,15 @@ const shares = require('./shares.js');
 const events = require('./events.js');
 
 const PORT = Number(process.env.FW_PORT || 8080);
-// 0.0.0.0 statt 127.0.0.1: Der Cloudflare-Tunnel laeuft in einem ANDEREN
-// LXC und erreicht Loopback nicht. Bindung auf das Loopback-Interface waere
-// dann eine unsichtbare Firewall - der Dienst waere gesund, aber von aussen
-// nicht erreichbar, und das faellt erst beim Tunnel-Ausfall auf.
+// 0.0.0.0 als Standard: ohne vorgeschalteten Proxy muss der Server auf der
+// Netzwerkschnittstelle lauschen, sonst erreicht ihn kein Geraet im LAN. Eine
+// Bindung nur an Loopback waere dann eine unsichtbare Firewall - der Dienst
+// waere gesund, aber von aussen nicht erreichbar, und das faellt erst beim
+// ersten Zugriff auf.
 //
 // Die Absicherung liegt bei der Authentifizierung (scrypt, HttpOnly-Cookie)
-// und beim Origin-Check weiter unten, nicht beim Interface. Wer das nicht
-// will, setzt FW_HOST=127.0.0.1 und betreibt den Tunnel im selben Container.
+// und beim Origin-Check weiter unten, nicht beim Interface. Wer nur lokal
+// arbeitet oder einen Proxy davorstellt, setzt FW_HOST=127.0.0.1.
 const HOST = process.env.FW_HOST || '0.0.0.0';
 const APP_DIR = process.env.FW_APP_DIR || '/srv/federwerk/app';
 const STATIC_DIR = path.join(APP_DIR, 'dist');
@@ -50,6 +55,19 @@ const MIME = {
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.pdf': 'application/pdf',
   '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8', '.map': 'application/json',
+  // .wasm MUSS application/wasm sein: mit octet-stream lehnt
+  // WebAssembly.instantiateStreaming ab und die Office-/Craft-Engine laedt
+  // erst gar nicht. .md traegt die KI-Anleitungen (siehe DOC_ALIAS).
+  '.wasm': 'application/wasm', '.md': 'text/markdown; charset=utf-8',
+};
+
+/* Header fuer alle Antworten. Sie standen frueher in der CDN-Konfiguration;
+ * jetzt setzt sie der Server, der die Dateien ohnehin ausliefert. */
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
 };
 
 function send(res, status, body, headers) {
@@ -57,9 +75,8 @@ function send(res, status, body, headers) {
   res.writeHead(status, Object.assign({
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': buf.length,
-    'X-Content-Type-Options': 'nosniff',
     'Cache-Control': 'no-store',
-  }, headers || {}));
+  }, SECURITY_HEADERS, headers || {}));
   res.end(buf);
 }
 
@@ -139,9 +156,19 @@ function requireUser(req) {
 
 /* ------------------------------------------------------------------ */
 
+/* Adressen der beiden Anleitungen. Sie hiessen /agent und /mcp, seit es die
+ * App gibt; die Adressen bleiben gueltig, damit vorhandene Links, Lesezeichen
+ * und die Doku nicht ins Leere zeigen. Ohne diesen Empfaenger landet ein
+ * solcher Aufruf im SPA-Fallback und liefert die App statt der Anleitung. */
+const DOC_ALIAS = {
+  '/agent': 'agent.html', '/agent/': 'agent.html',
+  '/mcp': 'MCP_AI.md', '/mcp/': 'MCP_AI.md',
+};
+
 function serveStatic(req, res, pathname) {
   let rel = decodeURIComponent(pathname);
-  if (rel.endsWith('/')) rel += 'index.html';
+  if (DOC_ALIAS[rel]) rel = '/' + DOC_ALIAS[rel];
+  else if (rel.endsWith('/')) rel += 'index.html';
   const target = path.normalize(path.join(STATIC_DIR, rel));
   // Pfad-Ausbruch: alles, was nach Normalisierung nicht mehr unter
   // STATIC_DIR liegt, ist kein Treffer. path.join allein reicht da nicht.
@@ -156,12 +183,11 @@ function serveStatic(req, res, pathname) {
   // Falsch eingeteilt heisst hier: alte App haengt ewig im Cache.
   const immutable = /-[0-9a-f]{8,}\.[a-z0-9]+$/i.test(path.basename(target)) ||
                     /^(js|css)\//.test(rel.replace(/^\//, '')) && /[.-][0-9a-f]{8,}\./.test(path.basename(target));
-  res.writeHead(200, {
+  res.writeHead(200, Object.assign({
     'Content-Type': MIME[ext] || 'application/octet-stream',
     'Content-Length': st.size,
     'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'must-revalidate',
-    'X-Content-Type-Options': 'nosniff',
-  });
+  }, SECURITY_HEADERS));
   fs.createReadStream(target).pipe(res);
   return true;
 }

@@ -1,7 +1,7 @@
 ﻿'use strict';
 // tests/build-wasm.test.js â€“ scripts/build.js: die Engine kommt ins dist/,
 // egal ob lokal gebaut oder aus dem GitHub-Release geholt. Ohne Rust-Toolchain
-// (Cloudflare Workers Builds, fremde CI) ist genau der zweite Weg der einzige,
+// (fremde CI, Build ohne Rust) ist genau der zweite Weg der einzige,
 // der eine vollstaendige App erzeugt (SPEC-40).
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -59,18 +59,19 @@ describe('build.js: Release-Assets und MIME', () => {
     }
   });
 
-  it('traegt den MIME-Eintrag auch ohne build.sh ein', () => {
-    // Genau der Fall, der Cloudflare erwischt hat: kein office-wasm/dist/, also
-    // keine office_wasm.headers - ohne den Fallback kaeme die WASM als
-    // application/octet-stream heraus.
-    assert.match(src, /fs\.existsSync\(headers\)[\s\S]{0,80}\?/, 'build.sh-Datei wird bevorzugt');
-    assert.match(src, /Content-Type: application\/wasm/, 'Fallback traegt application/wasm');
-    assert.match(src, /Content-Type: text\/javascript/, 'Fallback traegt die Glue auch');
+  it('traegt den WASM-MIME ein (jetzt serverseitig)', () => {
+    // Frueher stand der MIME in einer Header-Datei neben dem dist (CDN-Format).
+    // Ausgeliefert wird dist/ jetzt vom Node-Server, also muss ER
+    // application/wasm kennen -
+    // sonst lehnt WebAssembly.instantiateStreaming ab und die Engine laedt
+    // erst gar nicht.
+    const server = fs.readFileSync(path.join(root, 'server', 'index.js'), 'utf8');
+    assert.match(server, /'\.wasm': 'application\/wasm'/);
   });
 
-  it('prueft die WASM-Magic, weil der Worker 200 mit HTML liefert', () => {
-    // not_found_handling = single-page-application: eine fehlende Datei kommt als
-    // App-Shell mit HTTP 200 zurueck. Ohne Magic-Pruefung landet HTML im dist/.
+  it('prueft die WASM-Magic, weil ein Fehlerseiten-Fallback 200 mit HTML liefert', () => {
+    // Eine fehlende Datei kann als HTML-Seite mit HTTP 200 zurueckkommen
+    // (SPA-Fallback, Proxy-Fehlerseite). Ohne Magic-Pruefung landet HTML im dist/.
     assert.match(src, /istWasm/, 'die Magic-Pruefung wird benutzt');
     assert.match(src, /0x00, 0x61, 0x73, 0x6d/, '00 61 73 6d ist die gesuchte Signatur');
     assert.match(src, /name\.endsWith\('\.wasm'\)/, 'nur fuer _bg.wasm gilt die WASM-Magic');
@@ -174,9 +175,6 @@ function stopFake(fake) {
       assert.ok(hatWasm(d), 'beide _bg.wasm liegen im dist');
       const wasm = fs.readFileSync(path.join(distDir(d), 'office_wasm_bg.wasm')).subarray(0, 4);
       assert.deepEqual(Array.from(wasm), [0x00, 0x61, 0x73, 0x6d], 'echtes WebAssembly, kein HTML');
-      const headers = fs.readFileSync(path.join(distDir(d), '_headers'), 'utf8');
-      assert.match(headers, /\/office_wasm_bg\.wasm\s*\r?\n\s*Content-Type: application\/wasm/);
-      assert.match(headers, /\/craft_wasm_bg\.wasm\s*\r?\n\s*Content-Type: application\/wasm/);
     } finally {
       stopFake(fake);
       fs.rmSync(d, { recursive: true, force: true });
@@ -184,7 +182,7 @@ function stopFake(fake) {
   });
 
   it('verwirft eine heruntergeladene Datei ohne WASM-Magic', async () => {
-    // Der Worker liefert bei fehlender Datei HTTP 200 mit der App-Shell. Ohne
+    // Ein SPA-Fallback liefert bei fehlender Datei HTTP 200 mit HTML. Ohne
     // diese Pruefung landete HTML als "Engine" im dist.
     const fake = await fakeRelease('v9.9.9', true);
     const d = makeRoot();

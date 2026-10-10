@@ -32,7 +32,9 @@ systemctl list-timers --no-pager --no-legend 2>/dev/null | grep -i federwerk | s
 echo
 echo "================= WAS NOCH FEHLT ================="
 [ -f /opt/actions-runner/.runner ] && echo "  Runner: registriert" || echo "  Runner: NICHT registriert (Token fehlt)"
-TOK=$(sed -n 's/^TUNNEL_TOKEN=//p' /etc/federwerk/tunnel.env 2>/dev/null | tr -d '"\r\n ')
-[ -n "$TOK" ] && echo "  Tunnel: Token gesetzt" || echo "  Tunnel: Token fehlt in /etc/federwerk/tunnel.env"
 curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1 && echo "  App-Shell: ausgeliefert" || echo "  App-Shell: FEHLT"
-grep -rqs "fra.cloud.appwrite.io" /srv/federwerk/app/dist/ && echo "  Frontend: spricht NOCH Appwrite an (Client-Transport nicht umgestellt)" || echo "  Frontend: kein Appwrite mehr"
+# Der Dienst lauscht auf allen Interfaces (FW_HOST=0.0.0.0), damit Geraete im
+# LAN ihn erreichen. Nur Loopback waere die haeufigste Ursache fuer "geht von
+# aussen nicht".
+HOST=$(sed -n 's/^FW_HOST=//p' /etc/federwerk/env 2>/dev/null | tr -d '"\r\n ')
+echo "  Lauscht auf: ${HOST:-0.0.0.0} (FW_HOST)"

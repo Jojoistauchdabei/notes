@@ -1,5 +1,5 @@
 'use strict';
-// Regressionstest: Der Cloud-Sync (js/appwrite-files.js, js/appwrite-sync.js)
+// Regressionstest: Der Cloud-Sync (js/files-sync.js, js/sync.js)
 // liest `window.state.books`. `state` ist in js/app.js als top-level `let`
 // deklariert – das landet bei klassischen <script>s NICHT auf window.
 // js/app.js muss daher eine window.state-Brücke (Getter/Setter) enthalten,
@@ -28,7 +28,7 @@ describe('app-state-bridge/statisch', () => {
     assert.match(APP_SRC, /set\(v\)\s*\{\s*state\s*=\s*v;\s*\}/);
   });
   it('Sync-Module lesen window.state (Vertrag)', () => {
-    for (const f of ['appwrite-files.js', 'appwrite-sync.js']) {
+    for (const f of ['files-sync.js', 'sync.js']) {
       const src = fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8');
       assert.match(src, /window\.state/, f + ' muss window.state lesen');
     }
@@ -42,9 +42,9 @@ describe('app-state-bridge/verhalten', () => {
     const sandbox = { window };
     vm.createContext(sandbox);
     vm.runInContext(bridge, sandbox);
-    // Leser wie in js/appwrite-files.js (syncNow/cleanupOrphans)
+    // Leser wie in js/files-sync.js (syncNow/cleanupOrphans)
     const filesReader = '(typeof window !== "undefined" && window.state && Array.isArray(window.state.books)) ? window.state.books : []';
-    // Leser wie in js/appwrite-sync.js (getBooks)
+    // Leser wie in js/sync.js (getBooks)
     const syncReader = '(typeof window !== "undefined" && window.state && Array.isArray(window.state.books)) ? window.state.books : []';
     assert.deepEqual(vm.runInContext(`(${filesReader}).length`, sandbox), 0);
     // Buch anlegen (Mutation wie in app.js)
