@@ -79,27 +79,58 @@ describe('register/registerAccount', () => {
     F._internals._resetLs();
   });
 
-  it('POST /account mit userId unique() und danach Auto-Login', async () => {
+  /* Frueher: POST /account mit userId 'unique()' und danach ein zweiter
+   *   Aufruf fuer die Session, deren Secret in den localStorage wanderte.
+   * Jetzt: EIN Aufruf. Der Server vergibt die ID und legt die Session in
+   * einem Rutsch an; das HttpOnly-Cookie nimmt der Browser entgegen. Der
+   * Test prueft deshalb jetzt das Wegbleiben des Secrets - ein Secret im
+   * localStorage waere fuer jeden XSS-Pfad auslesbar. */
+  it('registriert mit einem Aufruf und legt kein Secret ab', async () => {
     const calls = [];
     global.fetch = async (url, opts) => {
       calls.push({ url, opts });
       const body = opts && opts.body ? JSON.parse(opts.body) : {};
-      if (url.endsWith('/account') && opts.method === 'POST') {
-        assert.equal(body.userId, 'unique()');
+      if (url.endsWith('/api/auth/register') && opts.method === 'POST') {
         assert.equal(body.email, 'neu@beispiel.de');
         assert.equal(body.password, 'Geheim123!');
-        return { ok: true, status: 201, headers: { get: () => null }, json: async () => ({ $id: 'u1' }) };
-      }
-      if (url.endsWith('/account/sessions/email')) {
-        assert.equal(body.email, 'neu@beispiel.de');
-        return { ok: true, status: 201, headers: { get: () => null }, json: async () => ({ secret: 's3', userId: 'u1' }) };
+        assert.equal(body.name, 'Neu');
+        assert.equal(body.userId, undefined, 'die ID vergibt der Server');
+        return {
+          ok: true, status: 201,
+          headers: { get: (k) => (k === 'content-type' ? 'application/json' : null) },
+          json: async () => ({ user: { id: 'u1', email: 'neu@beispiel.de' } }),
+        };
       }
       throw new Error('unerwarteter Call ' + url);
     };
     const j = await F.registerAccount({ name: 'Neu', email: 'neu@beispiel.de', password: 'Geheim123!' });
-    assert.equal(j.secret, 's3');
-    assert.equal(F.loadSession().secret, 's3');
-    assert.equal(calls.length, 2);
+    assert.equal(j.user.id, 'u1');
+    assert.equal(j.secret, undefined, 'kein Secret in der Antwort');
+    assert.equal(F.loadSession(), null, 'kein Secret im localStorage');
+    assert.equal(calls.length, 1, 'Registrierung und Anmeldung fallen zusammen');
+  });
+
+  it('meldet bei bereits vergebener Adresse die Anmeldung statt eines Fehlers', async () => {
+    // Der Server meldet 409. Ein erneuter Registrierungsklick soll den
+    // Nutzer nicht mit "gibt es schon" abschrecken, sondern einloggen.
+    const calls = [];
+    global.fetch = async (url, opts) => {
+      calls.push(url);
+      if (url.endsWith('/api/auth/register')) {
+        return { ok: false, status: 409, headers: { get: () => 'application/json' }, json: async () => ({ error: 'bereits registriert' }) };
+      }
+      if (url.endsWith('/api/auth/login')) {
+        return {
+          ok: true, status: 200,
+          headers: { get: (k) => (k === 'content-type' ? 'application/json' : null) },
+          json: async () => ({ user: { id: 'u1', email: 'neu@beispiel.de' } }),
+        };
+      }
+      throw new Error('unerwarteter Call ' + url);
+    };
+    const j = await F.registerAccount({ email: 'neu@beispiel.de', password: 'Geheim123!' });
+    assert.equal(j.user.id, 'u1');
+    assert.equal(calls.length, 2, 'zuerst 409, dann der Anmeldeversuch');
   });
 
   it('validiert vor dem Netz: ohne E-Mail/Passwort und kurzes Passwort', async () => {

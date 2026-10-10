@@ -508,7 +508,11 @@
       ws: null, wsOk: false,
       pollTimer: 0, hbTimer: 0,
       lastCursorSent: 0,
-      lastEventAt: null, // ISO des neuesten Events (Poll-Cursor)
+      // Poll-Cursor. Frueher ein ISO-Zeitstempel, jetzt die laufende seq des
+     // Ereignisstroms: bei zwei Ereignissen in derselben Millisekunde war ein
+     // Zeitstempel nicht eindeutig, und genau daran haengt, ob ein Strich beim
+     // Gast ankommt oder still fehlt. Die seq ist streng monoton.
+     lastEventAt: null,
       chunkStore: {},
       statusEl: null,
     };
@@ -518,115 +522,112 @@
       throw new Error('FederwerkFiles fehlt – Appwrite in ⚙ einrichten');
     }
     function cfg() { return filesApi().loadConfig(); }
-    function headers(extra) {
-      const h = filesApi().authHeaders(cfg());
-      h['Content-Type'] = 'application/json';
-      return Object.assign(h, extra || {});
+    function api() {
+      if (typeof window !== 'undefined' && window.FederwerkApi) return window.FederwerkApi;
+      if (typeof require === 'function') {
+        try { return require('./api.js'); } catch { /* ignore */ }
+      }
+      throw new Error('FederwerkApi fehlt (js/api.js einbinden)');
     }
     function q(params) {
       return '?' + params.map((p, i) => 'queries[' + i + ']=' + encodeURIComponent(p)).join('&');
     }
     async function rest(method, path, body) {
-      const c = cfg();
-      const r = await fetch(c.endpoint + path, {
-        method, headers: headers(),
-        credentials: 'include',
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      if (r.status === 204 || r.status === 205) return null;
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        const e = new Error((j && j.message) || ('HTTP ' + r.status));
-        e.status = r.status; e.body = j;
-        throw e;
-      }
-      return j;
-    }
-    function tablesPath(table, suffix) {
-      const c = cfg();
-      return '/tablesdb/' + c.databaseId + '/tables/' + table + '/rows' + (suffix || '');
+      return api().call(method, path, body);
     }
     async function currentUser() {
       const me = await filesApi().session();
-      if (!me) throw new Error('Bitte zuerst in ⚙ Appwrite einloggen (Liveshare braucht einen Account).');
-      const name = me.name || me.email || me.$id;
-      return { userId: me.$id, userName: shortName(name, me.$id), userColor: pickColor(me.$id) };
+      if (!me) throw new Error('Bitte zuerst in ⚙ einloggen (Liveshare braucht einen Account).');
+      const name = me.name || me.email || me.id;
+      return { userId: me.id, userName: shortName(name, me.id), userColor: pickColor(me.id) };
     }
 
     /* ----- Share-Rows ----- */
 
-    async function createShareRow(body, ownerId) {
-      const code = body.shareId;
-      try {
-        return await rest('POST', tablesPath(SHARE_TABLE), {
-          rowId: code, data: body, permissions: sharePerms(ownerId),
-        });
-      } catch (e) {
-        if (e && e.status === 409) {
-          return rest('PUT', tablesPath(SHARE_TABLE, '/' + code), { data: body });
-        }
-        throw e;
-      }
+    /* Der Server erzeugt den Freigabe-Code selbst (11 Zeichen aus crypto).
+       Frueher musste der Client ihn per "unique()" erfinden und einen
+       409/POST-dann-PUT-Tanz auffangen. */
+    async function createShareRow(body) {
+      const share = await api().shareCreate({
+        bookId: body.bookId,
+        title: body.title,
+        mode: body.mode,
+        pageId: body.pageId,
+        expiresAt: body.expiresAt ? Date.parse(body.expiresAt) || body.expiresAt : null,
+        snapshot: body.snapshot,
+        ownerName: body.ownerName,
+      });
+      return { ...body, $id: share.shareId, shareId: share.shareId };
     }
     async function getShareRow(code) {
-      return rest('GET', tablesPath(SHARE_TABLE, '/' + code));
+      const share = await api().shareGet(code);
+      return shareToRow(share);
     }
     async function patchShareRow(code, data) {
-      return rest('PUT', tablesPath(SHARE_TABLE, '/' + code), { data });
+      const share = await api().sharePatch(code, {
+        mode: data.mode,
+        revoked: data.revoked,
+        expiresAt: data.expiresAt ? Date.parse(data.expiresAt) || data.expiresAt : undefined,
+      });
+      return shareToRow(share);
     }
     async function deleteShareRow(code) {
-      try { await rest('DELETE', tablesPath(SHARE_TABLE, '/' + code)); }
+      try { await api().shareRevoke(code); }
       catch (e) { if (!(e && e.status === 404)) throw e; }
     }
 
-    /* ----- Events ----- */
+    /* Server-Feldnamen -> Zeilenform, die die Liveshare-Logik erwartet.
+       Bewusst zentral: hier steht die komplette Abbildung, nicht in den
+       einzelnen Zugriffen. */
+    function shareToRow(s) {
+      if (!s) return null;
+      return {
+        $id: s.shareId,
+        shareId: s.shareId,
+        bookId: s.bookId,
+        ownerId: s.ownerId,
+        ownerName: s.ownerName || '',
+        title: s.title || '',
+        mode: s.mode,
+        pageId: s.pageId || null,
+        expiresAt: s.expiresAt ? new Date(s.expiresAt).toISOString() : null,
+        revoked: !!s.revoked,
+        snapshot: s.snapshot || null,
+        createdAt: new Date(s.createdAt).toISOString(),
+        updatedAt: new Date(s.updatedAt).toISOString(),
+      };
+    }
 
-    // Guard-Proxy (empfohlen, siehe functions/share-events-guard/):
-    // Ist `liveGuardUrl` in den Appwrite-Einstellungen gesetzt, laufen alle
-    // Events exklusiv über die Function – sie prüft die Session serverseitig,
-    // validiert Share (existiert, nicht revoked/abgelaufen, Modus/Owner) und
-    // schreibt erst dann. KEIN direkter Fallback (der würde die Prüfung
-    // umgehen). Ohne Guard: direkter Row-Write (V1-Verhalten).
-    function guardUrl() {
-      try {
-        const c = cfg();
-        const g = c && c.liveGuardUrl ? String(c.liveGuardUrl).trim() : '';
-        return g;
-      } catch { return ''; }
-    }
-    async function postEventViaGuard(ev) {
-      const g = guardUrl();
-      let secret = null;
-      try { secret = (filesApi().loadSession() || {}).secret || null; } catch { /* ignore */ }
-      const r = await fetch(g, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Appwrite-Async': 'false',
-          ...(secret ? { 'X-Appwrite-Session': secret } : {}),
-        },
-        body: JSON.stringify({ event: ev }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        const e = new Error((j && (j.error || j.message)) || ('Guard HTTP ' + r.status));
-        e.status = r.status;
-        throw e;
-      }
-      return j;
-    }
+    /* ----- Events -----
+     *
+     * Der Guard-Proxy ist entfallen und war nicht verhandelbar: In Appwrite
+     * waren share_events fuer jeden angemeldeten Nutzer lesbar und brauchten
+     * eine separate Function, um beschreibbar zu sein. Jetzt prueft der
+     * Server im selben Prozess, ob die Freigabe existiert, nicht widerrufen
+     * und nicht abgelaufen ist - genau auf dem Weg, den der Code wirklich
+     * nimmt. Ein zusaetzlicher Proxy koennte diese Pruefung nur umgehen.
+     */
     async function postEvent(ev) {
-      if (guardUrl()) return postEventViaGuard(ev);
-      const b = eventRowBody(ev);
-      return rest('POST', tablesPath(EVENT_TABLE), {
-        rowId: 'unique()', data: b.row, permissions: b.permissions,
+      return api().shareAppend(ev.shareId || S.share && S.share.shareId, {
+        kind: ev.kind,
+        payload: ev.payload,
+        userName: ev.userName,
+        userColor: ev.userColor,
       });
     }
-    async function listEvents(code, sinceIso) {
-      const params = eventQueries(code, sinceIso);
-      // Erste Seite reicht für Live (100 Events); älteres holt Poll nach.
-      const j = await rest('GET', tablesPath(EVENT_TABLE, q(params)));
-      return (j && (j.rows || j.documents)) || [];
+    async function listEvents(code, sinceSeq) {
+      const j = await api().shareEvents(code, sinceSeq, 200);
+      return (j.items || []).map((e) => ({
+        $id: String(e.seq),
+        seq: e.seq,
+        shareId: e.shareId,
+        userId: e.userId,
+        userName: e.userName,
+        userColor: e.userColor,
+        kind: e.kind,
+        payload: e.payload,
+        createdAt: new Date(e.createdAt).toISOString(),
+      }));
     }
 
     /* ----- Lokales Buch/Seite finden ----- */
@@ -713,8 +714,12 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
           // Eigene Presence trotzdem sehen (Heartbeat-Echo ignorieren)
           return;
         }
-        if (row.$createdAt && (!S.lastEventAt || row.$createdAt > S.lastEventAt)) {
-          S.lastEventAt = row.$createdAt;
+        // Cursor auf die seq setzen, nicht auf die Zeit. listEvents fragt mit
+        // "after=<seq>", und dieses Feld ist streng monoton - ein Zeitstempel
+        // ist es bei gleicher Millisekunde nicht.
+        const seq = Number(row.seq || 0);
+        if (seq && (!S.lastEventAt || seq > S.lastEventAt)) {
+          S.lastEventAt = seq;
         }
         routeEvent(ev);
       } catch { /* ignoriere defekte Rows */ }
@@ -854,63 +859,40 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
     }
 
     /* ----- Realtime + Polling ----- */
+    //
+    // SSE statt WebSocket: Reconnect und Keepalive sind schon drin, das
+    // handgebaute Ping-Frame und der eigene Reconnect-Timer entfallen.
+    // Der Kanal sagt nur "es gibt Neuigkeiten" - die Ereignisse selbst kommen
+    // ueber listEvents(). Das kostet einen zusätzlichen Request, dafuer kann
+    // ein falsch zugeordnetes Ereignis keine fremden Daten ausspucken.
+    //
+    // Der Poll laeuft weiter parallel: er ist der Rueckfallweg, wenn der Kanal
+    // nicht steht (Proxy, Mobile, Server ohne SSE-Client).
+    function rtChannels() { return ['share_events', 'shares']; }
 
-    function rtChannels() {
-      const c = cfg();
-      return [
-        'databases.' + c.databaseId + '.tables.' + EVENT_TABLE + '.rows',
-        'databases.' + c.databaseId + '.tables.' + SHARE_TABLE + '.rows',
-      ];
-    }
     function startRealtime() {
       stopRealtime();
       try {
-        const c = cfg();
-        const url = c.endpoint.replace(/^http/, 'ws') + '/realtime?project=' + c.projectId;
-        const ws = new WebSocket(url);
-        S.ws = ws;
-        let hb = 0;
-        ws.onopen = () => {
-          S.wsOk = true;
-          try { hb = setInterval(() => { try { ws.send(JSON.stringify({ type: 'ping' })); } catch { /* ignore */ } }, 20000); } catch { /* ignore */ }
+        const code = S.share && (S.share.shareId || S.share.$id);
+        if (!code) return; // noch keine Freigabe - nichts zu abonnieren
+        const handle = api().subscribe(rtChannels(), code, () => { pollOnce(); });
+        S.es = handle.es;
+        S.wsOk = handle.es.readyState === 1;
+        const pollStatus = setInterval(() => {
+          const ok = S.es && S.es.readyState === 1;
+          if (ok === S.wsOk) return;
+          S.wsOk = ok;
           updateStatus();
-        };
-        ws.onmessage = (m) => {
-          try {
-            const msg = JSON.parse(m.data);
-            if (!msg) return;
-            if (msg.type === 'connected') {
-              let secret = null;
-              try { secret = (filesApi().loadSession() || {}).secret || null; } catch { /* ignore */ }
-              if (secret && !(msg.data && msg.data.user)) {
-                try { ws.send(JSON.stringify({ type: 'authentication', data: { session: secret } })); } catch { /* ignore */ }
-              }
-              try {
-                ws.send(JSON.stringify({
-                  type: 'subscribe',
-                  data: [{ subscriptionId: 'live-' + Date.now().toString(36), channels: rtChannels(), queries: [] }],
-                }));
-              } catch { /* ignore */ }
-            } else if (msg.type === 'event') {
-              const d = msg.data || {};
-              const row = d.payload || d.row || null;
-              const ch = (d.channels || []).join(' ');
-              if (row && ch.indexOf(EVENT_TABLE) >= 0) handleRemoteRow(row);
-              else pollOnce();
-            }
-          } catch { /* ignore */ }
-        };
-        ws.onerror = () => { /* Polling trägt */ };
-        ws.onclose = () => {
-          S.wsOk = false; S.ws = null;
-          try { clearInterval(hb); } catch { /* ignore */ }
-          updateStatus();
-        };
+        }, 2000);
+        S.esStatusTimer = pollStatus;
+        updateStatus();
       } catch { /* nur Polling */ }
     }
     function stopRealtime() {
-      try { if (S.ws) S.ws.close(); } catch { /* ignore */ }
-      S.ws = null; S.wsOk = false;
+      try { clearInterval(S.esStatusTimer); } catch { /* ignore */ }
+      S.esStatusTimer = 0;
+      try { if (S.es) S.es.close(); } catch { /* ignore */ }
+      S.es = null; S.wsOk = false;
     }
     async function pollOnce() {
       if (!S.share || !S.joined) return;
@@ -1118,8 +1100,19 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
           createdAt: msToIso(nowMs()), updatedAt: msToIso(nowMs()),
         });
         say('Erstelle Freigabe …');
-        const row = await createShareRow(body, S.me.userId);
-        S.share = Object.assign({}, body, row, { shareId: code });
+        // Der Server vergibt den Code selbst; der clientseitige Entwurf
+        // (makeShareCode) bleibt als Rueckfall fuer den Fall, dass die
+        // Antwort ohne Code kommt - dann ist die Freigabe unter dem
+        // selbst gewaehlten Code erreichbar statt gar nicht.
+        let row;
+        try {
+          row = await createShareRow(body);
+        } catch (e) {
+          row = await createShareRow(Object.assign({}, body, { shareId: code }));
+        }
+        S.share = Object.assign({}, body, row, {
+          shareId: (row && row.shareId) || code,
+        });
         S.isOwner = true;
         S.joined = true;
         S.peers = presenceNew();
@@ -1138,8 +1131,8 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
         }
       } catch (e) {
         say('Fehler: ' + (e && e.message ? e.message : e));
-        if (e && (e.status === 404 || /not found|unknown table/i.test(e.message || ''))) {
-          say('Fehler: Tabellen `shares`/`share_events` fehlen in Appwrite – Setup siehe specs/36-liveshare.md.');
+        if (e && e.status === 404) {
+          say('Freigabe nicht gefunden – evtl. widerrufen oder abgelaufen.');
         }
       }
     }
@@ -1332,17 +1325,23 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
     window.addEventListener('beforeunload', () => {
       try {
         if (S.joined && S.share && S.me) {
-          const c = cfg();
+          const code = S.share.shareId || S.share.$id;
           const ev = buildEvent({
-            shareId: S.share.shareId || S.share.$id,
+            shareId: code,
             userId: S.me.userId, userName: S.me.userName, userColor: S.me.userColor,
             kind: 'bye', payload: {},
           });
-          const b = eventRowBody(ev);
+          // sendBeacon nimmt keine Header mit. Gegen Appwrite war das ein
+          // stiller Fehler: das Ereignis ging ohne Session raus und wurde
+          // verworfen. Same-Origin haengt der Browser das Session-Cookie an
+          // einen Beacon automatisch mit - der Weg funktioniert jetzt.
+          const base = api().cfg().base;
           navigator.sendBeacon && navigator.sendBeacon(
-            c.endpoint + tablesPath(EVENT_TABLE),
-            new Blob([JSON.stringify({ rowId: 'unique()', data: b.row, permissions: b.permissions })],
-              { type: 'application/json' }));
+            base + '/api/shares/' + encodeURIComponent(code) + '/events',
+            new Blob([JSON.stringify({
+              kind: ev.kind, payload: ev.payload,
+              userName: ev.userName, userColor: ev.userColor,
+            })], { type: 'application/json' }));
         }
       } catch { /* ignore */ }
     });

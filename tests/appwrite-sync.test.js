@@ -26,12 +26,10 @@ describe('appwrite-sync/datei', () => {
 });
 
 describe('appwrite-sync/queries', () => {
-  it('baut JSON-Queries im 2.x-Format', () => {
-    assert.deepEqual(JSON.parse(S.Q.limit(100)), { method: 'limit', values: [100] });
-    assert.deepEqual(JSON.parse(S.Q.orderAsc('updatedAt')), { method: 'orderAsc', attribute: 'updatedAt' });
-    assert.deepEqual(JSON.parse(S.Q.equal('userId', 'u1')), { method: 'equal', attribute: 'userId', values: ['u1'] });
-    assert.deepEqual(JSON.parse(S.Q.greaterThan('updatedAt', 'iso')), { method: 'greaterThan', attribute: 'updatedAt', values: ['iso'] });
-    assert.deepEqual(JSON.parse(S.Q.cursorAfter('abc')), { method: 'cursorAfter', values: ['abc'] });
+  it('hat keinen Query-Bauer mehr', () => {
+    // Der Server kennt nur noch ?since= und ?limit=. Der Appwrite-Dialekt
+    // aus {method,attribute,values}-Objekten ist mit ihm zusammen verschwunden.
+    assert.equal(S.Q, null);
   });
 });
 
@@ -203,10 +201,10 @@ describe('appwrite-sync/folders', () => {
 });
 
 describe('appwrite-sync/realtime', () => {
-  it('Channels benennen Datenbank + Tabellen', () => {
-    const ch = S.rtChannels({ databaseId: 'federwerk' });
-    assert.ok(ch.some(c => c.includes('notes')));
-    assert.ok(ch.some(c => c.includes('folders')));
+  it('Channels benennen Dokumente und Ordner', () => {
+    const ch = S.rtChannels();
+    assert.ok(ch.includes('docs'));
+    assert.ok(ch.includes('folders'));
   });
   it('stop ohne Start crasht nicht', () => {
     S.stopRealtime();

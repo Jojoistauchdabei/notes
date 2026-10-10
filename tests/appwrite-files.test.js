@@ -16,7 +16,10 @@ describe('appwrite-files/datei', () => {
     // Kein localStorage in Node -> Fallbacks statt Crash
     assert.deepEqual(F.loadMap(), {});
     assert.deepEqual(F.loadQueue(), []);
-    assert.equal(F.loadConfig().bucketId, 'attachments');
+    // Kein Bucket mehr: Dateien liegen beim Server, content-adressiert.
+    // loadConfig liefert nur noch Basis und Realtime-Schalter.
+    assert.equal(F.loadConfig().bucketId, undefined);
+    assert.equal(F.loadConfig().base, '');
     // optimizeImage ohne Canvas gibt Original zurück (kein Crash)
     return F.optimizeImage(new Uint8Array([1, 2, 3]), 'image/jpeg').then(out => {
       assert.equal(out.optimized, false);
@@ -32,8 +35,11 @@ describe('appwrite-files/datei', () => {
       'syncNow', 'cleanupOrphans', 'session']) {
       assert.equal(typeof F[k], 'function', k);
     }
-    assert.equal(F.DEFAULTS.databaseId, 'federwerk');
-    assert.equal(F.DEFAULTS.bucketId, 'attachments');
+    // DEFAULTS ist leer. Eine eingebaute Server-Adresse waere hier sogar
+    // schaedlich: sie wuerde eine fremde Instanz als Standard setzen, und
+    // Same-Origin (leer) ist die einzige Einstellung, bei der die
+    // Cookie- und Same-Origin-Regeln des Servers sicher greifen.
+    assert.deepEqual(F.DEFAULTS, {});
   });
 });
 
@@ -150,63 +156,52 @@ describe('appwrite-files/collect', () => {
   });
 });
 
-describe('appwrite-files/queries', () => {
-  it('baut JSON-Queries im 2.x-Format', () => {
-    assert.deepEqual(JSON.parse(F.Q.limit(100)), { method: 'limit', values: [100] });
-    assert.deepEqual(JSON.parse(F.Q.orderAsc('$createdAt')), { method: 'orderAsc', attribute: '$createdAt' });
-    assert.deepEqual(JSON.parse(F.Q.equal('userId', 'u1')), { method: 'equal', attribute: 'userId', values: ['u1'] });
-    assert.deepEqual(JSON.parse(F.Q.greaterThan('updatedAt', 'iso')), { method: 'greaterThan', attribute: 'updatedAt', values: ['iso'] });
-    assert.deepEqual(JSON.parse(F.Q.cursorAfter('abc')), { method: 'cursorAfter', values: ['abc'] });
-  });
-  it('Fallback-Cookie-Roundtrip', () => {
-    const mem = new Map();
-    F._internals._setLsBackend({
-      getItem: k => (mem.has(k) ? mem.get(k) : null),
-      setItem: (k, v) => { mem.set(k, String(v)); },
-      removeItem: k => { mem.delete(k); },
-    });
-    try {
-      mem.clear();
-      assert.equal(F.loadFallback(), null);
-      F.saveFallback('a_session=x');
-      assert.equal(F.authHeaders({ projectId: 'p' })['X-Fallback-Cookies'], 'a_session=x');
-      F.clearFallback();
-      assert.equal(F.loadFallback(), null);
-    } finally {
-      F._internals._resetLs();
-    }
-  });
-});
-
-describe('appwrite-files/session', () => {
+/* ---- Entfallen mit dem Wechsel auf den eigenen Server ----
+ *
+ * Diese drei Bloecke prueften eine Architektur, die es nicht mehr gibt. Sie
+ * sind nicht "repariert", sondern ersetzt: die Zustaende sind weg, nicht die
+ * Testfaehigkeit.
+ *
+ *   - JSON-Query-Dialekt: Appwrite-Spezifika. Der Server kennt ?since= und
+ *     ?limit=, keine {method,attribute,values}-Objekte.
+ *   - Secret im localStorage + X-Appwrite-Session: noetig, weil der
+ *     Tauri-WebView den Third-Party-Cookie verliert. Jetzt ein HttpOnly-
+ *     Cookie auf eigenem Origin - im localStorage waere es zudem fuer jeden
+ *     XSS-Pfad auslesbar.
+ *   - Cookie-Fallback (X-Fallback-Cookies): dieselbe Begruendung.
+ */
+describe('appwrite-files/kein-Zustand-mehr-im-localStorage', () => {
   const mem = new Map();
   const backend = {
     getItem: k => (mem.has(k) ? mem.get(k) : null),
     setItem: (k, v) => { mem.set(k, String(v)); },
     removeItem: k => { mem.delete(k); },
   };
-  it('Secret-Roundtrip + Header-Bau (Tauri-Fix)', () => {
+  it('legt Session, Secret und Cookie-Fallback nicht mehr ab', () => {
     F._internals._setLsBackend(backend);
     try {
       mem.clear();
-      assert.equal(F.loadSession(), null);
-      const base = F.authHeaders({ projectId: 'p' });
-      assert.equal(base['X-Appwrite-Project'], 'p');
-      assert.equal(base['X-Appwrite-Response-Format'], '2.0.0');
-      assert.equal(base['X-Appwrite-Session'], undefined);
-      F.saveSession({ secret: 's3cr3t', userId: 'u1', at: 'x' });
-      assert.equal(F.loadSession().secret, 's3cr3t');
-      assert.equal(F.authHeaders({ projectId: 'p' })['X-Appwrite-Session'], 's3cr3t');
-      F.clearSession();
-      assert.equal(F.loadSession(), null);
+      F.saveSession({ secret: 's3cr3t', userId: 'u1' });
+      F.saveFallback('a_session=x');
+      assert.equal(F.loadSession(), null, 'kein Secret im localStorage');
+      assert.equal(F.loadFallback(), null, 'kein Fallback-Cookie im localStorage');
+      assert.deepEqual(Array.from(mem.keys()), [], 'gar nichts abgelegt');
     } finally {
       F._internals._resetLs();
     }
   });
+  it('baut keine Auth-Header - das Cookie macht der Browser', () => {
+    // Jeder zusaetzliche Auth-Header wuerde die Anfrage von der
+    // Same-Origin-Regel des Servers loesen, die er prueft.
+    assert.deepEqual(F.authHeaders(), {});
+  });
+  it('hat keinen Query-Bauer mehr', () => {
+    assert.equal(F.Q, null);
+  });
 });
 
 describe('appwrite-files/config-ls', () => {
-  it('Map/Config-Roundtrip über injizierten Speicher', () => {
+  it('Map-Roundtrip über injizierten Speicher', () => {
     const mem = new Map();
     F._internals._setLsBackend({
       getItem: k => (mem.has(k) ? mem.get(k) : null),
@@ -215,9 +210,23 @@ describe('appwrite-files/config-ls', () => {
     try {
       F.saveMap({ [H1]: { fileId: 'fw1', mime: 'image/jpeg', size: 3 } });
       assert.equal(F.loadMap()[H1].fileId, 'fw1');
-      const cfg = F.saveConfig({ bucketId: 'test-bucket' });
-      assert.equal(cfg.bucketId, 'test-bucket');
-      assert.equal(F.loadConfig().databaseId, 'federwerk');
+    } finally {
+      F._internals._resetLs();
+    }
+  });
+  it('merkt sich nur noch Realtime, kein Bucket', () => {
+    const mem = new Map();
+    F._internals._setLsBackend({
+      getItem: k => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => { mem.set(k, String(v)); },
+    });
+    try {
+      const cfg = F.saveConfig({ realtime: true });
+      assert.equal(cfg.realtime, true);
+      // Leer bedeutet: gleicher Origin. js/api.js haelt die Basis.
+      assert.equal(cfg.base, '');
+      assert.equal(cfg.bucketId, undefined, 'Bucket gibt es nicht mehr');
+      assert.equal(mem.get('federwerkRealtimeV1'), 'true', 'Realtime wird gemerkt');
     } finally {
       F._internals._resetLs();
     }

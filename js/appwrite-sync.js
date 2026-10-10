@@ -1,27 +1,26 @@
-/* Federwerk Cloud-Logik (Appwrite TablesDB + Realtime).
+/* Federwerk Sync-Logik (eigener Server, server/).
  *
- * Ersetzt den WebDAV-Sync durch Appwrite als Cloud:
- *   Gerät A -> lokaler Cache -> Appwrite -> lokaler Cache -> Gerät B
+ *   Gerät A -> lokaler Cache -> Server (SQLite) -> lokaler Cache -> Gerät B
  *
- * - Notizen: lokales Buch <-> Row in Tabelle `notes`
- *   (id, userId, title, content, contentFileId, folderId,
- *    createdAt, updatedAt, deletedAt).
+ * - Notizen: lokales Buch <-> Dokument (id, title, folderId, content,
+ *   createdAt, updatedAt, deletedAt).
  *   content ist ein v1/v2-Envelope: Notebooks `{v:1, pages}`, Decks
  *   `{v:2, pages, kind, cards, deckOptions, reviewLog}` (bookEnvelope/
  *    parseEnvelope; der Hash (hashableBook) deckt Titel, Ordner, Seiten UND
  *    Deckfelder ab, damit Kartenänderungen syncen. Nach dem Update auf die
  *    v2-Hashbasis schiebt der erste Sync jedes Buch einmal hoch (einmalig).
- * - Ordner: Tabelle `folders` <-> lokaler Spiegel (Bücher tragen folderId).
- * - Notizen: vollständiger paginierter Bestand für sichere Lösch-Erkennung;
- *   lokal via Content-Hash.
- * - Tombstones: gelöschte Bücher werden als deletedAt-Row hochgeschoben,
- *   remote gelöschte lokal entfernt.
+ * - Ordner: /api/folders <-> lokaler Spiegel (Bücher tragen folderId).
+ * - Notizen: vollständiger Bestand für sichere Lösch-Erkennung; lokal via
+ *   Content-Hash.
+ * - Tombstones: gelöschte Bücher werden mit deletedAt hochgeschoben, remote
+ *   gelöschte lokal entfernt.
  * - Konflikt (beide Seiten geändert): Remote gewinnt, lokale Version bleibt
- *   als "(Konflikt)"-Kopie erhalten (wie bisherige Cloud-Logik).
- * - Content > 40 KB wandert als JSON-Datei in den Bucket (bytesMax/Row),
- *   Bild-Refs reisen als `awfile:<hash>` und werden up-/downgeloadet
- *   (js/appwrite-files.js: Dedupe + Recompress).
- * - Realtime: WebSocket-Subscribe auf die Tabellen, triggert Delta-Pull.
+ *   als "(Konflikt)"-Kopie erhalten.
+ * - Bild-Refs reisen als `awfile:<hash>` und werden up-/downgeloadet
+ *   (js/appwrite-files.js: Dedupe + Recompress). Der Inhalt eines Dokuments
+ *   liegt dagegen immer inline - die frühere 40-KB-Auslagerung war nur
+ *   Appwrites Zeilenlimit geschuldet.
+ * - Realtime: SSE-Kanal meldet "da ist etwas neu" und triggert einen Pull.
  * - DOM-frei ladbar: Entscheidungslogik ist rein und in Node testbar.
  */
 (function () {
@@ -33,7 +32,11 @@
   const FOLDERMETA_KEY = 'federwerkFolderMetaV1'; // id -> {hash, remoteUpdatedAtMs}
   const CONFLICTS_KEY = 'federwerkConflictsV1'; // [{id, title, at, sourceId}] – unbestätigte Konflikt-Kopien
   const CONFLICTS_MAX = 50;
-  const OFFLOAD_BYTES = 40000;
+  // Frueher 40000 - die Grenze kam von Appwrites 64-KB-Zeilenlimit. Der
+  // eigene Server hat sie nicht, Inhalte gehen immer inline (siehe
+  // contentToPayload). Die Konstante bleibt als Export bestehen, weil Tests
+  // und Aufrufer sie lesen.
+  const OFFLOAD_BYTES = Infinity;
   const AWFILE = 'awfile:';
 
   let lsBackend = null;
@@ -63,7 +66,9 @@
     const t = Date.parse(iso || '');
     return Number.isFinite(t) ? t : 0;
   }
-  // Appwrite Row-ID: ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$ – sonst mappen.
+  // Dokument-ID: ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$ – sonst mappen.
+  // Der Server akzeptiert zudem deutlich laengere IDs; die Grenze hier ist
+  // historisch und bleibt, damit vorhandene IDs stabil bleiben.
   function rowIdForBook(id) {
     const s = String(id || '');
     if (/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/.test(s)) return s;
@@ -313,70 +318,73 @@
     }
     throw new Error('FederwerkFiles fehlt (js/appwrite-files.js einbinden)');
   }
-  async function tablesRest(cfg, method, path, body) {
-    if (typeof fetch === 'undefined') throw new Error('kein fetch');
-    let headers = {
-      'X-Appwrite-Project': cfg.projectId,
-      'X-Appwrite-Response-Format': '2.0.0',
-      'Content-Type': 'application/json',
-    };
-    try {
-      const F = (typeof window !== 'undefined' && window.FederwerkFiles) ? window.FederwerkFiles : null;
-      if (F && typeof F.authHeaders === 'function') {
-        headers = F.authHeaders(cfg);
-        headers['Content-Type'] = 'application/json';
-      }
-    } catch { /* Fallback: nur Project-Header */ }
-    const r = await fetch(cfg.endpoint + path, {
-      method, headers,
-      credentials: 'include',
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (r.status === 204 || r.status === 205) return null;
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const e = new Error((j && j.message) || ('HTTP ' + r.status));
-      e.status = r.status; e.body = j;
-      throw e;
+  function api() {
+    if (typeof window !== 'undefined' && window.FederwerkApi) return window.FederwerkApi;
+    if (typeof require === 'function') {
+      try { return require('./api.js'); } catch { /* ignore */ }
     }
-    return j;
+    throw new Error('FederwerkApi fehlt (js/api.js einbinden)');
   }
-  // Query-Bauer im JSON-Format (Appwrite 2.x, wie js/appwrite-files.js).
-  const Q = {
-    limit: n => JSON.stringify({ method: 'limit', values: [n] }),
-    orderAsc: a => JSON.stringify({ method: 'orderAsc', attribute: a }),
-    equal: (a, v) => JSON.stringify({ method: 'equal', attribute: a, values: [v] }),
-    greaterThan: (a, v) => JSON.stringify({ method: 'greaterThan', attribute: a, values: [v] }),
-    cursorAfter: id => JSON.stringify({ method: 'cursorAfter', values: [id] }),
-  };
-  function q(params) {
-    return '?' + params.map((p, i) => 'queries[' + i + ']=' + encodeURIComponent(p)).join('&');
+
+  /* ---- Zeilen-Normalisierung ----
+   *
+   * Der Server spricht {id, title, folderId, content, createdAt, updatedAt,
+   * deletedAt} mit Zeitstempeln in Millisekunden. Die Sync-Logik darunter
+   * rechnet mit $id und ISO-Zeitstempeln.
+   *
+   * Diese Anpassung liegt bewusst HIER und nicht in der Logik: planRows(),
+   * die Last-Write-Entscheidung und die Konfliktbehandlung sind rein und
+   * getestet. Sie auf eine andere Feldform umzubauen waere Aenderungsrisiko
+   * ohne Gegenwert - die Protokollseite ist trotzdem vollstaendig neu (eigene
+   * Routen, Cookie-Auth, kein Query-Dialekt, SSE statt Realtime-WS). */
+  function msToIsoLocal(ms) {
+    const n = Number(ms);
+    if (!n) return null;
+    return new Date(n).toISOString();
+  }
+  function toRow(d) {
+    return {
+      $id: d.id,
+      title: d.title || '',
+      folderId: d.folderId || null,
+      content: d.content || '',
+      createdAt: msToIsoLocal(d.createdAt),
+      updatedAt: msToIsoLocal(d.updatedAt),
+      deletedAt: d.deletedAt ? msToIsoLocal(d.deletedAt) : null,
+    };
+  }
+
+  // Kein Query-Dialekt mehr: der Server kennt nur ?since= und ?limit=. Der Sync
+  // braucht ohnehin den vollstaendigen Bestand (sonst laesst sich "unveraendert"
+  // nicht von "lokal geloescht" unterscheiden), also genau eine Anfrage.
+  const Q = null;
+  function q() { return ''; }
+  async function tablesRest(cfg, method, path, body) {
+    return api().call(method, path, body);
   }
   async function listRows(cfg, table, queries) {
-    const out = [];
-    let cursor = null;
-    for (let page = 0; page < 20; page++) {
-      const params = [Q.limit(100), ...(queries || [])];
-      if (cursor) params.push(Q.cursorAfter(cursor));
-      const j = await tablesRest(cfg, 'GET', `/tablesdb/${cfg.databaseId}/tables/${table}/rows${q(params)}`);
-      const rows = (j && (j.rows || j.documents)) || [];
-      for (const r of rows) out.push(r);
-      if (rows.length < 100) break;
-      cursor = rows[rows.length - 1].$id;
-    }
-    return out;
+    if (table === 'folders') return (await api().listFolders()).map(toRow);
+    return (await api().listDocs(0, 1000)).map(toRow);
   }
   async function upsertRow(cfg, table, rowId, data, userId) {
-    const perms = [`read("user:${userId}")`, `update("user:${userId}")`, `delete("user:${userId}")`];
-    try {
-      return await tablesRest(cfg, 'POST', `/tablesdb/${cfg.databaseId}/tables/${table}/rows`,
-        { rowId, data, permissions: perms });
-    } catch (e) {
-      if (e && e.status === 409) {
-        return tablesRest(cfg, 'PUT', `/tablesdb/${cfg.databaseId}/tables/${table}/rows/${rowId}`, { data });
-      }
-      throw e;
+    if (table === 'folders') {
+      return api().putFolder({
+        id: rowId,
+        name: data.name || '',
+        parentId: data.parentId || null,
+        updatedAt: isoToMs(data.updatedAt) || Date.now(),
+        deletedAt: data.deletedAt ? isoToMs(data.deletedAt) : null,
+      });
     }
+    return api().putDoc({
+      id: rowId,
+      title: data.title || '',
+      folderId: data.folderId || null,
+      content: data.content || '',
+      createdAt: isoToMs(data.createdAt) || Date.now(),
+      updatedAt: isoToMs(data.updatedAt) || Date.now(),
+      deletedAt: data.deletedAt ? isoToMs(data.deletedAt) : null,
+    });
   }
   function rowToNoteMeta(row) {
     return {
@@ -445,7 +453,7 @@
     for (const h of Object.keys(hashed)) {
       const e = hashed[h];
       if (!e || !e.bytes) continue;
-      await F.uploadEntry(cfg, e.hash, e.bytes, e.mime);
+      await F.uploadEntry(e.hash, e.bytes, e.mime);
       delete e.bytes; // Speicher wieder frei
     }
   }
@@ -455,7 +463,7 @@
     for (const h of hashes || []) {
       if (!h) continue;
       try {
-        const { bytes, mime } = await F.downloadEntry(cfg, F.fileIdForHash(h));
+        const { bytes, mime } = await F.downloadEntry(h);
         if (store && store.putBlob && typeof Blob !== 'undefined') {
           const ref = await store.putBlob(new Blob([bytes], { type: mime || 'application/octet-stream' }));
           if (ref) out[h] = ref;
@@ -467,24 +475,25 @@
     }
     return out;
   }
+  /* Inhalt wird immer inline gespeichert.
+   *
+   * Frueher gab es OFFLOAD_BYTES: alles Groessere wurde als eigene Datei in
+   * den Bucket gelegt, weil Appwrite Zeilen auf 64 KB begrenzt hatte. Der
+   * eigene Server hat diese Grenze nicht - SQLite nimmt mehrfarbige
+   * Megabyte-JSON direkt. Damit fallen contentFileId, der Datei-Upload beim
+   * Push und der Nachladeweg beim Pull ersatzlos weg. */
   async function contentToPayload(F, cfg, book, hashedByRef) {
     const map = {};
     for (const ref of Object.keys(hashedByRef)) map[ref] = hashedByRef[ref].hash;
     const { pages } = rewriteRefs(book.pages, map, 'push');
     const json = JSON.stringify(bookEnvelope(book, pages));
-    const bytes = new TextEncoder().encode(json);
-    if (bytes.length > OFFLOAD_BYTES) {
-      const hash = await F.sha256Hex(bytes);
-      await F.uploadEntry(cfg, hash, bytes, 'application/json');
-      return { content: '', contentFileId: F.fileIdForHash(hash) };
-    }
     return { content: json, contentFileId: null };
   }
   async function payloadToEnvelope(F, cfg, store, row) {
     let json = row.content || '';
     if (!json && row.contentFileId) {
       try {
-        const dl = await F.downloadEntry(cfg, row.contentFileId);
+        const dl = await F.downloadEntry(row.contentFileId);
         json = new TextDecoder().decode(dl.bytes);
       } catch { return null; }
     }
@@ -525,8 +534,8 @@
       const cfg = F.loadConfig();
       const say = typeof progress === 'function' ? progress : () => {};
       const me = await F.session();
-      if (!me) throw new Error('Bitte zuerst in den Appwrite-Einstellungen einloggen.');
-      const userId = me.$id;
+      if (!me) throw new Error('Bitte zuerst in den Server-Einstellungen einloggen.');
+      const userId = me.id;
       const store = getStore();
       const books = getBooks();
       const byId = {};
@@ -554,7 +563,7 @@
         local[b.id] = { hash: '', updatedAtMs: b.updatedAt || 0 };
       }
       // A fresh browser has no local row map. Reconnect same-title documents
-      // so the same Appwrite row is used instead of creating a duplicate.
+      // so the same document is reused instead of creating a duplicate.
       for (const rid of Object.keys(remote)) {
         if (local[rid]) continue;
         const title = remote[rid].title;
@@ -776,12 +785,12 @@
           }
         }
       } catch { /* Mirror bleibt */ }
-      // folders uses Appwrite's system timestamps; updatedAt is not a custom
+      // Ordner haben ihr eigenes updated_at (der Server legt es selbst an) -
       // attribute in the table schema.
       const rows = await listRows(cfg, 'folders', [Q.equal('userId', userId)]);
       const remote = {};
       for (const r of rows) {
-        // Lokale Ordner-IDs sind die fachliche ID; Appwrite verwendet daraus
+        // Lokale Ordner-IDs sind die fachliche ID; der Server verwendet daraus
         // abgeleitete Row-IDs. So bleiben auch ältere/ungültige IDs zuordenbar.
         const localId = Object.keys(mirror).find(fid =>
           (fmeta[fid] && fmeta[fid].rowId === r.$id) || rowIdForBook(fid) === r.$id
@@ -793,7 +802,7 @@
         if (localFolderIds.has(String(fid))) continue;
         const rowId = (fmeta[fid] && fmeta[fid].rowId) || rowIdForBook(fid);
         if (remote[fid] || rows.some(r => r.$id === rowId)) {
-          await tablesRest(cfg, 'DELETE', `/tablesdb/${cfg.databaseId}/tables/folders/rows/${rowId}`);
+          await api().deleteFolder(rowId);
           delete remote[fid];
         }
         delete mirror[fid];
@@ -830,7 +839,7 @@
           if (!remote[fid]) { delete mirror[fid]; delete fmeta[fid]; continue; }
           const nowIso = msToIso(Date.now());
           const rowId = m.rowId || rowIdForBook(fid);
-          await tablesRest(cfg, 'DELETE', `/tablesdb/${cfg.databaseId}/tables/folders/rows/${rowId}`).catch(() => null);
+          await api().deleteFolder(rowId).catch(() => null);
           delete mirror[fid]; delete fmeta[fid];
           continue;
         }
@@ -861,97 +870,63 @@
       } catch { /* UI-Refresh optional */ }
     },
 
-    /* ---------- Realtime ---------- */
-    _rt: { ws: null, onChange: null, retry: null, poll: null, connected: false },
-    rtChannels(cfg) {
-      return [
-        `databases.${cfg.databaseId}.tables.notes.rows`,
-        `databases.${cfg.databaseId}.tables.folders.rows`,
-      ];
-    },
+    /* ---------- Realtime: SSE statt WebSocket ---------- */
+    _rt: { es: null, onChange: null, poll: null, connected: false },
+    rtChannels() { return ['docs', 'folders']; },
     startRealtime(onChange) {
-      const F = filesApi();
-      const cfg = F.loadConfig();
       Sync.stopRealtime();
       const st = Sync._rt;
       st.onChange = typeof onChange === 'function' ? onChange : null;
-      if (typeof WebSocket === 'undefined') throw new Error('kein WebSocket');
-      // URL trägt nur das Projekt (SDK-Muster); Auth läuft als Message.
-      const url = cfg.endpoint.replace(/^http/, 'ws') + `/realtime?project=${cfg.projectId}`;
-      const ws = new WebSocket(url);
-      st.ws = ws;
-      let deb = null, hb = null;
-      // Fallback-Poll: laeuft nur solange die Realtime-Verbindung NICHT steht.
-      // Bei offener Verbindung liefert das WebSocket dieselben Aenderungen bereits
-      // (mit 2500ms Debounce). Der Poll war also reine Doppelarbeit: kompletter
-      // Zeilenabruf plus SHA-256 ueber jedes Buch-JSON und ueber jedes Bild-Byte,
-      // gefolgt von persistNow() + renderAll().
-      // Er startet zusaetzlich sofort beim Schliessen und schliesst damit die
-      // bisherige 15-Sekunden-Luecke bis zum Reconnect.
-      const startPoll = () => {
-        clearInterval(st.poll);
-        st.poll = setInterval(() => {
-          if (st.connected) return; // WebSocket liefert bereits
-          if (st.onChange) { try { st.onChange(); } catch { /* manual sync remains available */ } }
-        }, 5000);
-      };
-      startPoll();
+
+      // Der Kanal traegt keine Daten, nur "da ist etwas neu". Was sich geaendert
+      // hat, holt der regulaere Pull - damit ist eine Fehlmeldung im Kanal
+      // harmlos und ein Datenleck ueber den Kanal ausgeschlossen.
       const fire = () => {
-        clearTimeout(deb);
-        deb = setTimeout(() => { try { st.onChange && st.onChange(); } catch { /* ignore */ } }, 2500);
+        clearTimeout(st.deb);
+        st.deb = setTimeout(() => { try { st.onChange && st.onChange(); } catch { /* manueller Sync bleibt moeglich */ } }, 2500);
       };
-      const secret = (() => {
-        try { return (F && typeof F.loadSession === 'function' && (F.loadSession() || {}).secret) || null; }
-        catch { return null; }
-      })();
-      ws.onopen = () => {
-        st.connected = true;
-        try {
-          clearInterval(hb);
-          hb = setInterval(() => { try { ws.send(JSON.stringify({ type: 'ping' })); } catch { /* ignore */ } }, 20000);
-        } catch { /* ignore */ }
-      };
-      ws.onmessage = (ev) => {
-        try {
-          const m = JSON.parse(ev.data);
-          if (!m) return;
-          if (m.type === 'connected') {
-            // SDK-Muster: Session nachliefern, falls Server keinen User sieht.
-            if (secret && !(m.data && m.data.user)) {
-              try { ws.send(JSON.stringify({ type: 'authentication', data: { session: secret } })); }
-              catch { /* ignore */ }
-            }
-            try {
-              ws.send(JSON.stringify({
-                type: 'subscribe',
-                data: [{ subscriptionId: 'fw-' + Date.now().toString(36), channels: Sync.rtChannels(cfg), queries: [] }],
-              }));
-            } catch { /* ignore */ }
-          } else if (m.type === 'event') fire();
-          else if (m.type === 'error' && typeof console !== 'undefined') console.warn('realtime:', m.data);
-        } catch { /* ignore */ }
-      };
-      ws.onerror = () => { /* still, weiter manuell */ };
-      ws.onclose = () => {
-        st.connected = false;
-        st.ws = null;
-        try { clearInterval(hb); } catch { /* ignore */ }
-        // Sofort zurück auf den Fallback-Poll (vorher gap bis zum Reconnect).
-        startPoll();
-        clearTimeout(st.retry);
-        st.retry = setTimeout(() => {
-          if (st.onChange) { try { Sync.startRealtime(st.onChange); } catch { /* ignore */ } }
-        }, 15000);
-      };
+      st.fire = fire;
+
+      const handle = api().subscribe(Sync.rtChannels(), null, fire);
+      st.es = handle.es;
+
+      // Fallback-Poll laeuft nur, solange der Kanal NICHT steht. Sonst macht er
+      // exakt dieselbe Arbeit zweimal: kompletter Zeilenabruf plus SHA-256 ueber
+      // jedes Buch-JSON, gefolgt von persistNow() und renderAll().
+      clearInterval(st.poll);
+      st.poll = setInterval(() => {
+        if (st.connected) return;
+        if (st.onChange) { try { st.onChange(); } catch { /* ignore */ } }
+      }, 5000);
+
+      st.connected = true;
+      // SSE verbindet sich selbst und wird selbst wieder verbunden; wir
+      // beobachten nur den Zustand fuer die Statusanzeige und den Poll.
+      const pollStatus = setInterval(() => {
+        const rs = st.es && st.es.readyState;
+        const connected = rs === 1;
+        if (connected === st.connected) return;
+        st.connected = connected;
+        if (connected) clearInterval(st.poll);
+        else {
+          clearInterval(st.poll);
+          st.poll = setInterval(() => {
+            if (st.onChange) { try { st.onChange(); } catch { /* ignore */ } }
+          }, 5000);
+        }
+      }, 2000);
+      st.pollStatus = pollStatus;
+
       return true;
     },
     stopRealtime() {
       const st = Sync._rt;
-      clearTimeout(st.retry);
+      clearTimeout(st.deb);
       clearInterval(st.poll);
+      clearInterval(st.pollStatus);
       st.onChange = null;
-      try { if (st.ws) st.ws.close(); } catch { /* ignore */ }
-      st.ws = null; st.connected = false;
+      try { if (st.es) st.es.close(); } catch { /* ignore */ }
+      st.es = null; st.connected = false;
     },
     rtStatus() { return Sync._rt.connected ? 'verbunden' : 'aus'; },
   };
@@ -1020,31 +995,26 @@
       },
       async runDiagnostics() {
         const summary = UI._el('awDiagnosticsSummary');
-        const F = window.FederwerkFiles;
-        const cfg = F && F.loadConfig ? F.loadConfig() : {};
         const lines = [
-          `Endpoint: ${cfg.endpoint || 'fehlt'}`,
-          `Projekt: ${cfg.projectId || 'fehlt'}`,
+          `Server: ${api().cfg().base || location.origin}`,
           `Realtime: ${Sync.rtStatus()}`,
           `Lokale Bücher: ${getBooks().length}`,
         ];
         try {
-          if (!F || !F.session) throw new Error('Datei-Sync-Modul fehlt');
-          const me = await F.session();
-          lines.push(me ? `Session: OK (${me.$id})` : 'Session: FEHLT – zuerst einloggen');
+          const health = await api().health();
+          lines.push(`Server antwortet: ${health.version || '?'} (Hash-Prüfung ${health.filesVerified ? 'an' : 'aus'})`);
+          const me = await api().session();
+          lines.push(me ? `Session: OK (${me.email || me.id})` : 'Session: FEHLT – zuerst einloggen');
           if (me) {
-            const response = await fetch(cfg.endpoint + `/tablesdb/${cfg.databaseId}/tables/notes/rows?queries[0]=${encodeURIComponent(Q.limit(1))}`, {
-              headers: F.authHeaders(cfg), credentials: 'include',
-            });
-            const body = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(`Notes-Tabelle HTTP ${response.status}: ${body.message || 'unbekannt'}`);
-            lines.push(`Notes-Tabelle: OK (${body.total || 0} Rows)`);
+            const docs = await api().listDocs(0, 1000);
+            const folders = await api().listFolders();
+            const files = await api().listFiles();
+            lines.push(`Dokumente: ${docs.length}, Ordner: ${folders.length}, Dateien: ${files.length}`);
           }
-          lines.push('Hinweis: Live-Sync sendet bei aktivierter Option zusätzlich alle 5 Sekunden einen Delta-Pull.');
+          lines.push('Hinweis: Der Live-Kanal meldet nur „da ist etwas neu“. Der Abruf läuft dann regulär über den Pull.');
         } catch (e) {
-          const msg = e && e.message ? e.message : String(e);
-          lines.push('FEHLER: ' + msg);
-          UI._log('Diagnose: ' + msg);
+          lines.push('FEHLER: ' + (e && e.message ? e.message : String(e)));
+          UI._log('Diagnose: ' + (e && e.message ? e.message : String(e)));
         }
         if (summary) summary.textContent = lines.join('\n');
         const log = UI._el('awDiagnosticsLog');

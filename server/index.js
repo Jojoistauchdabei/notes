@@ -25,7 +25,15 @@ const shares = require('./shares.js');
 const events = require('./events.js');
 
 const PORT = Number(process.env.FW_PORT || 8080);
-const HOST = process.env.FW_HOST || '127.0.0.1';
+// 0.0.0.0 statt 127.0.0.1: Der Cloudflare-Tunnel laeuft in einem ANDEREN
+// LXC und erreicht Loopback nicht. Bindung auf das Loopback-Interface waere
+// dann eine unsichtbare Firewall - der Dienst waere gesund, aber von aussen
+// nicht erreichbar, und das faellt erst beim Tunnel-Ausfall auf.
+//
+// Die Absicherung liegt bei der Authentifizierung (scrypt, HttpOnly-Cookie)
+// und beim Origin-Check weiter unten, nicht beim Interface. Wer das nicht
+// will, setzt FW_HOST=127.0.0.1 und betreibt den Tunnel im selben Container.
+const HOST = process.env.FW_HOST || '0.0.0.0';
 const APP_DIR = process.env.FW_APP_DIR || '/srv/federwerk/app';
 const STATIC_DIR = path.join(APP_DIR, 'dist');
 const SESSION_SECRET = process.env.FW_SESSION_SECRET || '';

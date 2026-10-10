@@ -20,17 +20,15 @@
 
   const MAP_KEY = 'federwerkFileMapV1';   // hash -> {fileId, mime, size, at}
   const QUEUE_KEY = 'federwerkFileQueueV1'; // [{hash, ref, tries}]
-  const CFG_KEY = 'federwerkAppwriteV1';
-  // Session-Secret (aus Login-Antwort). Fällt im Tauri-WebView der
-  // Third-Party-Cookie weg, trägt der `X-Appwrite-Session`-Header die Auth.
-  const SESSION_KEY = 'federwerkAwSessionV1'; // {secret, userId, at}
-
-  const DEFAULTS = {
-    endpoint: 'https://fra.cloud.appwrite.io/v1',
-    projectId: '6ab0067c00244c28560a',
-    databaseId: 'federwerk',
-    bucketId: 'attachments',
-  };
+  const REALTIME_KEY = 'federwerkRealtimeV1';
+  // DEFAULTS ist leer: der Server liegt unter demselben Origin wie die App.
+  // Das ist Absicht - dadurch greifen die Service-Worker-Regeln auch fuer die
+  // API und der Browser haengt das Session-Cookie ohne Sonderbehandlung an.
+  const DEFAULTS = {};
+  // Datei-Prefix und Endung bleiben unveraendert. Der Server legt Dateien
+  // unter <sha256>.<ext> ab, aber der lokale Dedupe- und Referenz-Algorithmus
+  // rechnet weiter mit `fw` + 32 Hex. Die beiden Welten muessen nicht gleich
+  // sein, solange der Client nie daraus einen Pfad baut - und das tut er nicht.
   const FILE_PREFIX = 'fw';
   const MAX_LONG_EDGE = 1600;
   const JPEG_Q = 0.82;
@@ -215,100 +213,68 @@
 
   /* ---------- Konfiguration ---------- */
 
-  function loadConfig() { return Object.assign({}, DEFAULTS, lsGet(CFG_KEY, {})); }
+  // Der Server spricht unter eigenem Origin mit uns; die Basis steht in
+  // js/api.js. Hier bleibt nur, was die Oberflaeche anzeigt.
+  function loadConfig() {
+    const a = api();
+    return { base: a.cfg().base, realtime: !!lsGet(REALTIME_KEY, false) };
+  }
   function saveConfig(patch) {
-    const cfg = Object.assign(loadConfig(), patch || {});
-    lsSet(CFG_KEY, cfg);
-    return cfg;
+    if (patch && 'realtime' in patch) lsSet(REALTIME_KEY, !!patch.realtime);
+    return loadConfig();
   }
   function loadMap() { return lsGet(MAP_KEY, {}); }
   function saveMap(m) { lsSet(MAP_KEY, m || {}); }
   function loadQueue() { return lsGet(QUEUE_KEY, []); }
   function saveQueue(q) { lsSet(QUEUE_KEY, q || []); }
-  function loadSession() { return lsGet(SESSION_KEY, null); }
-  function saveSession(s) { if (s) lsSet(SESSION_KEY, s); }
-  function clearSession() {
-    const s = ls();
-    if (!s) return;
-    try { s.removeItem(SESSION_KEY); } catch { /* ignore */ }
-  }
-  // Cookie-Fallback für Cross-Domain (SDK-Muster: X-Fallback-Cookies).
-  const FALLBACK_KEY = 'federwerkCookieFallbackV1';
-  function loadFallback() { return lsGet(FALLBACK_KEY, null); }
-  function saveFallback(v) { if (v) lsSet(FALLBACK_KEY, v); }
-  function clearFallback() {
-    const s = ls();
-    if (!s) return;
-    try { s.removeItem(FALLBACK_KEY); } catch { /* ignore */ }
-  }
-  // Header-Bauer (rein, testbar): Secret + Fallback ergänzen Cookie-Auth (Tauri-Fix).
-  function authHeaders(cfg, session) {
-    const h = {
-      'X-Appwrite-Project': cfg.projectId,
-      'X-Appwrite-Response-Format': '2.0.0',
-    };
-    const sec = (session && session.secret) || (loadSession() || {}).secret;
-    if (sec) h['X-Appwrite-Session'] = sec;
-    const fb = loadFallback();
-    if (fb) h['X-Fallback-Cookies'] = fb;
-    return h;
-  }
 
-  /* ---------- Appwrite REST (Browser) ---------- */
+  // Session-Secret und Cookie-Fallback sind ersatzlos entfallen: der Server
+  // nutzt ein HttpOnly-Cookie, das der Browser selbst mitschickt. Die
+  // Lesefunktionen bleiben als No-op, weil Aufrufer (Sync, Liveshare, MCP)
+  // sie noch referenzieren - ein stiller Fehlschlag waere schlimmer als ein
+  // leeres Objekt.
+  function loadSession() { return null; }
+  function saveSession() { /* kein Secret mehr im localStorage */ }
+  function clearSession() { /* Cookie wird serverseitig geloescht */ }
+  function loadFallback() { return null; }
+  function saveFallback() { /* entfallen */ }
+  function clearFallback() { /* entfallen */ }
+  // Es gibt keine Header mehr zu setzen. Die Funktion bleibt als leeres
+  // Objekt, damit Aufrufer nicht brechen; ein echter Header waere sogar
+  // schaedlich - jeder zusaetzliche Auth-Header macht den Request von der
+  // Same-Origin-Regel des Servers abhaengig.
+  function authHeaders() { return {}; }
+
+  /* ---------- Transport ---------- */
 
   function needBrowser() {
     if (typeof fetch === 'undefined') throw new Error('kein fetch');
   }
-  async function rest(cfg, method, path, opts) {
+  function api() {
+    if (typeof window !== 'undefined' && window.FederwerkApi) return window.FederwerkApi;
+    if (typeof require === 'function') {
+      try { return require('./api.js'); } catch { /* ignore */ }
+    }
+    throw new Error('FederwerkApi fehlt (js/api.js einbinden)');
+  }
+  async function rest(method, path, body) {
     needBrowser();
-    opts = opts || {};
-    const headers = authHeaders(cfg, opts.session);
-    if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-    const r = await fetch(cfg.endpoint + path, {
-      method, headers, credentials: 'include',
-      body: opts.body instanceof FormData ? opts.body : (opts.body ? JSON.stringify(opts.body) : undefined),
-    });
-    try {
-      const fb = r.headers && r.headers.get('x-fallback-cookies');
-      if (fb) saveFallback(fb);
-    } catch { /* ignore */ }
-    if (r.status === 204 || r.status === 205) return null;
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const e = new Error((j && j.message) || ('HTTP ' + r.status));
-      e.status = r.status; e.body = j;
-      throw e;
-    }
-    return j;
+    return api().call(method, path, body);
   }
-  // Query-Bauer im JSON-Format (Appwrite 2.x, vgl. SDK Query-Klasse).
-  // Transport als indizierte Params: queries[0]=...&queries[1]=...
-  const Q = {
-    limit: n => JSON.stringify({ method: 'limit', values: [n] }),
-    offset: n => JSON.stringify({ method: 'offset', values: [n] }),
-    orderAsc: a => JSON.stringify({ method: 'orderAsc', attribute: a }),
-    orderDesc: a => JSON.stringify({ method: 'orderDesc', attribute: a }),
-    equal: (a, v) => JSON.stringify({ method: 'equal', attribute: a, values: [v] }),
-    greaterThan: (a, v) => JSON.stringify({ method: 'greaterThan', attribute: a, values: [v] }),
-    cursorAfter: id => JSON.stringify({ method: 'cursorAfter', values: [id] }),
-  };
-  function q(params) {
-    return '?' + params.map((p, i) => 'queries[' + i + ']=' + encodeURIComponent(p)).join('&');
-  }
-  async function listAllFiles(cfg) {
-    const out = [];
-    let cursor = null;
-    for (let page = 0; page < 50; page++) {
-      const params = [Q.limit(100), Q.orderAsc('$createdAt')];
-      if (cursor) params.push(Q.cursorAfter(cursor));
-      const j = await rest(cfg, 'GET', `/storage/buckets/${cfg.bucketId}/files${q(params)}`);
-      const files = (j && j.files) || [];
-      for (const f of files) out.push({ fileId: f.$id, size: f.sizeOriginal || 0, mime: f.mimeType || '' });
-      if (files.length < 100) break;
-      cursor = files[files.length - 1].$id;
-    }
+  // Query-Bauer existiert nicht mehr: der eigene Server kennt nur
+  // ?since= / ?limit= / ?after= statt eines JSON-Query-Dialekts.
+  const Q = null;
+  function q() { return ''; }
+
+  /* Alle Dateien des Nutzers als Map {sha256 -> {size, mime}}.
+   *
+   * Frueher ueber Cursor-Seiten mit 50 Durchlaeufen. Jetzt liefert der Server
+   * die Liste in einem Rutsch - SQLite laeuft in derselben Ausgabe wie der
+   * Prozess, ein Paging waere nur Aufwand ohne Gegenwert. */
+  async function listAllFiles() {
+    const items = await api().listFiles();
     const map = {};
-    for (const f of out) map[f.fileId] = { size: f.size, mime: f.mime };
+    for (const f of items) map[f.sha256] = { size: f.size || 0, mime: f.mime || '' };
     return map;
   }
 
@@ -426,30 +392,24 @@
     }
     return entries;
   }
-  async function uploadEntry(cfg, hash, bytes, mime) {
-    const fileId = fileIdForHash(hash);
+  /* Upload. Der Server dedupliziert selbst ueber den SHA-256 des Inhalts und
+   * meldt es im Feld deduplicated - es gibt kein 409-Signal mehr, mit dem man
+   * einen zweiten Hochladen unterdruecken muesste. Und weil der Name serverseitig
+   * der Hash ist, prueft er den Inhalt: passt er nicht, kommt 422. */
+  async function uploadEntry(hash, bytes, mime) {
     const opt = await optimizeImage(bytes, mime);
-    const name = fileId + '.' + extForMime(opt.mime);
-    const fd = new FormData();
-    fd.append('fileId', fileId);
-    fd.append('file', new File([opt.bytes], name, { type: opt.mime }));
-    try {
-      await rest(cfg, 'POST', `/storage/buckets/${cfg.bucketId}/files`, { body: fd });
-      return { fileId, dedup: false, optimized: opt.optimized, size: opt.bytes.length };
-    } catch (e) {
-      if (e && e.status === 409) return { fileId, dedup: true, optimized: false, size: opt.bytes.length };
-      throw e;
-    }
+    const r = await api().putFile(hash, opt.mime, opt.bytes);
+    return {
+      fileId: fileIdForHash(hash),
+      dedup: !!r.deduplicated,
+      optimized: opt.optimized,
+      size: opt.bytes.length,
+    };
   }
-  async function downloadEntry(cfg, fileId) {
+  async function downloadEntry(sha256) {
     needBrowser();
-    const headers = authHeaders(cfg);
-    const r = await fetch(`${cfg.endpoint}/storage/buckets/${cfg.bucketId}/files/${fileId}/view`, {
-      headers, credentials: 'include',
-    });
-    if (!r.ok) throw new Error('Download HTTP ' + r.status);
-    const ab = await r.arrayBuffer();
-    return { bytes: new Uint8Array(ab), mime: normalizeMime(r.headers.get('content-type') || '') };
+    const r = await api().getFile(sha256);
+    return { bytes: r.bytes, mime: normalizeMime(r.mime) };
   }
 
   const Files = {
@@ -463,38 +423,36 @@
     validateRegister, passwordStrength,
     collectLocalEntries, optimizeImage, uploadEntry, downloadEntry, listAllFiles,
 
+    /* ---- Auth ----
+     * Die Antwort ist jetzt {user}, kein Appwrite-Konto-Objekt. Die Aufrufer
+     * in UI, Sync und Liveshare brauchen nur, dass es funktioniert hat. */
     async session() {
-      const cfg = loadConfig();
-      try { return await rest(cfg, 'GET', '/account'); }
-      catch (e) {
-        if (e && e.status === 401) { clearSession(); return null; }
-        throw e;
-      }
+      try { return await api().session(); }
+      catch (e) { if (e && e.status === 401) return null; throw e; }
     },
     async loginEmail(email, password) {
-      const cfg = loadConfig();
-      const j = await rest(cfg, 'POST', '/account/sessions/email', { body: { email, password } });
-      // Secret sichern: trägt im Tauri-WebView die Auth, wenn Cookies blockiert sind.
-      if (j && j.secret) saveSession({ secret: j.secret, userId: j.userId || null, at: new Date().toISOString() });
-      return j;
+      return api().login(email, password);
     },
-    // Registrieren + Auto-Login (Session-Handling wie loginEmail wiederverwenden).
+    // Registrieren + Auto-Login. Der Server meldet bei vorhandener Adresse 409;
+    // dann wird der Anmeldeversuch trotzdem versucht, damit ein erneuter
+    // Registrierungsklick den Nutzer nicht mit einer Fehlermeldung abschreckt,
+    // dem die Ursache ("gibt es schon") nichts sagt.
     async registerAccount(input) {
-      const cfg = loadConfig();
       const i = input || {};
       const name = String(i.name == null ? '' : i.name).trim();
       const email = String(i.email == null ? '' : i.email).trim();
       const password = String(i.password == null ? '' : i.password);
       if (!email || !password) throw new Error('E-Mail und Passwort erforderlich.');
       if (password.length < 8) throw new Error('Passwort muss mindestens 8 Zeichen haben.');
-      const body = { userId: 'unique()', email, password };
-      if (name) body.name = name.slice(0, 128);
-      await rest(cfg, 'POST', '/account', { body });
-      return Files.loginEmail(email, password);
+      try {
+        return await api().register(email, password, name ? name.slice(0, 128) : '');
+      } catch (e) {
+        if (e && e.status === 409) return Files.loginEmail(email, password);
+        throw e;
+      }
     },
     async logout() {
-      const cfg = loadConfig();
-      try { await rest(cfg, 'DELETE', '/account/sessions/current'); } catch { /* ignore */ }
+      try { await api().logout(); } catch { /* Cookie ist danach ohnehin weg */ }
       clearSession();
       clearFallback();
     },
@@ -510,7 +468,7 @@
       say('Sammle lokale Dateien …');
       const local = await collectLocalEntries(books, store);
       say('Frage Remote-Stand ab …');
-      const remote = await listAllFiles(cfg);
+      const remote = await listAllFiles();
       const plan = planFileSync(local, remote);
       const map = loadMap();
       let up = 0, down = 0, dedup = 0, opt = 0;
@@ -522,7 +480,7 @@
         if (!e) continue;
         try {
           const { mime, bytes } = await resolveLocalBytes(e.ref, store);
-          const r = await uploadEntry(cfg, qe.hash, bytes, mime);
+          const r = await uploadEntry(qe.hash, bytes, mime);
           map[qe.hash] = { fileId: r.fileId, mime, size: r.size, at: new Date().toISOString() };
           queue = queue.filter(x => x.hash !== qe.hash);
           up++; if (r.dedup) dedup++; if (r.optimized) opt++;
@@ -533,7 +491,7 @@
         say(`Lade hoch ${up + 1}/${plan.upload.length} …`);
         try {
           const { mime, bytes } = await resolveLocalBytes(e.ref, store);
-          const r = await uploadEntry(cfg, hash, bytes, mime);
+          const r = await uploadEntry(hash, bytes, mime);
           map[hash] = { fileId: r.fileId, mime, size: r.size, at: new Date().toISOString() };
           queue = queue.filter(x => x.hash !== hash);
           up++; if (r.dedup) dedup++; if (r.optimized) opt++;
@@ -546,7 +504,7 @@
         if (!hashFromFileId(fid)) continue; // Fremddateien nicht anfassen
         say(`Lade herunter ${down + 1}/${plan.download.length} …`);
         try {
-          const { bytes, mime } = await downloadEntry(cfg, fid);
+          const { bytes, mime } = await downloadEntry(fid);
           const hash = await sha256Hex(bytes);
           map[hash] = { fileId: fid, mime, size: bytes.length, at: new Date().toISOString() };
           if (store && store.putBlob) {
@@ -582,14 +540,14 @@
         ? window.state.books : [];
       const store = (typeof window !== 'undefined' && window.GrimoireStore) ? window.GrimoireStore : null;
       const local = await collectLocalEntries(books, store);
-      const remote = await listAllFiles(cfg);
+      const remote = await listAllFiles();
       const orphans = findOrphans(Object.keys(local), Object.keys(remote));
       let deleted = 0, freed = 0;
       if (!dryRun) {
         for (const fid of orphans) {
           try {
             freed += (remote[fid] && remote[fid].size) || 0;
-            await rest(cfg, 'DELETE', `/storage/buckets/${cfg.bucketId}/files/${fid}`);
+            await rest('DELETE', '/api/files/' + encodeURIComponent(fid));
             deleted++;
           } catch { /* weiter */ }
         }
@@ -641,22 +599,24 @@
       },
       refresh(showLogin) {
         try {
-          const cfg = Files.loadConfig();
-          UI._say(`Appwrite-Dateien: ${cfg.databaseId} / ${cfg.bucketId} @ ${cfg.endpoint.replace('https://', '')}`);
+          const base = Files.loadConfig().base || location.origin;
+          UI._say(`Server: ${base}`);
           if (showLogin) {
             Files.session().then(
-              me => UI._say(me ? `Appwrite: eingeloggt als ${me.email || me.name || me.$id}` : 'Appwrite: nicht eingeloggt – bitte in ⚙ einloggen.'),
-              () => UI._say('Appwrite: offline oder nicht erreichbar.')
+              me => UI._say(me ? `Angemeldet als ${me.email || me.name || me.id}` : 'Nicht angemeldet – bitte in ⚙ einloggen.'),
+              () => UI._say('Server offline oder nicht erreichbar.')
             );
           }
         } catch { /* ignore */ }
       },
       openSettings() {
         const cfg = Files.loadConfig();
+        // Die alten Felder (Endpoint, Projekt, Datenbank, Bucket, Guard) sind
+        // entfallen: es gibt nur noch eine Basis-URL, und die steht in js/api.js.
+        // Die Elemente werden nicht mehr befüllt, damit das vorhandene ⚙-Fenster
+        // weiter bedienbar bleibt, ohne dass hier Felder erfunden werden.
         const set = (id, v) => { const el = UI._el(id); if (el) el.value = v || ''; };
-        set('awEndpoint', cfg.endpoint); set('awProject', cfg.projectId);
-        set('awDatabase', cfg.databaseId); set('awBucket', cfg.bucketId);
-        set('awGuard', cfg.liveGuardUrl);
+        set('awEndpoint', cfg.base);
         const rt = UI._el('awRealtime'); if (rt) rt.checked = !!cfg.realtime;
         UI._msg('');
         const ov = UI._el('awOverlay');
@@ -667,14 +627,14 @@
       closeSettings() { const ov = UI._el('awOverlay'); if (ov) ov.classList.remove('active'); },
       save() {
         const get = id => { const el = UI._el(id); return el ? el.value.trim() : ''; };
-        const cfg = Files.saveConfig({
-          endpoint: get('awEndpoint') || DEFAULTS.endpoint,
-          projectId: get('awProject') || DEFAULTS.projectId,
-          databaseId: get('awDatabase') || DEFAULTS.databaseId,
-          bucketId: get('awBucket') || DEFAULTS.bucketId,
-          liveGuardUrl: get('awGuard'),
-        });
-        UI._msg(`Gespeichert: ${cfg.databaseId} / ${cfg.bucketId}.`);
+        const base = get('awEndpoint');
+        if (base) {
+          try {
+            localStorage.setItem('federwerkApiV1', JSON.stringify({ base }));
+          } catch { /* ignore */ }
+        }
+        Files.saveConfig({ realtime: !!(UI._el('awRealtime') || {}).checked });
+        UI._msg(`Gespeichert: ${base || location.origin}`);
         UI.refresh(true);
       },
       async login() {
