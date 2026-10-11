@@ -28,6 +28,13 @@
   --shadow-sm: 0 2px 10px rgba(90, 60, 30, 0.12);
   --header-h: 64px;
   --toolbar-top: 84px;
+  /* Zuschlag auf die Safe-Area: Kopfzeile und Werkzeugleiste kleben ein paar
+     Pixel UNTER der Oberkante. Am iPad laeuft die Seite wegen
+     apple-mobile-web-app-status-bar-style="black-translucent" unter der
+     Statusbar/Notch; ohne den Zuschlag sitzt die Leiste exakt auf dieser Kante.
+     Die 6px setzen .header und .toolbar identisch ein, damit die Luecke
+     zwischen beiden gleich bleibt (js/app.js rechnet sie in --toolbar-bottom). */
+  --edge-gap: 6px;
   /* Safe-Area-Insets als Variablen (Fallback 0px für Browser ohne env()).
      Safari-Browser-Tab meldet 0px oben, PWA-standalone / iPad-Notch echte Werte. */
   --sat: 0px;
@@ -128,18 +135,25 @@ button:active { transform: scale(0.97); }
 button.inactive { background: var(--button-inactive-bg); color: var(--button-inactive-text); box-shadow: none; }
 button.inactive:hover { background: var(--button-inactive-bg); opacity: 0.88; }
 
-/* ===== Header (sticky, glasig) ===== */
+/* ===== Header (sticky, deckend) ===== */
+/* Kein backdrop-filter mehr: WebKit (iPadOS/iOS) rendert den Blur einer
+   stickigen Leiste fehlerhaft – der Blur greift auf den Inhalt der Leiste
+   selbst über, die Schrift wird beim Scrollen verwischt und die Kopfzeile ist
+   am iPad nicht lesbar. Ein Blur-Rand ist nicht umgehbar, also bleibt nur:
+   weglassen. Damit trotzdem nichts durch die Leiste durchscheint, liegt die
+   Theme-Flaeche (--surface) als Farbfilm ueber einem deckenden --bg – dieselbe
+   Technik wie beim --bg-image im Dunkelmodus oben. Beide Werte kommen weiter
+   aus dem Theme, alle 16 Designs erben also automatisch. */
 .header {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
   position: sticky; top: 8px; z-index: 60;
-  /* iPad-Notch/Statusbar: nie an die Viewport-Kante kleben (Blur-Kante würde
-     oben abschneiden). 8px Mindestabstand, sonst echte Safe-Area.
-     Fallback 8px für Browser ohne max()/env(). */
-  top: max(8px, var(--sat));
-  background: var(--surface);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* iPad-Notch/Statusbar: nie an die Viewport-Kante kleben. 8px Mindestabstand
+     + --edge-gap, sonst echte Safe-Area. Fallback 8px für Browser ohne
+     max()/env(). */
+  top: calc(max(8px, var(--sat)) + var(--edge-gap));
+  background-color: var(--bg);
+  background-image: linear-gradient(var(--surface), var(--surface));
   border: 2px solid var(--accent);
   border-radius: var(--radius);
   padding: 10px 14px;
@@ -386,10 +400,12 @@ select { cursor: pointer; }
 .toolbar {
   display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px;
   position: sticky; top: 84px; z-index: 40; box-shadow: var(--shadow-sm);
-  /* Unter dem glasigen Header einkleben: Basis-Offset + Safe-Area oben.
-     --toolbar-top wird pro Breakpoint an die Header-Höhe angepasst,
-     zusätzlich korrigiert JS (--header-h live via ResizeObserver). */
-  top: calc(var(--toolbar-top) + var(--sat));
+  /* Unter der Kopfzeile einkleben: Basis-Offset + Safe-Area oben + derselbe
+     --edge-gap wie die Kopfzeile, sonst schrumpft die Luecke zwischen beiden
+     Leitern um genau diesen Zuschlag. --toolbar-top wird pro Breakpoint an die
+     Header-Höhe angepasst, zusätzlich korrigiert JS (--header-h live via
+     ResizeObserver). */
+  top: calc(var(--toolbar-top) + var(--sat) + var(--edge-gap));
 }
 .toolbar .sep { border-left: 1px solid var(--border); height: 22px; margin: 0 2px; }
 .tool-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -627,7 +643,7 @@ select { cursor: pointer; }
      volle Breite) → --header-h wächst, Toolbar rückt per calc() automatisch mit. */
   :root { --header-h: 150px; --toolbar-top: 170px; }
   body { padding: 10px; padding-top: max(10px, var(--sat)); padding-bottom: max(14px, var(--sab)); padding-left: max(10px, var(--sal)); padding-right: max(10px, var(--sar)); }
-  .header { position: sticky; top: 8px; top: max(8px, var(--sat)); padding: 8px 10px; gap: 8px; }
+  .header { position: sticky; top: 8px; top: calc(max(8px, var(--sat)) + var(--edge-gap)); padding: 8px 10px; gap: 8px; }
   .header h1 { font-size: 19px; letter-spacing: 1px; }
   .brand-logo { width: 38px; height: 38px; }
   .brand-tagline { font-size: 12px; }
@@ -764,7 +780,7 @@ select { cursor: pointer; }
 @media (max-width: 560px) {
   :root { --header-h: 158px; --toolbar-top: 176px; }
   body { padding: 8px; padding-top: max(8px, var(--sat)); padding-left: max(8px, var(--sal)); padding-right: max(8px, var(--sar)); }
-  .header { top: 6px; top: max(6px, var(--sat)); }
+  .header { top: 6px; top: calc(max(6px, var(--sat)) + var(--edge-gap)); }
   .toolbar { margin-left: -8px; margin-right: -8px; padding-left: max(8px, var(--sal)); padding-right: max(8px, var(--sar)); }
   .library-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
   .notebook-title { font-size: 14px; }
@@ -781,6 +797,8 @@ select { cursor: pointer; }
  * Safari-Tab: Browser-Chrome reserviert den oberen Bereich, --sat ≈ 0px → 8px/6px Gaps.
  * PWA-standalone (display: standalone, apple-mobile-web-app-capable + black-translucent):
  * Web-View läuft unter der Statusbar/Notch, --sat > 0 → Header/Toolbar rücken nach unten.
+ * In beiden Fällen kommt --edge-gap (6px) oben drauf: die Leisten kleben nicht
+ * genau auf der Kante, an der iOS die stickige Leiste abschneidet.
  * Keine weiteren Regeln nötig – alle sticky-tops nutzen bereits var(--sat).
  * Dieser Block dokumentiert die Fälle und fängt alte WebKit ohne var()-Support ab. */
 @media (display-mode: standalone) {
@@ -788,9 +806,11 @@ select { cursor: pointer; }
      --sat trägt den echten Wert – Header/Toolbar rücken automatisch nach unten. */
   body { padding-top: max(20px, var(--sat)); }
 }
+/* Ohne max() entfällt auch das calc(max(...)): Safe-Area ist hier nicht
+   abfragbar, der Zuschlag --edge-gap bleibt – die Werte sind aufsummiert. */
 @supports not (top: max(8px, var(--sat))) {
-  .header { top: 8px; }
-  .toolbar { top: var(--toolbar-top); }
+  .header { top: calc(8px + var(--edge-gap)); }
+  .toolbar { top: calc(var(--toolbar-top) + var(--edge-gap)); }
 }
 
 /* ===== Touch Targets ===== */
