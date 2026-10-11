@@ -1214,53 +1214,38 @@ function createFlashDeck() {
   persistNow(); renderLibrary();
   if (typeof openDeckView === 'function') openDeckView(b.id);
 }
-/* Office (SPEC-40): eigenes Office in derselben Bibliothek. Ein Office-Dokument
-   ist ein Buch mit office-Feld, kein eigener Bestand – Ordner, Suche und der
-   Appwrite-Sync laufen dadurch unverändert mit. */
-function isOfficeDoc(b) {
+/* Craft (SPEC-40): Word-, Excel-, PowerPoint- und die Adobe-Klone laufen als
+   WASM-Builds aus den storytold-Repos. Ein Craft-Dokument ist ein Buch mit
+   craft-Feld – Ordner, Suche, Duplizieren und der Server-Sync laufen dadurch
+   unveraendert mit. Die Datei selbst liegt wie jedes Bild oder PDF in
+   Federwerks Ablage (lokal blob:<id>, auf dem Server awfile:<sha>). */
+function isCraftDoc(b) {
   try {
-    if (typeof FederwerkOfficeDoc !== 'undefined' && FederwerkOfficeDoc.isOfficeBook) return FederwerkOfficeDoc.isOfficeBook(b);
+    if (typeof FederwerkCraftStore !== 'undefined' && FederwerkCraftStore.isCraftBook) return FederwerkCraftStore.isCraftBook(b);
   } catch { /* Fallback unten */ }
-  return !!(b && b.office && (b.office.kind === 'doc' || b.office.kind === 'sheet' || b.office.kind === 'slides'));
+  return !!(b && b.kind === 'craft' && b.craft && b.craft.id);
 }
-/* Freie Nummer fuer ein neues Office-Dokument.
- *
- * Warum nicht einfach zaehlen + 1: das ergab nach dem Loeschen doppelte Namen.
- * Ein Dokument 1 und 2 loeschen, dann neu anlegen - es kam wieder "Dokument 1",
- * obwohl "Dokument 3" existierte. Deshalb wird die hoechste vergebene Nummer
- * gesucht und hochgezaehlt. Existiert schon ein Titel exakt ohne Zahl, wird
- * weitergezaehlt, damit "Dokument" und "Dokument 1" nicht beide vorkommen. */
-function nextOfficeNumber(kind, label) {
-  let max = 0;
-  for (const b of (state.books || [])) {
-    if (!isOfficeDoc(b) || b.office.kind !== kind) continue;
-    const m = String(b.title || '').match(new RegExp('^' + label + '\\s+(\\d+)$'));
-    if (m) max = Math.max(max, parseInt(m[1], 10));
-    else if (String(b.title || '').trim() === label) max = Math.max(max, 1);
-  }
-  return max + 1;
+/* Ein Klick auf eine Craft-Karte oeffnet die App, nicht den Zeichen-Canvas. */
+function openCraftDoc(id) {
+  const b = state.books.find((x) => x && x.id === id);
+  if (!b || typeof FederwerkCraftUI === 'undefined') { showLibrary(); return; }
+  FederwerkCraftUI.open(b.craft.id, id);
 }
-/* Office-Dokument anlegen und direkt im Editor öffnen. */
-function createOfficeDoc(kind) {
-  const k = (kind === 'sheet' || kind === 'slides') ? kind : 'doc';
-  const label = (typeof FederwerkOfficeDoc !== 'undefined') ? FederwerkOfficeDoc.kindLabel(k) : 'Dokument';
-  const n = nextOfficeNumber(k, label);
-  const b = (typeof FederwerkOfficeDoc !== 'undefined')
-    ? FederwerkOfficeDoc.create(k, label + ' ' + n)
-    : { id: uid(), title: label + ' ' + n, updatedAt: Date.now(), folderId: null, pages: [], office: { kind: k, blocks: [{ id: uid(), type: 'p', html: '' }] } };
-  // Wie ein Notizbuch in den aktiven Ordner legen.
-  try {
-    if (activeFolderId && activeFolderId !== 'all' && activeFolderId !== 'unsorted') {
-      if ((state.folders || []).some(function (f) { return f.id === activeFolderId; })) b.folderId = activeFolderId;
-    }
-  } catch { /* ignore */ }
-  state.books.unshift(b);
-  persistNow(); renderLibrary();
-  if (typeof FederwerkOfficeWriter !== 'undefined') FederwerkOfficeWriter.openBook(b.id);
+/* Neues Craft-Dokument (Knopf "+ Neu" in der Bibliothek, Menue aus dem Katalog). */
+function createCraftDoc(craftId) {
+  if (typeof FederwerkCraftUI === 'undefined') return;
+  FederwerkCraftUI.createDoc(craftId);
 }
-function openOfficeDoc(id) {
-  if (typeof FederwerkOfficeWriter === 'undefined') { showLibrary(); return; }
-  FederwerkOfficeWriter.openBook(id);
+/* Datei eines Craft-Dokuments herunterladen (Kartenaktion in der Bibliothek). */
+function exportCraftFile(id, event) {
+  if (event && event.stopPropagation) event.stopPropagation();
+  if (typeof FederwerkCraftUI === 'undefined') return;
+  FederwerkCraftUI.exportiere(id);
+}
+/* Import einer bestehenden Datei: die Art ergibt sich aus der Endung. */
+function importCraftFile() {
+  const el = document.getElementById('craftFile');
+  if (el) el.click();
 }
 function isFlashDeck(b) {
   try {
@@ -1299,8 +1284,8 @@ function showLibrary() {
 }
 function openBookView(id, pageId, paneIdx) {
   const b0 = state.books.find(x => x.id === id);
-  // Office (SPEC-40): eigenes Fenster mit Editor, kein Zeichen-Canvas.
-  if (b0 && isOfficeDoc(b0)) { openOfficeDoc(id); return; }
+  // Craft (SPEC-40): eigene Ansicht mit der Upstream-App, kein Zeichen-Canvas.
+  if (b0 && isCraftDoc(b0)) { openCraftDoc(id); return; }
   // Karteikarten-Decks öffnen die Deck-Ansicht (Lernen + Kartenliste), kein Zeichen-Canvas.
   if (b0 && isFlashDeck(b0)) {
     if (typeof openDeckView === 'function') { openDeckView(id); return; }
@@ -2431,20 +2416,22 @@ function renderLibrary() {
     + (folderCards ? '<div class="explorer-section-label">Ordner</div><div class="explorer-folder-grid">' + folderCards + '</div>' : '')
     + (folderCards ? '<div class="explorer-section-label">Dokumente</div>' : '')
     + matches.map(({ book: b, match, snippet }) => {
-    const office = isOfficeDoc(b);
-    const deck = !office && isFlashDeck(b);
+    const craft = isCraftDoc(b);
+    const deck = !craft && isFlashDeck(b);
     let preview = 'Leere Seiten – tippen zum Öffnen.';
     let metaLine = '';
     let typeBadge = '';
     let deckActions = '';
     let deckProgress = '';
-    if (office) {
-      const OD = (typeof FederwerkOfficeDoc !== 'undefined') ? FederwerkOfficeDoc : null;
-      const text = OD ? OD.plainText(b) : '';
-      const st = OD ? OD.stats(b) : { words: 0, unit: '' };
-      preview = text ? esc(text.slice(0, 120)) : 'Leeres Dokument – tippen zum Schreiben.';
-      metaLine = st.words + ' Wörter · ' + st.unit + ' · ' + new Date(b.updatedAt).toLocaleDateString('de-DE');
-      typeBadge = '<span class="fw-office-badge" title="Office-Dokument (SPEC-40)">' + esc(OD ? OD.kindLabel(b.office.kind) : 'Office') + '</span>';
+    if (craft) {
+      const d = (typeof FederwerkCraftStore !== 'undefined') ? FederwerkCraftStore.describe(b) : null;
+      const C = (typeof FederwerkCraftCatalog !== 'undefined') ? FederwerkCraftCatalog : null;
+      const c = C ? C.byId(b.craft.id) : null;
+      preview = d ? esc(d.preview) : 'Craft-Dokument';
+      metaLine = (d ? d.fileName : b.title) + ' · ' + new Date(b.updatedAt).toLocaleDateString('de-DE');
+      typeBadge = (typeof FederwerkCraftUI !== 'undefined') ? FederwerkCraftUI.badgeHtml(b) : '';
+      deckActions = (c ? '<button class="mini-button" onclick="openCraftDoc(\'+ b.id +\',event)" title="In ' + esc(c.name) + ' bearbeiten">' + c.icon + ' Öffnen</button>' : '')
+        + '<button class="mini-button" onclick="exportCraftFile(\'+ b.id +\',event)" title="Datei herunterladen">📤 Datei</button>';
     } else if (deck) {
       let stats = null;
       try {
@@ -2510,9 +2497,9 @@ function renderLibrary() {
       + deckProgress
       + snippetHtml
       + '<div class="notebook-actions">'
-      + (deck || office ? deckActions : '<button class="mini-button" onclick="openBookInSplit(\'' + b.id + '\',event)" title="Als zweites Dokument daneben öffnen (Split-Screen, ein Fenster)">⇉ Split</button>')
+      + (deck || craft ? deckActions : '<button class="mini-button" onclick="openBookInSplit(\'' + b.id + '\',event)" title="Als zweites Dokument daneben öffnen (Split-Screen, ein Fenster)">⇉ Split</button>')
       + '<button class="mini-button" onclick="exportBookJSON(\'' + b.id + '\',event)">Export</button>'
-      + (deck || office ? '' : '<button class="mini-button" onclick="exportGoodNotes(\'' + b.id + '\',event)" aria-label="Buch als GoodNotes-Datei exportieren">📤 GoodNotes</button>')
+      + (deck || craft ? '' : '<button class="mini-button" onclick="exportGoodNotes(\'' + b.id + '\',event)" aria-label="Buch als GoodNotes-Datei exportieren">📤 GoodNotes</button>')
       + '<button class="mini-button" onclick="duplicateBook(\'' + b.id + '\',event)">Duplizieren</button>'
       + '<button class="mini-button" onclick="deleteBook(\'' + b.id + '\',event)">Löschen</button>'
       + '</div>'
