@@ -5,14 +5,12 @@
   "description": "Handschrift-Notizbuch im Papier-Stil mit GoodNotes-Import",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "test:mcp": "node --test tests/mcpserver.test.js tests/mcp-function.test.js",
+    "test:mcp": "node --test tests/mcpserver.test.js tests/mcp-write.test.js",
     "test:mcp:live": "node scripts/live-mcp-selftest.js",
     "build": "node scripts/build.js",
     "sync-paper-theme": "node scripts/sync-paper-theme.js",
-    "build:mcp": "node scripts/build-mcp.js",
     "release-web": "npm run build && node scripts/inject-version.js",
     "tauri": "tauri",
-    "sync-version": "node scripts/sync-version.js",
-    "setup:liveshare": "node scripts/setup-liveshare.js"
+    "sync-version": "node scripts/sync-version.js"
   }
 }

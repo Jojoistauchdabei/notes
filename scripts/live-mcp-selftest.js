@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 'use strict';
-/* Federwerk – Live-Rundlauf gegen das echte Appwrite-Projekt (MCP-Weg).
+/* Federwerk – Live-Rundlauf gegen den eigenen Server (MCP-Weg).
  *
  * Testet genau den Pfad, den die Doku in docs/mcp.md:253 beschreibt:
  *   create_folder -> create_document -> create_deck + review_card
  *   -> Suche/Graph/Stats -> aufraeumen.
  *
  * Startet den echten MCP-Server als Kindprozess und redet JSON-RPC ueber
- * stdio – es wird NICHT direkt gegen die Appwrite-API gebogen. Wenn der
+ * stdio – es wird NICHT direkt gegen die Server-API gebogen. Wenn der
  * Server kaputt ist, faellt der Test hier auch.
  *
  * credentials kommen NUR aus der Umgebung, nie aus Argumenten, damit sie
  * nicht in der Shell-History landen:
- *   APPWRITE_SESSION=<secret>  (empfohlen, aus `node mcpserver/login.js`)
- *   optional APPWRITE_USER_ID, sonst wird es aus der Session abgeleitet
+ *   FEDERWERK_SESSION=<cookie>  (aus `node mcpserver/login.js`) oder
+ *   FEDERWERK_EMAIL/FEDERWERK_PASSWORD (der MCP meldet sich selbst an)
  *
  * Aufraeumen ist Pflichtteil: auch bei Fehlern wird aufgeraeumt (finally).
  * Erkennbare Praefixe: fw-selftest-  (Ordner)  /  fw-selftest-  (Dokumente)
@@ -21,7 +21,7 @@
  *
  * Aufruf:  node scripts/live-mcp-selftest.js
  * Optionen: --keep (nicht aufraeumen, zum Nachsehen), --dry-run (Demo-Server
- *           ohne Cloud-Zugang, prueft nur das Skript selbst)
+ *           ohne Server-Zugang, prueft nur das Skript selbst)
  */
 
 const path = require('node:path');
@@ -74,7 +74,7 @@ function startServer() {
     const env = Object.assign({}, process.env);
     if (DRY) {
       // Keine Zugangsdaten -> In-Memory-Demo (volles Toolset).
-      delete env.APPWRITE_SESSION; delete env.APPWRITE_API_KEY;
+      delete env.FEDERWERK_SESSION; delete env.FEDERWERK_EMAIL; delete env.FEDERWERK_PASSWORD;
     }
     child = spawn(process.execPath, [CLI], { env, stdio: ['pipe', 'pipe', 'pipe'] });
     let buf = '';
@@ -140,16 +140,16 @@ function firstId(res) {
 
 async function main() {
   console.log('');
-  console.log('Federwerk – Live-Rundlauf gegen Appwrite' + (DRY ? '  (--dry-run, Demo-Daten)' : ''));
+  console.log('Federwerk – Live-Rundlauf gegen den Server' + (DRY ? '  (--dry-run, Demo-Daten)' : ''));
   console.log('Praefix: ' + TAG);
   console.log('');
 
-  if (!DRY && !process.env.APPWRITE_SESSION && !process.env.APPWRITE_API_KEY) {
+  if (!DRY && !process.env.FEDERWERK_SESSION && !process.env.FEDERWERK_EMAIL) {
     console.log('ABBRUCH: Keine Zugangsdaten.');
     console.log('');
     console.log('  node mcpserver/login.js --email DU@BEISPIEL.DE   # fragt das Passwort');
     console.log('  # danach in DIESER Shell:');
-    console.log('  export APPWRITE_SESSION="<secret-aus-login>"');
+    console.log('  export FEDERWERK_SESSION="<cookie-aus-login>"');
     console.log('  node scripts/live-mcp-selftest.js');
     console.log('');
     console.log('Bewusst kein Argument: ein Session-Secret auf der Kommandozeile landet');
@@ -165,7 +165,7 @@ async function main() {
     // 0) Verbindung
     const info = await call('tools/call', { name: 'session_info', arguments: {} });
     const si = jsonOf(info) || {};
-    const userId = si.userId || process.env.APPWRITE_USER_ID || '';
+    const userId = si.userId || '';
     step('session_info liefert eine authentifizierte Session',
       DRY || !!(si.authenticated || userId),
       DRY ? 'uebersprungen (dry-run, In-Memory-Demo)'
@@ -261,23 +261,23 @@ async function main() {
       const istV2 = gj.kind === 'flashcards' || /"kind"\s*:\s*"flashcards"/.test(txt)
         || /"v"\s*:\s*2/.test(txt);
       step('Deck kommt als v2-Huelle zurueck (kind/cards)', istV2,
-        istV2 ? 'v2 erkannt' : 'NUR v1 – Appwrite-Function ist aelter als js/appwrite-sync.js');
+        istV2 ? 'v2 erkannt' : 'NUR v1 – Server liefert eine aeltere Envelope als js/sync.js');
 
       // Persistenz ueber deck_stats (liest den Verlauf aus der Envelope):
       // das ist der Weg, den auch der App-Sync nimmt.
       const stats = jsonOf(await call('tools/call', { name: 'deck_stats', arguments: { deckId: deckId } })) || {};
       const gelernt = Number(stats.learned || 0);
       const total = Number(stats.total || 0);
-      step('Bewertung ist in der Cloud gespeichert (deck_stats)', total > 0 && gelernt > 0,
+      step('Bewertung ist im Server gespeichert (deck_stats)', total > 0 && gelernt > 0,
         'total=' + total + ' learned=' + gelernt + ' accuracy=' + stats.accuracy);
 
-      // docFromRow() in mcp/content.js gibt cards+deckOptions zurueck, aber
-      // nie reviewLog. Die Daten sind also da, nur nicht ueber get_document
-      // sichtbar -> Eigenheit der MCP-Leseseite, kein Datenverlust.
+      // docFromServerDoc() in mcpserver/content.js gibt cards+deckOptions
+      // zurueck, aber nie reviewLog. Die Daten sind also da, nur nicht ueber
+      // get_document sichtbar -> Eigenheit der MCP-Leseseite, kein Datenverlust.
       const sichtbar = gj.reviewLog !== undefined || /reviewLog/.test(txt);
       if (sichtbar) step('reviewLog ist auch ueber get_document sichtbar', true);
       else warn('reviewLog fehlt in get_document',
-        'mcp/content.js docFromRow() gibt cards+deckOptions zurueck, aber kein reviewLog. '
+        'mcpserver/content.js docFromServerDoc() gibt cards+deckOptions zurueck, aber kein reviewLog. '
         + 'Persistenz ist belegt (deck_stats), nur die MCP-Leseseite zeigt den Verlauf nicht.');
     }
 
@@ -327,7 +327,7 @@ async function main() {
     console.log('Bekannte Eigenheiten (kein Fehlschlag):');
     for (const w of warns) console.log('  - ' + w.name + (w.detail ? ': ' + w.detail : ''));
   }
-  console.log(DRY ? '(dry-run: In-Memory-Demo, keine Cloud-Daten beruehrt)' : 'Aufgeraeumt.');
+  console.log(DRY ? '(dry-run: In-Memory-Demo, keine Server-Daten beruehrt)' : 'Aufgeraeumt.');
   console.log('');
   process.exit(bad.length ? 1 : 0);
 }

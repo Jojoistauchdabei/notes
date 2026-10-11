@@ -4,7 +4,7 @@
  *   node mcp-server.js --port 8787 --user jonas --pass geheim --token abc123 \
  *     --file grimoire-export.json
  *
- * Endpunkte (identisch zum Cloudflare-Worker worker.js):
+ * Endpunkte (eigener lokaler Test-/Debug-Server, unabhängig vom MCP-Kern):
  *   GET  /mcp/health                 (offen)
  *   GET  /mcp/tools                  (offen)
  *   POST /mcp/login   {user, pass}   -> {token} | 401

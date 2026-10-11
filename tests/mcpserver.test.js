@@ -6,10 +6,10 @@ const { createMcpHandler, PROTOCOL_VERSION } = require('../mcpserver');
 
 describe('mcpserver', () => {
   const handler = createMcpHandler({
-    listDocuments: async () => [{ $id: 'doc-1', title: 'Test' }],
-    getDocument: async id => ({ $id: id, title: 'Test' }),
-    listFolders: async () => [{ $id: 'folder-1', name: 'Notizen' }],
-    searchDocuments: async query => [{ $id: 'doc-1', title: query }],
+    listDocuments: async () => [{ id: 'doc-1', title: 'Test' }],
+    getDocument: async id => ({ id: id, title: 'Test' }),
+    listFolders: async () => [{ id: 'folder-1', name: 'Notizen' }],
+    searchDocuments: async query => [{ id: 'doc-1', title: query }],
   });
 
   it('initialisiert mit MCP-Fähigkeiten', async () => {
@@ -40,7 +40,7 @@ describe('mcpserver', () => {
       jsonrpc: '2.0', id: 3, method: 'tools/call',
       params: { name: 'get_document', arguments: { id: 'doc-1' } },
     });
-    assert.equal(call.result.structuredContent.$id, 'doc-1');
+    assert.equal(call.result.structuredContent.id, 'doc-1');
   });
 
   it('meldet fehlende Pflichtparameter als JSON-RPC-Fehler', async () => {

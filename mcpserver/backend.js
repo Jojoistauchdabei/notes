@@ -75,7 +75,7 @@ function createServerHandler(deps) {
 
   async function freshDoc(id) {
     const doc = await api.getDoc(String(id));
-    if (!doc) throw new Error('Document not found');
+    if (!doc || doc.deletedAt) throw new Error('Document not found');
     return C.docFromServerDoc(doc, { cardsLimit: 200 });
   }
 

@@ -1,6 +1,6 @@
 'use strict';
 /* Voller MCP-Workflow wie ein Mensch: Notizen, Ordner, Decks, Suche, Graph.
- * Läuft gegen das In-Memory-Demo-Backend (ohne Cloud-Credentials). */
+ * Läuft gegen das In-Memory-Demo-Backend (ohne Server-Credentials). */
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
@@ -216,9 +216,9 @@ describe('mcpserver/content', () => {
     assert.throws(() => C.checkCards(new Array(101).fill({ front: 'a', back: 'b' }), true), /max 100/);
   });
 
-  // Regressionen aus dem Live-Test gegen echte Appwrite-Daten (2026-09):
+  // Regressionen aus dem Live-Test gegen echte Server-Daten (2026-09):
   it('Notebooks bleiben v1 – deckOptions allein machen kein Deck daraus', () => {
-    // Live-Bug: create_document rief saveDocParts mit Default-DeckOptionen auf,
+    // Live-Bug: create_document speicherte mit Default-DeckOptionen,
     // wodurch jedes Notizbuch als flashcards (v2) gespeichert wurde.
     const v1 = JSON.parse(C.encodeContent({
       pages: C.contentToPages('normal', 'markdown'),
@@ -245,19 +245,25 @@ describe('mcpserver/content', () => {
 });
 
 describe('mcpserver/login', () => {
-  const { sessionTokenFrom } = require('../mcpserver/login');
+  const { sessionCookieFrom } = require('../mcpserver/login');
 
-  it('nutzt das secret-Feld, wenn Appwrite es liefert', () => {
-    assert.equal(sessionTokenFrom({ secret: 'abc' }, { getSetCookie: () => [] }, 'proj'), 'abc');
+  it('liest den fw_session-Wert bis zum ersten Semikolon', () => {
+    const headers = { 'set-cookie': 'fw_session=abc123; Path=/; HttpOnly; SameSite=Lax' };
+    assert.equal(sessionCookieFrom(headers), 'abc123');
   });
 
-  it('liest das Token aus dem Cookie (Appwrite 2.x liefert secret leer)', () => {
-    const cookies = { getSetCookie: () => ['a_session_proj_legacy=q; path=/', 'a_session_proj=eyJpZCI6e30%3D; HttpOnly'] };
-    assert.equal(sessionTokenFrom({ secret: '' }, cookies, 'proj'), 'eyJpZCI6e30=');
+  it('findet fw_session unter mehreren Set-Cookie-Zeilen', () => {
+    const headers = { getSetCookie: () => ['theme=dark; Path=/', 'fw_session=tok-42; Path=/; HttpOnly'] };
+    assert.equal(sessionCookieFrom(headers), 'tok-42');
   });
 
-  it('greift auf generisches a_session zurück und liefert sonst nichts', () => {
-    assert.equal(sessionTokenFrom({}, { get: () => 'a_session_6ab0_tok=abc; HttpOnly' }, 'proj'), 'abc');
-    assert.equal(sessionTokenFrom({ secret: '' }, {}, 'proj'), '');
+  it('trennt mehrere Cookies in EINEM Header korrekt (Expires-Komma)', () => {
+    const headers = { get: () => 'a=1; Expires=Wed, 21 Oct 2015 07:28:00 GMT, fw_session=xyz; Path=/' };
+    assert.equal(sessionCookieFrom(headers), 'xyz');
+  });
+
+  it('liefert leer, wenn kein fw_session dabei ist', () => {
+    assert.equal(sessionCookieFrom({ 'set-cookie': 'other=1; Path=/' }), '');
+    assert.equal(sessionCookieFrom({}), '');
   });
 });
