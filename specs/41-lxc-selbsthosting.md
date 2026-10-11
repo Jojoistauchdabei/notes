@@ -122,6 +122,22 @@ kommt an denselben Zustand über den lokalen Branch
 `ci/workflows-ohne-cloudflare`.
 
 Inhaltlich ändert der Patch: `release.yml` und `auto-release.yml` verlieren
+
+## 9. Laufzeit und Tests
+
+Der Server braucht **Node 24**: `node:sqlite` ist erst ab 23.4 ohne Flag
+verfügbar (siehe `deploy/lxc/bootstrap.sh`). Die CI-Matrix in
+`.github/workflows/ci.yml` fährt weiterhin Node 20 und 22 – dort laufen die
+App-Tests, die Server-Routen in `tests/doc-routes.test.js` überspringen sich
+selbst (`t.skip`, kein Fehlschlag). Die vollständigen Server-Tests laufen auf
+Node 24 im Deploy-Workflow (`deploy-selfhost.yml`).
+
+Nebenbei gefunden und behoben: `server/shares.js` erlaubte die Ereignisarten
+des alten Backends (`stroke`, `text`, `sync`), der Client schickt
+`stroke-add`, `text-upsert`, `sync-request` – Liveshare wäre gegen den eigenen
+Server bei jedem echten Ereignis mit 400 gescheitert. Jetzt gilt die
+Client-Liste, und ein Test vergleicht beide Listen.
+
 den Secrets-Block und den Wrangler-Schritt, `deploy-selfhost.yml` verliert den
 Verweis auf den Worker, `tauri.yml` den Hinweis auf die Cloud-Secrets.
 
