@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "_comment": "Gepinnte Upstream-Releases der Craft-Apps (github.com/storytold). Wird von scripts/update-crafts.js bei jedem Release neu geschrieben (neuestes Release je Repo) und von scripts/build-crafts.js gelesen: genau diese Version wird gebaut bzw. geholt. Nicht von Hand pflegen - aber lesbar halten, damit im Review sichtbar ist, welcher Upstream-Stand ausgeliefert wird.",
+  "resolvedAt": "2026-10-10T08:45:00.000Z",
+  "crafts": {
+    "wordcraft": { "repo": "storytold/wordcraft", "tag": "v0.5.0", "commit": "e4b7d155f15a7784197ba34eeea0b54490d70eb2" },
+    "gridcraft": { "repo": "storytold/gridcraft", "tag": "v0.5.0", "commit": "9f896c1249f40d18bf182199dc03042959be5f3f" },
+    "deckcraft": { "repo": "storytold/deckcraft", "tag": "v0.5.0", "commit": "a98df49b21632d69a3da994d35df1ea91dab41af" },
+    "pdfcraft": { "repo": "storytold/pdfcraft", "tag": "v0.6.0", "commit": "53a5880386789fc3531e54f6e6ffdef9a8e41f1a" },
+    "photocraft": { "repo": "storytold/photocraft", "tag": "v0.7.0", "commit": "79261615956ab21334e49ca1d384390272e647da" },
+    "vectorcraft": { "repo": "storytold/vectorcraft", "tag": "v0.9.0", "commit": "10f1c56a861869936af0027cef14b1cf5d8cf515" },
+    "designcraft": { "repo": "storytold/designcraft", "tag": "v0.6.0", "commit": "a9124a0517594ce9872f73637e7b841a4967bcf9" },
+    "lightcraft": { "repo": "storytold/lightcraft", "tag": "v0.6.0", "commit": "9e6c4c6fc9c7a7f192ce846c00ceb531e0f64dda" },
+    "filmcraft": { "repo": "storytold/filmcraft", "tag": "v0.6.0", "commit": "2ff3f5e266838700c292a35aaf762e3d4dcef980" },
+    "effectcraft": { "repo": "storytold/effectcraft", "tag": "v0.8.0", "commit": "f953cd2855bf36beffa6a4d608e9bf4b226e9442" },
+    "cadcraft": { "repo": "storytold/cadcraft", "tag": "v0.5.0", "commit": "315751e3ec98e708bcc831dd7f80ca0433a2e3d0" },
+    "soundcraft": { "repo": "storytold/soundcraft", "tag": "v0.5.0", "commit": "4410486fc21561a9db0dc33961a2017469127e0d" }
+  }
+}
