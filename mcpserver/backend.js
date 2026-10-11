@@ -1,5 +1,5 @@
 'use strict';
-/* Federwerk MCP-Backend gegen die eigene Server-API (statt Appwrite).
+/* Federwerk MCP-Backend gegen die eigene Server-API.
  *
  * Der Handler kennt nur das `api`-Objekt (Transport, siehe mcpserver/login.js)
  * und die Inhalts-Envelopes aus content.js. Dadurch bleibt die Fachlogik

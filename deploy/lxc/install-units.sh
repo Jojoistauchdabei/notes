@@ -34,11 +34,18 @@ install -d -m 750 -o "$APP_USER" -g "$APP_USER" "$APP_ROOT/backups"
 install -d -m 755 "$APP_ROOT/bin"
 
 log "Installiere Units nach /etc/systemd/system"
-install -m 644 "$SRC/federwerk.service"           /etc/systemd/system/
-install -m 644 "$SRC/federwerk-backup.service"    /etc/systemd/system/
-install -m 644 "$SRC/federwerk-backup.timer"      /etc/systemd/system/
-log "Installiere backup.js nach $APP_ROOT/bin"
-install -m 755 "$SRC/backup.js"                   "$APP_ROOT/bin/backup.js"
+# federwerk-files.service gehoert dazu: federwerk.service hat Requires= darauf
+# und startet sonst gar nicht ("Unit federwerk-files.service not found").
+install -m 644 "$SRC/federwerk.service"            /etc/systemd/system/
+install -m 644 "$SRC/federwerk-files.service"      /etc/systemd/system/
+install -m 644 "$SRC/federwerk-backup.service"     /etc/systemd/system/
+install -m 644 "$SRC/federwerk-backup.timer"       /etc/systemd/system/
+install -m 644 "$SRC/federwerk-gc-report.service"  /etc/systemd/system/
+install -m 644 "$SRC/federwerk-gc-report.timer"    /etc/systemd/system/
+install -m 644 "$SRC/federwerk-gc-apply.service"   /etc/systemd/system/
+log "Installiere Hilfsskripte nach $APP_ROOT/bin"
+install -m 755 "$SRC/backup.js"                    "$APP_ROOT/bin/backup.js"
+install -m 755 "$SRC/bind-files.sh"                "$APP_ROOT/bin/bind-files.sh"
 
 # ---- App-Env ----
 # Das Session-Secret wird hier einmalig erzeugt und danach nicht mehr
@@ -83,11 +90,31 @@ EOF
   chmod 600 /etc/federwerk/backup.env
 fi
 
+# ---- GC-Env ----
+# Der Aufraeum-Lauf ist bewusst NICHT per Timer aktiv (er loescht). GC_ACTION
+# bleibt deshalb leer: ohne gesetzte Aktion tut der Lauf nichts.
+if [ ! -f /etc/federwerk/gc.env ]; then
+  log "Lege /etc/federwerk/gc.env an (GC_ACTION noch leer)"
+  cat > /etc/federwerk/gc.env <<'EOF'
+# Aktion des Aufraeum-Laufs (federwerk-gc-apply.service):
+#   GC_ACTION=--delete          nur verwaiste Dateien entfernen
+#   GC_ACTION=--cold            nur kalt legen
+#   GC_ACTION=--delete --cold   beides
+EOF
+  chmod 600 /etc/federwerk/gc.env
+fi
+
 systemctl daemon-reload
+# federwerk-files.service zuerst: sie bindet die Ablage ein und gilt danach
+# als aktiv (RemainAfterExit), damit federwerk.service per Requires= warten kann.
+systemctl enable federwerk-files.service >/dev/null 2>&1 || true
 systemctl enable --now federwerk-backup.timer
 log "Backup-Timer aktiv: $(systemctl list-timers federwerk-backup.timer --no-pager --no-legend | head -1)"
+# Bericht nur LESEND, deshalb unbedenklich als Timer.
+systemctl enable --now federwerk-gc-report.timer
+log "GC-Bericht-Timer aktiv: $(systemctl list-timers federwerk-gc-report.timer --no-pager --no-legend | head -1)"
 
 # App-Dienst: installiert, aber nicht gestartet (kein Server-Code vorhanden).
 systemctl enable federwerk.service >/dev/null 2>&1 || true
 
-log "Fertig. Naechster Schritt: QNAP-Share mounten, dann GitHub-Runner."
+log "Fertig. Naechster Schritt: QNAP-Share mounten, dann Deploy (deploy-app.sh)."

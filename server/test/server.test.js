@@ -291,7 +291,7 @@ test('shares: Ereignisse nur mit gueltiger Freigabe, Cursor ist stabil', () => {
   const s = shares.create(owner.id, { bookId: 'b1' });
 
   shares.appendEvent(guest.id, s.shareId, { kind: 'cursor', payload: { x: 1 } });
-  shares.appendEvent(owner.id, s.shareId, { kind: 'stroke', payload: { pts: 3 } });
+  shares.appendEvent(owner.id, s.shareId, { kind: 'stroke-add', payload: { pts: 3 } });
 
   const alle = shares.events(guest.id, s.shareId, 0);
   assert.strictEqual(alle.length, 2);
@@ -299,7 +299,7 @@ test('shares: Ereignisse nur mit gueltiger Freigabe, Cursor ist stabil', () => {
 
   const nach = shares.events(guest.id, s.shareId, alle[0].seq);
   assert.strictEqual(nach.length, 1, 'Cursor liefert exakt den Rest');
-  assert.strictEqual(nach[0].kind, 'stroke');
+  assert.strictEqual(nach[0].kind, 'stroke-add');
 
   // Fremder mit dem Code darf mitlesen - der Code ist die Berechtigung.
   assert.doesNotThrow(() => shares.events(fremd.id, s.shareId, 0));
@@ -329,4 +329,22 @@ test('shares: Ringpuffer haelt die Tabelle klein', () => {
   assert.strictEqual(alle.length, 30);
   const seqs = alle.map((e) => e.seq);
   assert.deepStrictEqual(seqs, [...seqs].sort((a, b) => a - b), 'aufsteigend sortiert');
+});
+/* Der Ereignisstrom ist ein Vertrag zwischen Client und Server. Beide Seiten
+ * fuehren die erlaubten Arten getrennt (js/liveshare.js: KINDS,
+ * server/shares.js: KINDS) - hier wird verglichen, damit sie nicht
+ * auseinanderlaufen. Genau das war der Fall: der Server kannte
+ * 'stroke'/'text'/'sync', der Client schickt 'stroke-add'/'text-upsert'/
+ * 'sync-request' - Liveshare waere mit 400 gescheitert. */
+test('shares: Ereignisarten stimmen mit dem Client ueberein', () => {
+  const Live = require(path.join(__dirname, '..', '..', 'js', 'liveshare.js'));
+  const client = [...Live.KINDS].sort();
+  const server = [...shares.KINDS].sort();
+  assert.deepStrictEqual(server, client,
+    'server/shares.js KINDS muss js/liveshare.js KINDS entsprechen');
+  for (const kind of client) {
+    const owner = auth.createUser('kind-' + kind.replace(/[^a-z]/g, '') + '@example.org', 'passwort123');
+    const s = shares.create(owner.id, { bookId: 'b1' });
+    assert.doesNotThrow(() => shares.appendEvent(owner.id, s.shareId, { kind, payload: {} }), kind);
+  }
 });

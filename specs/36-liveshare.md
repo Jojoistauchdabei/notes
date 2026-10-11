@@ -1,134 +1,136 @@
-# SPEC-36: Liveshare (Share-Link + Live-Cursor, Appwrite-only)
+# SPEC-36: Liveshare (Share-Link + Live-Cursor, eigener Server)
 
 - Quelle: Federwerk (eigene Anforderung, SPEC-35 Share-Link-Teil)
 - Kategorie: Feature
-- Status: V1 umgesetzt (`js/liveshare.js`, Tests in `tests/liveshare.test.js`)
+- Status: V1 umgesetzt (`js/liveshare.js`, `server/shares.js`, Tests in
+  `tests/liveshare.test.js` und `server/test/server.test.js`)
 
 ## 1. Beschreibung
 
-Gemeinsam auf **einer Seite** schreiben, ohne eigenen Server und ohne
-Drittanbieter-Tracking: Share-Link (Lesen/Edit, mit Ablauf) + Live-Session
-mit farbigen Remote-Cursor + Namen. Transport: bestehende Appwrite-Instanz
-(TablesDB + Realtime), Merge per Last-Writer-Wins pro Stroke/Text-ID
+Gemeinsam auf **einer Seite** schreiben, ohne Drittanbieter-Tracking:
+Share-Link (Lesen/Edit, mit Ablauf) + Live-Session mit farbigem
+Remote-Cursor und Namen. Transport ist der eigene Server: Freigaben und
+Ereignisse liegen in `social.db` (`server/shares.js`), der Live-Kanal ist
+SSE (`/api/events`). Merge per Last-Writer-Wins pro Stroke/Text-ID
 (SPEC-35, kein Full-Overwrite).
 
 ## 2. Verhalten
 
 - **Hosten** (🔴 Live / Bibliothek → Hosten): aktuelle Seite wird freigegeben.
-  Erzeugt Code `s…` (12 Zeichen), Link `…#share=s…`, legt Row in `shares` an
-  (Snapshot der Seite, Modus, Ablauf). Link wird in die Zwischenablage kopiert.
-- **Beitreten** (Link öffnen → Dialog, oder Code einfügen): prüft Ablauf +
-  Zurückziehung, lädt Snapshot in eine lokale Wegwerf-Kopie (`🔴 Titel`,
-  ID `live-<code>`), fragt per `sync-request` den Vollstand beim Owner an.
-- **Live**: Strokes/Texte reisen als `share_events`-Rows (Append-only),
-  Cursor gedrosselt (~120 ms), Presence via `hello`/`heartbeat`/`bye`
-  (Timeout 25 s). Realtime-WebSocket, Polling-Fallback alle 4 s.
-- **Gast im Lesemodus**: sieht alles, kann nichts ändern (Stift/Radierer/Text
-  blockiert). Im Edit-Modus schreibt er mit (Owner mergt per LWW).
-- **Ende**: Verlassen (Gast-Kopie wird lokal gelöscht), Zurückziehen
+  Der **Server** erzeugt den Code (`s` + 11 Zeichen aus crypto) und legt die
+  Zeile an (Snapshot der Seite, Modus, Ablauf). Frueher musste der Client den
+  Code erfinden und einen 409/POST-dann-PUT-Tanz auffangen – das entfaellt.
+- **Beitreten** (Link oeffnen → Dialog, oder Code einfuegen): prueft Ablauf und
+  Zurueckziehung, laedt den Snapshot in eine lokale Wegwerf-Kopie (`🔴 Titel`,
+  ID `live-<code>`) und fragt per `sync-request` den Vollstand beim Owner an.
+- **Live**: Striche/Texte reisen als `share_events`-Zeilen (Append-only) mit
+  streng monotoner `seq` als Cursor, Cursor gedrosselt (~120 ms), Presence via
+  `hello`/`heartbeat`/`bye` (Timeout 25 s). SSE meldet "da ist etwas neu", der
+  Poll alle 4 s bleibt als Rueckfallweg.
+- **Gast im Lesemodus**: sieht alles, kann nichts aendern. Im Edit-Modus
+  schreibt er mit (Owner mergt per LWW).
+- **Ende**: Verlassen (Gast-Kopie wird lokal geloescht), Zurueckziehen
   (Owner setzt `revoked`), Ablaufdatum.
 
-## 3. Appwrite-Setup (einmalig, ca. 5 Min)
+## 3. Serverseitiges Setup
 
-Gleiche Database wie `notes`/`folders` (Default `federwerk`), zwei neue Tabellen.
-**Weg A (empfohlen, 1 Befehl):** API-Key mit TablesDB-Scope anlegen
-(Appwrite-Console → Project → API Keys), dann:
+Nichts einzurichten: `server/db.js` legt `social.db` beim ersten Zugriff selbst
+an (`SOCIAL_SCHEMA`). Bewusst **eine geteilte Datenbank** und nicht
+`users/<id>/docs.db`: der Gast liegt in einer anderen Nutzer-DB als der
+Besitzer, ein Lookup aus der Gast-DB heraus wuerde die Zeile nie finden.
 
-```bash
-APPWRITE_API_KEY=... npm run setup:liveshare -- --apply
-```
+**Tabelle `shares`** (PK = Freigabe-Code):
 
-(idempotent: Existierendes wird per 409 übersprungen; ohne `--apply` nur Dry-Run).
-**Weg B (Console):** Tabellen + Spalten/Indexe von Hand nach folgendem Schema:
+| Spalte | Typ | Hinweis |
+|---|---|---|
+| `share_id` | TEXT PK | `s` + 11 Zeichen, vom Server erzeugt |
+| `book_id` | TEXT | Original-Buch (Owner) |
+| `owner_id` | TEXT | Nutzer-ID des Besitzers |
+| `owner_name` | TEXT | Anzeige |
+| `title` | TEXT | Buchtitel |
+| `mode` | TEXT | `read` \| `edit` |
+| `page_id` | TEXT | geteilte Seite |
+| `expires_at` | INTEGER | Unix-Millisekunden, NULL = nie |
+| `revoked` | INTEGER | 0/1 |
+| `snapshot` | TEXT | Seiten-Snapshot (JSON) |
+| `created_at`/`updated_at` | INTEGER | — |
 
-**Tabelle `shares`** (Row-ID = Share-Code, z. B. `sabc…`):
+**Tabelle `share_events`** (PK = `seq`, Append-only, AUTOINCREMENT):
 
-| Key | Typ | Pflicht | Hinweis |
-|---|---|---|---|
-| `shareId` | String (36) | ja | = Row-ID |
-| `bookId` | String (36) | ja | Original-Buch (Owner) |
-| `ownerId` | String (36) | ja | Appwrite-User-ID |
-| `ownerName` | String (64) | nein | Anzeige |
-| `title` | String (160) | nein | Buchtitel |
-| `mode` | String (8) | ja | `read` \| `edit` |
-| `pageId` | String (36) | nein | geteilte Seite |
-| `expiresAt` | Datetime | nein | leer = nie |
-| `revoked` | Boolean | ja | Default `false` |
-| `snapshot` | String (65535) | nein | Seiten-Snapshot (JSON) |
-| `createdAt`/`updatedAt` | Datetime | ja | — |
+| Spalte | Typ | Hinweis |
+|---|---|---|
+| `seq` | INTEGER PK | streng monoton – der Cursor des Clients |
+| `share_id` | TEXT | Index `(share_id, seq)` |
+| `user_id` | TEXT | **vom Server gesetzt**, nicht aus dem Body |
+| `user_name`/`user_color` | TEXT | Anzeige |
+| `kind` | TEXT | Whitelist, siehe unten |
+| `payload` | TEXT | JSON je Art, max 256 KB |
+| `created_at` | INTEGER | — |
 
-Permissions: `read("users")`, `update("user:{ownerId}")`,
-`delete("user:{ownerId}")` – die App setzt sie beim Anlegen; in der
-Console ersatzweise „Anyone authenticated: read" + Owner-Update/Delete.
+Erlaubte `kind`-Werte (`server/shares.js`): `hello`, `heartbeat`, `bye`,
+`stroke-add`, `stroke-del`, `text-upsert`, `text-del`, `cursor`,
+`sync-request`, `sync-state`, `sync-chunk`. Die Liste **muss** der des Clients
+entsprechen (`js/liveshare.js`: `KINDS`); `server/test/server.test.js`
+vergleicht beide, damit sie nicht auseinanderlaufen.
 
-**Tabelle `share_events`** (Row-ID `unique()`, Append-only):
+Ein Ringpuffer haelt die Tabelle klein: pro Freigabe bleiben die letzten
+20 000 Ereignisse. `expires_at` begrenzt die Sichtbarkeit, nicht den Speicher –
+deshalb der Puffer.
 
-| Key | Typ | Pflicht | Hinweis |
-|---|---|---|---|
-| `shareId` | String (36) | ja | Index empfohlen |
-| `userId` | String (36) | ja | — |
-| `userName` | String (64) | nein | — |
-| `userColor` | String (16) | nein | — |
-| `kind` | String (16) | ja | `hello,heartbeat,bye,stroke-add,stroke-del,text-upsert,text-del,cursor,sync-request,sync-state,sync-chunk` |
-| `payload` | String (65535) | ja | JSON je Kind |
-| `createdAt` | Datetime | ja | — |
+## 4. Zugriffskontrolle
 
-Permissions: `read("users")`, `create("users")` (jeder Eingeloggte darf
-Events anhängen – der unratbare Code + Ablauf begrenzen den Zugriff).
-Tabellen-Defaults bewusst **ohne** `update`/`delete` (Append-only);
-Event-Rows bekommen `read("users")` + `delete("user:{autor}")`
-(eigene Rows aufräumbar, fremde unantastbar, Updates unmöglich).
+Der Sicherheitskern ist `readShare()` plus `appendEvent()` in
+`server/shares.js`, beides im selben Prozess:
 
-> **Sicherheits-Hinweis (Review):** Row-Permissions können NICHT prüfen, ob
-> ein Event zu einem Share gehört, dem der Schreiber beigetreten ist –
-> jeder eingeloggte User mit dem Code kann Events injizieren.
-> Empfehlung: **Guard-Function** deployen (`functions/share-events-guard/`,
-> README dort) und in der App unter ⚙ als Liveshare-Guard-URL eintragen.
-> Ab dann laufen Events exklusiv über die Function (Session-Verifikation +
-> Share-Check serverseitig, kein direkter Fallback). Zusätzlich filtert der
-> Client unbefugte Mutationen raus (`isEventAllowed` in `js/liveshare.js`:
-> Absender-Owner vs. Modus statt eigener Schreibrechte – ersetzt aber keinen
-> Server-Check).
+- **Lesen** darf jeder angemeldete Nutzer, solange die Freigabe existiert,
+  nicht widerrufen und nicht abgelaufen ist – der Code ist die Berechtigung
+  (12 Zeichen, aus crypto, jederzeit widerrufbar).
+- **Aendern und Zurueckziehen** darf nur der Besitzer.
+- **Anhaengen** eines Ereignisses prueft dieselbe Bedingung wie das Lesen.
+  Damit ist ausgeschlossen, dass jemand mit geratenem Code in eine fremde
+  Sitzung schreibt.
 
-Fehlen die Tabellen, meldet die App:
-„Tabellen `shares`/`share_events` fehlen in Appwrite – Setup siehe specs/36-liveshare.md."
+Frueher lag genau diese Pruefung in einer separaten Cloud-Function
+(`functions/share-events-guard/`), weil die Zeilenrechte des Backends keine
+Freigabe-Mitgliedschaft kannten. Mit eigenem Server waere das nur ein Umweg um
+dieselbe Pruefung – der Guard ist entfallen.
 
-## 4. V1-Grenzen (bewusst)
+Zusaetzlich filtert der Client unbefugte Mutationen (`isEventAllowed` in
+`js/liveshare.js`: Absender-Owner vs. Modus) – das ist reine UI-Hygiene und
+ersetzt **keinen** Server-Check.
 
-- Nur **Strokes + Texte** syncen live; **Bilder/Hintergründe** reisen nicht
-  mit (Snapshot enthält sie nicht). Seite vorher ggf. ohne Bilder teilen.
-- Snapshot > 48 KB wird gechunkt (max. 8 × 30 KB); darüber: Texte kürzen /
+## 5. V1-Grenzen (bewusst)
+
+- Nur **Striche + Texte** syncen live; **Bilder/Hintergruende** reisen nicht
+  mit (der Snapshot enthaelt sie nicht). Seite vorher ggf. ohne Bilder teilen.
+- Snapshot > 48 KB wird gechunkt (max. 8 × 30 KB); darueber: Texte kuerzen /
   Striche reduzieren, sonst Fehlermeldung statt stillem Datenverlust.
-- Rechte-Enforcement ist **Client-seitig**, solange keine Guard-Function
-  deployed ist (Appwrite-Permissions kennen keinen
-  „Gast-nur-lesen"-Status): unratbarer Code + Ablauf + Revoke sind der
-  Schutz. **Mit Guard** (`functions/share-events-guard/`) ist das
-  Enforcement serverseitig (Session-Verifikation, Share-Existenz,
-  Revoke/Ablauf, Owner-vs.-Modus pro Event-Kind). Für öffentliche Links
-  ohne Login ist V1 nicht gedacht –
-  alle Teilnehmenden loggen sich auf derselben Appwrite-Instanz ein.
-- Kein Tracking ohne Opt-in: Realtime/Polling läuft nur während einer
-  aktiven Session, kein Drittanbieter (nur die eigene Appwrite-Instanz).
+- Fuer oeffentliche Links ohne Konto ist V1 nicht gedacht: alle Teilnehmenden
+  brauchen ein Konto auf derselben Instanz.
+- Kein Tracking ohne Opt-in: SSE/Polling laeuft nur waehrend einer aktiven
+  Session.
 
-## 5. User-Story
+## 6. User-Story
 
 Als Lerngruppe will ich eine Seite live teilen, damit alle gleichzeitig
 mitschreiben und ich per Cursor zeige, wo wir sind – ohne Zoom-Konto,
 nur mit Federwerk-Link.
 
-## 6. Akzeptanzkriterien
+## 7. Akzeptanzkriterien
 
-- [ ] Zwei Browser (gleiches Appwrite): Host-Link → Gast sieht Seite + Striche live (< 5 s, auch per Polling).
+- [ ] Zwei Browser (gleiche Instanz): Host-Link → Gast sieht Seite + Striche live (< 5 s, auch per Polling).
 - [ ] Remote-Cursor beider Seiten farbig + Namen sichtbar.
 - [ ] Lesemodus: Gast kann nicht schreiben/radieren; Edit-Modus: beide Striche bleiben erhalten (LWW, kein Overwrite).
-- [ ] Ablauf + Zurückziehen blockieren Beitritt mit verständlicher Meldung.
-- [ ] Offline/ohne Tabellen: klare Fehlermeldung, kein Datenverlust lokal.
-- [ ] `npm test` grün (23 Liveshare-Tests in `tests/liveshare.test.js`, inkl. LWW-Konvergenz).
+- [ ] Ablauf + Zurueckziehen blockieren Beitritt mit verstaendlicher Meldung.
+- [ ] Fremder mit dem Code darf mitlesen, aber nicht aendern (`server/test/server.test.js`).
+- [ ] `npm test` gruen (Liveshare-Tests in `tests/liveshare.test.js`, inkl. LWW-Konvergenz).
 
-## 7. Verifikation
+## 8. Verifikation
 
 - Automatisiert: `npm test` (Code/Link, Ablauf/Rechte, Event-Build,
-  Stroke-/Text-LWW, Snapshot/Chunks, Presence/Cursor-Drossel, Zeilen-Bodies).
-- Manuell: 2 Browser, je 1 Account (oder 2 Accounts) auf derselben
-  Appwrite-Instanz → hosten, beitreten, malen, radieren, Text editieren,
-  Modus wechseln, zurückziehen, Ablauf abwarten.
+  Stroke-/Text-LWW, Snapshot/Chunks, Presence/Cursor-Drossel) und
+  `node --test server/test/server.test.js` (Freigabe, Ereignisstrom,
+  Whitelist, Ringpuffer, Zugriffsschutz).
+- Manuell: 2 Browser, je ein Konto auf derselben Instanz → hosten,
+  beitreten, malen, radieren, Text editieren, Modus wechseln,
+  zurueckziehen, Ablauf abwarten.

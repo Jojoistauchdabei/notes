@@ -40,7 +40,7 @@ Ein Office-Dokument ist **kein eigener Datenbestand**, sondern ein Buch mit
 ```
 
 Damit funktionieren Ordner, Ordnerfilter, `moveBook`, Suche, Duplizieren,
-Löschen und der Appwrite-Sync **unverändert mit** — es ist derselbe Pfad wie bei
+Löschen und der Server-Sync **unverändert mit** — es ist derselbe Pfad wie bei
 Karteikarten-Decks, die schon heute über `isFlashDeck(b)` einen eigenen Buchtyp
 im selben Raster bekommen. Kein zweiter Container, keine zweite Ablage.
 
@@ -53,7 +53,7 @@ im selben Raster bekommen. Kein zweiter Container, keine zweite Ablage.
 | `css/styles.css` (Abschnitt `/* Office */`) | Styles des Office-Bereichs. Bewusst in der App-Datei, nicht als eigenes Stylesheet — sonst müsste `scripts/build-dist.js` erweitert werden. |
 
 `js/office-doc.js` ist bewusst DOM-frei: die reine Logik ist damit in Node
-testbar, wie es im Repo üblich ist (`js/store.js`, `js/appwrite-files.js`).
+testbar, wie es im Repo üblich ist (`js/store.js`, `js/files-sync.js`).
 
 ### Blöcke statt eigenem Zeilenmodell
 
@@ -90,6 +90,6 @@ Federwerks eigenes Format plus die Textformate.
 
 - **Kein Co-Editing.** Zwei Personen in einem Dokument bleiben serialisiert.
 - **Keine echten Office-Dateiformate.** Siehe Stufe 4.
-- **Kein Server.** Ablage bleibt lokal (IndexedDB) plus der bestehende
-  Appwrite-Sync. Ein Backend für das spätere Selbsthosting ist nicht Teil
-  dieser Stufe.
+- **Kein neues Backend.** Ablage bleibt lokal (IndexedDB) plus der bestehende
+  Server-Sync (`js/sync.js` gegen `server/`). Ein eigenes Format für
+  Office-Dateien ist nicht Teil dieser Stufe.

@@ -166,8 +166,8 @@ node mcpserver/login.js --email deine@adresse.de --save</code></pre>
       <ul>
         <li>Die KI sieht <b>genau deine Notizen</b> – behandle sie wie einen Gesprächspartner mit Zugriff auf dein Tagebuch. Teile keine Zugangsdaten im Chat.</li>
         <li>Passwörter gehören <b>nicht</b> in Tool-Aufrufe. Bitte deine KI, das <code>login</code>-Werkzeug zu nutzen – es liest die Daten aus dem geschützten Speicher.</li>
-        <li>Appwrite erlaubt pro Konto nur eine begrenzte Zahl Sitzungen und meldet dabei die ältesten ab. Viele gleichzeitig laufende KI-Instanzen können deine App abmelden – die Notizen bleiben aber erhalten, du meldest dich einfach neu an.</li>
-        <li>Gelöscht wird zweistufig: erst „in den Papierkorb" (bleibt für den Sync nachvollziehbar), endgültig nur auf ausdrücklichen Wunsch.</li>
+        <li>Die KI handelt immer als <b>genau dein Konto</b> – sie sieht nur deine Notizen, und jede Abfrage läuft über deine Sitzung. Läuft der MCP auf demselben Server, kann er deine App-Sitzung nicht verdrängen.</li>
+        <li>Gelöscht wird zweistufig: erst als Tombstone (bleibt für den Sync nachvollziehbar), endgültig räumt der Server auf.</li>
       </ul>
     </div>
 
@@ -179,7 +179,7 @@ node mcpserver/login.js --email deine@adresse.de --save</code></pre>
           <tr><td>„Demo-Backend (flüchtig)"</td><td>Anmeldedaten fehlen → <code>login.js --save</code></td></tr>
           <tr><td>KI sieht nur die Demo-Notiz</td><td>Client neu starten, falschen Pfad in <code>args</code> prüfen</td></tr>
           <tr><td><code>401 Unauthorized</code></td><td>Session abgelaufen → <code>login</code>-Werkzeug aufrufen</td></tr>
-          <tr><td>Sehr große Notiz schlägt fehl</td><td>Inhalt teilen;alternativ in der Appwrite-Console <code>json</code> im Bucket <i>attachments</i> erlauben</td></tr>
+          <tr><td>Sehr große Notiz schlägt fehl</td><td>Inhalt teilen – ein Dokument fasst 8 MB</td></tr>
           <tr><td>Karten verschwinden nach dem Sync</td><td>Alle Geräte/Clients aktualisieren (siehe Doku, Kap. „Speicherformat")</td></tr>
         </tbody>
       </table>

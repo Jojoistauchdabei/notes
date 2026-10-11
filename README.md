@@ -4,14 +4,16 @@
 
 Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Rich-Text-Editor, Bilder, Seiten mit Thumbnails. Das Dokument wird **durchgängig gescrollt** (alle Seiten in einem Stack, keine Seitenwechsel-Gesten – siehe [SPEC-37](specs/37-continuous-scroll-dokument.md)). Mehrere Dokumente, JSON-Einzel-/Gesamt-Export, **GoodNotes-Import (`.goodnotes`)**. Lokal im Browser, offline-fähig (PWA).
 
-Einfach `index.html` öffnen oder hosten – kein Build, kein Server nötig.
+Einfach `index.html` öffnen oder hosten – kein Build, kein Server nötig. Wer
+zwischen Geraeten synchronisieren und Liveshare nutzen will, betreibt den
+eigenen Server (`server/`) auf einem LXC: siehe [Selbsthosting](#selbsthosting-lxc).
 
 ## Releases: Web, Desktop & Android (mit Autoupdate)
 
 `dist/` ist nur ein lokales Build-Artefakt (`npm run build`) und wird nicht
 eingecheckt. Jedes GitHub Release enthält:
-- `Federwerk-vX.Y.Z-web.zip` – fertige Cloudflare-/Web-Dateien (entpacken,
-  z. B. als `wrangler`-Assets-Verzeichnis nutzen),
+- `Federwerk-vX.Y.Z-web.zip` – die statische App (entpacken und ins `dist/`
+  des LXC legen, siehe `deploy/lxc/README.md`),
 - Linux: `.deb`, `.AppImage`, `.rpm` – Windows: `-setup.exe`, `.msi`,
 - Android: universelles `.apk` (GitHub-Verteilung, kein Play Store),
 - `latest.json` + Signaturen fürs Desktop-Autoupdate.
@@ -27,14 +29,18 @@ manuell via Actions → „Auto-Release", oder Release im Web-UI anlegen.
 Opt-out per Commit: `[skip release]` in der Commit-Message.
 
 Einmalig nötige Secrets (Repo → Settings → Secrets and variables → Actions):
-`TAURI_SIGNING_PRIVATE_KEY` (Inhalt von `src-tauri/updater-key`, nie committen),
-`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`; optional für stabile
-Android-Updatekette: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
-`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` (ohne sie: Debug-APK).
+`TAURI_SIGNING_PRIVATE_KEY` (Inhalt von `src-tauri/updater-key`, nie committen);
+optional für stabile Android-Updatekette: `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
+(ohne sie: Debug-APK). Für den Web-Deploy auf den LXC ist kein Cloud-Secret
+nötig – der läuft über einen self-hosted Runner (`deploy-selfhost.yml`).
 
-## CDN-Größe (Cloudflare Workers Static Assets)
+## Build (`npm run build`)
 
-`npm run build` erzeugt eine fürs CDN optimierte `dist/` (~0,9 MB statt ~3,5 MB):
+`npm run build` erzeugt ein auslieferbares `dist/` (~0,9 MB statt ~3,5 MB).
+Ausgeliefert wird es vom Node-Server (`server/index.js`), der MIME, Cache und
+Sicherheits-Header selbst setzt – eine Header-Datei neben dem Build gibt es
+nicht mehr:
 
 - `altes_Papier.png` (2,5 MB) bleibt Quell-Asset, im Build kommt nur die
   Papier-Textur als WebP (95K) + JPEG-Fallback (176K) mit – `css/styles.css`
@@ -42,14 +48,15 @@ Android-Updatekette: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
 - Die 26 Seiten-Skripte aus `index.html` werden zu **einem** gehashten Bundle
   (`js/app.bundle.<hash>.js`, minifiziert), die 27 HTTP-Requests entfallen.
   `js/gnpdf-worker.js` bleibt separat (wird per `new Worker(...)` geladen).
-- Gehashte Dateien (Bundle, CSS, Papierbilder) bekommen in `dist/_headers`
-  `Cache-Control: public, max-age=31536000, immutable`; `index.html`, `sw.js`
-  und das Manifest bleiben `must-revalidate`, damit Releases sofort ankommen.
+- Gehashte Dateien (Bundle, CSS, Papierbilder) erkennt der Server am Namen und
+  schickt `Cache-Control: public, max-age=31536000, immutable`; `index.html`,
+  `sw.js` und das Manifest bleiben `must-revalidate`, damit Releases sofort
+  ankommen (`serveStatic` in `server/index.js`).
 - `dist/sw.js` precacht nur noch die App-Shell (11 Dateien), nicht mehr
   Screenshots/Doku.
 
-Minifiziert wird mit esbuild über `npx` (wie `wrangler@4` im Release-Workflow);
-ohne Netz baut `npm run build` ohne Minifizierung weiter, Bundle/Hash/Caching
+Minifiziert wird mit esbuild über `npx`; ohne Netz baut `npm run build` ohne
+Minifizierung weiter, Bundle/Hash/Caching
 greifen trotzdem.
 
 ## Design-Themes
@@ -94,7 +101,40 @@ Geprueft von `tests/themes.test.js` (12 Tests).
 
 ## Speicher (IndexedDB + Bild-Blobs)
 
-Der State (klein) liegt in IndexedDB (`grimoire-db`) plus localStorage-Backup; Bild-Bytes und PDF-Hintergründe liegen als Blobs separat in IndexedDB, im State steht nur eine kurze `blob:<id>`-Referenz. Das 5MB-localStorage-Limit greift damit nicht mehr. Beim ersten Start migriert die App bestehende Daten automatisch (Zähler in der Statuszeile). JSON-Export enthält weiter portable dataURLs (`inlineBook`/`extractBook` in `js/store.js`). Cloud-Sync läuft über Appwrite (Tabellen `notes`/`folders`, Storage-Bucket `attachments` mit SHA-256-Dedupe, `js/appwrite-files.js`, `js/appwrite-sync.js`). **Liveshare** (Share-Link mit Lesen/Edit + Ablauf, Live-Cursor, LWW pro Stroke) läuft ebenfalls über Appwrite – Tabellen `shares`/`share_events`, `js/liveshare.js`, Setup in `specs/36-liveshare.md`.
+Der State (klein) liegt in IndexedDB (`grimoire-db`) plus localStorage-Backup; Bild-Bytes und PDF-Hintergründe liegen als Blobs separat in IndexedDB, im State steht nur eine kurze `blob:<id>`-Referenz. Das 5MB-localStorage-Limit greift damit nicht mehr. Beim ersten Start migriert die App bestehende Daten automatisch (Zähler in der Statuszeile). JSON-Export enthält weiter portable dataURLs (`inlineBook`/`extractBook` in `js/store.js`).
+
+Der Sync gegen den eigenen Server liegt in `js/sync.js` (Notizen und Ordner:
+Push/Pull, Tombstones, Konfliktkopien) und `js/files-sync.js` (Bilder/PDFs mit
+SHA-256-Dedupe und Recompress). Beides spricht ausschließlich `js/api.js`, den
+einen Transport gegen `/api/*`. **Liveshare** (Share-Link mit Lesen/Edit +
+Ablauf, Live-Cursor, LWW pro Stroke) nutzt dieselbe API – Freigaben prüft
+`server/shares.js`, der Live-Kanal ist SSE (`/api/events`); siehe
+[SPEC-36](specs/36-liveshare.md).
+
+## Selbsthosting (LXC)
+
+Sync, Konten und Liveshare laufen auf einem eigenen Server in einem LXC
+(Proxmox). Keine Cloud, kein Drittanbieter, keine Tunnel-Binärdatei: der
+Node-Server (`server/`) liefert die App aus **und** die API, beides unter
+derselben Adresse.
+
+- **Ablage:** `auth.db` (`users` + `sessions`, scrypt, HttpOnly-Cookie),
+  `users/<id>/docs.db` (Dokumente, Ordner, Datei-Ablage – eine SQLite-Datei pro
+  Nutzer) und `social.db` (`shares` + `share_events`, weil Freigaben
+  nutzerübergreifend sind). Dateien liegen content-adressiert unter
+  `<sha256>.<ext>`; `server/gc.js` räumt per Timer auf (hot/cold).
+- **Keine Dependencies:** `node:http` + `node:sqlite` (Node 24), kein Express,
+  kein `node_modules` auf dem Container.
+- **Erreichbarkeit:** `FW_HOST=0.0.0.0`, `FW_PORT=8080`. Absicherung ist die
+  Authentifizierung plus Origin-Check in `server/index.js`, nicht das Interface.
+  Wer TLS will, stellt einen Reverse-Proxy (nginx/Caddy) davor und setzt
+  `FW_PUBLIC_URL`.
+- **Deploy:** `deploy/lxc/` (bootstrap, systemd-Units, QNAP-Bind, Backup-Timer)
+  und `.github/workflows/deploy-selfhost.yml` über einen self-hosted Runner.
+
+Schritt für Schritt: [`deploy/lxc/README.md`](deploy/lxc/README.md).
+Aufbau und Begründungen: [SPEC-41](specs/41-lxc-selbsthosting.md).
+
 
 ## Markdown-Editor (Live-Vorschau)
 
@@ -128,25 +168,28 @@ Spans versteckt und erscheinen nur im Block, in dem der Cursor steht.
 ## Tests
 
 ```bash
-npm test   # 716 Tests (23 davon für den Markdown-Editor), inkl. GoodNotes-Konformanz
+npm test                                    # App-Tests, inkl. GoodNotes-Konformanz
+node --test server/test/server.test.js      # Server-Tests (SQLite, Auth, Shares)
+node server/test/http.test.js               # HTTP-Rundlauf gegen einen echten Server
 ```
 
-Läuft automatisch bei jedem Push/PR auf `main` (`.github/workflows/ci.yml`, Node 20 + 22).
-Live: https://notes.ponnet.org
+`npm test` läuft automatisch bei jedem Push/PR auf `main`
+(`.github/workflows/ci.yml`, Node 20 + 22); die Server-Tests laufen im
+Deploy-Workflow (`deploy-selfhost.yml`) mit, bevor ausgeliefert wird.
 
 ## MCP (KI-Zugang: lesen + schreiben)
 
 Federwerk hat einen echten MCP-Server (JSON-RPC 2.0, 24 Tools): Notizen
 anlegen/bearbeiten/löschen, Ordner verwalten, Karteikarten-Decks inkl.
 SM-2-Bewertung, Query-Suche und Wikilink-Graph – für Claude Desktop, Cursor,
-Opencode u. a. Lokal per `node mcpserver/cli.js` (stdio), in der Cloud als
-Appwrite Function (`mcp/`).
+Opencode u. a. Er läuft lokal per `node mcpserver/cli.js` (stdio oder `--http`)
+und spricht die eigene Server-API; die Anmeldung kommt aus `FEDERWERK_URL` +
+`FEDERWERK_EMAIL`/`FEDERWERK_PASSWORD` (oder `FEDERWERK_SESSION`) bzw. aus
+`node mcpserver/login.js --email … --save`.
 
 - `/agent` – Anleitungsseite für Nutzer (auch aus der App verlinkt)
 - `/mcp` – Markdown-Anleitung für KI-Modelle (Installation + Nutzung)
 
 Vollständige Doku: [`docs/mcp.md`](docs/mcp.md), KI-Version:
 [`MCP_AI.md`](MCP_AI.md).
-Dekodierlogik portiert aus [parser-for-goodnotes](https://github.com/Kaih1825/parser-for-goodnotes) von Kaih1825 (MIT License, © 2025 Document Parser for GoodNotes contributors).
-
 Dekodierlogik portiert aus [parser-for-goodnotes](https://github.com/Kaih1825/parser-for-goodnotes) von Kaih1825 (MIT License, © 2025 Document Parser for GoodNotes contributors).

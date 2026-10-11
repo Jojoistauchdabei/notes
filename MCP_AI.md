@@ -5,7 +5,7 @@
 > unter `/mcp` als `text/markdown` ausgeliefert. Nutzer-facing Doku (deutsch)
 > steht unter `/agent` bzw. `docs/mcp.md`.
 >
-> Nutzer-Anleitung (deutsch, klickbar): `https://notes.ponnet.org/agent`
+> Nutzer-Anleitung (deutsch, klickbar): `<deine-adresse>/agent`
 
 Federwerk ist eine offline-first Handschrift-Notizbuch-App. Der MCP-Server
 liest **und schreibt** in den Notizen des angemeldeten Benutzers: Notizen,
@@ -16,16 +16,17 @@ Ordner, Karteikarten-Decks (SM-2), Volltext-/Query-Suche und Wikilink-Graph.
 | | |
 |---|---|
 | Protokoll | MCP / JSON-RPC 2.0, `protocolVersion` 2024-11-05 |
-| Servername | `federwerk-appwrite` v1.1.0 |
+| Servername | `federwerk-mcp` v1.1.0 |
 | Tools | 24 (3 Login + 6 Lesen + 5 Notizen + 3 Ordner + 7 Karteikarten) |
 | Transports | `stdio` (empfohlen), HTTP (`--http <port>`) |
-| Backend | Appwrite (Cloud) oder flüchtiges In-Memory-Demo |
-| Anmeldung | E-Mail + Passwort → Session (Cookie) wird vom Server selbst erzeugt |
+| Backend | eigener Federwerk-Server (`/api/*`) oder flüchtiges In-Memory-Demo |
+| Anmeldung | E-Mail + Passwort → HttpOnly-Cookie `fw_session` |
 | Abhängigkeiten | keine (Node.js ≥ 18 reicht) |
 
 **Wichtig:** Der Server braucht **keinen API-Key**. Er meldet sich mit
-E-Mail/Passwort an und leitet die Session selbst ab. Die Notizen anderer
-Benutzer sind für ihn prinzipbedingt nicht erreichbar.
+E-Mail/Passwort an; die Session ist das Cookie, das der Server setzt. Die
+Notizen anderer Benutzer sind für ihn prinzipbedingt nicht erreichbar – jede
+Abfrage läuft über genau diese Session.
 
 ## 2. Installation
 
@@ -36,7 +37,8 @@ node mcpserver/login.js --email <ADRESSE> --save
 
 `login.js` fragt das Passwort interaktiv (nicht in Shell-History, nicht in
 `ps`) und legt es in `~/.config/federwerk/mcp-credentials.json` (chmod 600,
-außerhalb des Repos) ab. Danach genügt ein Start:
+außerhalb des Repos) ab. Die Server-Adresse kommt aus `FEDERWERK_URL`
+(Standard `http://127.0.0.1:8080`). Danach genügt ein Start:
 
 ```bash
 node mcpserver/cli.js            # stdio
@@ -46,7 +48,7 @@ node mcpserver/cli.js --http 3000  # HTTP
 Auf stderr meldet der Server, welches Backend aktiv ist:
 
 ```
-Federwerk MCP: Cloud-Backend als Nutzer <userId> (angemeldet).
+Federwerk MCP: Server-Backend als <email> (http://127.0.0.1:8080).
 ```
 
 `Demo-Backend (flüchtig)` heißt: keine Anmeldedaten gefunden – es wird nur
@@ -78,8 +80,9 @@ Für den Betrieb **ohne** Credential-Datei (z. B. Container, CI):
       "command": "node",
       "args": ["/pfad/zu/federwerk/mcpserver/cli.js"],
       "env": {
-        "APPWRITE_EMAIL": "<ADRESSE>",
-        "APPWRITE_PASSWORD": "<PASSWORT>"
+        "FEDERWERK_URL": "http://127.0.0.1:8080",
+        "FEDERWERK_EMAIL": "<ADRESSE>",
+        "FEDERWERK_PASSWORD": "<PASSWORT>"
       }
     }
   }
@@ -91,14 +94,20 @@ Für den Betrieb **ohne** Credential-Datei (z. B. Container, CI):
 > anderes Tool übergeben – es landet dann im Prompt-Kontext. Die Tools `login`
 > und `logout` lesen nur aus dem Store.
 
-### 2.2 Betrieb als Appwrite Function (optional, Cloud)
+### 2.2 Gegen einen anderen Server (nicht localhost)
 
-Entrypoint `mcp/index.js`, Runtime Node.js 20/22, Verzeichnis `mcp/` +
-`mcpserver/` deployen (oder `npm run build:mcp` → `dist/mcp-function.tar.gz`).
-Pflicht-Env: `APPWRITE_ENDPOINT`, `APPWRITE_PROJECT_ID` sowie **eines** von
-`APPWRITE_EMAIL`+`APPWRITE_PASSWORD`, `APPWRITE_SESSION`, `APPWRITE_API_KEY`
-(+ `APPWRITE_USER_ID`). Optional, aber empfohlen: `MCP_TOKEN` (Bearer-Schutz
-für Clients). Ohne `MCP_TOKEN` ist der Endpoint offen lesbar.
+Der MCP-Server läuft dort, wo der Client läuft – es gibt nichts auf dem Server
+zu installieren. Erreichbar ist der Federwerk-Server über `FEDERWERK_URL`:
+
+```bash
+export FEDERWERK_URL="http://192.168.1.97:8080"
+export FEDERWERK_SESSION="<cookie-wert-aus-login>"   # statt E-Mail/Passwort
+node mcpserver/cli.js
+```
+
+Läuft der MCP auf einem anderen Rechner als der Server, ist `FEDERWERK_SESSION`
+der einfachere Weg: das Passwort bleibt dann in der Credential-Datei des
+Rechners, auf dem `login.js` gelaufen ist.
 
 ## 3. Werkzeuge
 
@@ -108,7 +117,7 @@ für Clients). Ohne `MCP_TOKEN` ist der Endpoint offen lesbar.
 |---|---|---|
 | `session_info` | – | `{authenticated, ownedByMcp, userId, email, expiresAt}`. **Nie** Passwörter. |
 | `login` | – | Meldet mit den hinterlegten Daten erneut an (z. B. nach 401) |
-| `logout` | – | Widerruft **nur** die selbst erzeugte Session. Fremde Sessions (z. B. per `APPWRITE_SESSION`) bleiben bestehen, damit die App angemeldet bleibt. |
+| `logout` | – | Widerruft **nur** die selbst erzeugte Session. Eine von außen gesetzte Session (z. B. per `FEDERWERK_SESSION`) bleibt bestehen, damit die App angemeldet bleibt. |
 
 ### 3.2 Lesen
 
@@ -127,7 +136,7 @@ für Clients). Ohne `MCP_TOKEN` ist der Endpoint offen lesbar.
 |---|---|---|
 | `create_document` | `title` (Pflicht), `content`, `contentFormat` (`markdown`\|`html`\|`text`), `folderId`, `kind` | Legt eine Notiz an. Markdown ist der Default. |
 | `update_document` | `id` (Pflicht), `title`, `content`, `contentFormat`, `folderId`, `append` | `append: true` hängt als neue Textbox an, statt zu ersetzen. `folderId: ""` = unsortiert. |
-| `delete_document` | `id`, `permanent` | Default: Tombstone (`title: "(gelöscht)"`, `deletedAt`) – verschwindet aus allen Listen. `permanent: true` löscht die Row endgültig. |
+| `delete_document` | `id` | Tombstone (`deletedAt`) – verschwindet aus allen Listen; endgültig räumt der Server-GC (`server/gc.js`) auf. |
 | `duplicate_document` | `id`, `title` | Kopie inkl. Seiten; Karten-IDs werden neu vergeben |
 | `move_document` | `id`, `folderId` | Ordnerwechsel, `""` = unsortiert |
 
@@ -190,23 +199,23 @@ Beispiele: `tag:reisen`, `task-todo:steuer -erledigt`, `file:Notizen OR file:Ide
 1. **Erst lesen, dann schreiben.** `list_documents`/`search_documents` vor
    Änderungen; die `id` aus der vorherigen Antwort verwenden.
 2. **IDs nicht raten.** `bookId`/`deckId`/`cardId`/`folderId` kommen aus
-   Tool-Antworten. `list_documents` liefert Appwrite-Row-IDs (`$id`).
+   Tool-Antworten. `list_documents` liefert `id` (Dokument-ID des Servers).
 3. **Markdown ist der Default** für `content`. Überschriften, `- [ ]`-Tasks,
    `**fett**`, Listen und `[[Wikilinks]]` werden unterstützt.
 4. **Nichts erfinden:** `folderId` muss existieren (sonst `Folder not found`).
 5. **Karten-Tools nur auf Decks** (`kind: flashcards`), sonst `Document is not a deck`.
-6. **Löschen ist zweistufig:** erst `delete_document` (Tombstone, sicher),
-   nur bei ausdrücklicher Absicht `permanent: true`.
-7. **Große Inhalte:** ab ~40 KB wird in den Bucket ausgelagert; der Bucket
-   `attachments` erlaubt je nach Config nur `jpg/png/webp/pdf`. Passt der
-   Inhalt weder inline (max ~60 KB) noch in den Bucket, kommt ein klarer
-   Fehler → Inhalt teilen statt aufgeben.
+6. **Löschen ist ein Tombstone:** `delete_document` markiert nur. Endgültig
+   räumt der Server auf (`server/gc.js`) – es gibt kein `permanent`-Argument.
+7. **Große Inhalte** gehen immer inline in die Zeile (SQLite kennt keine
+   64-KB-Grenze); die Obergrenze liegt bei 8 MB pro Dokument und meldet sich
+   als klarer Fehler → Inhalt teilen statt aufgeben.
 8. **Fehler sind lesbar** (JSON-RPC `-32000` mit Klartext): `Document not
    found`, `Folder not found`, `Card not found`, `Document is not a deck`,
    `grade muss again|hard|good|easy sein`, `title zu lang (max 200 Zeichen)`.
    Bei 401: `login` aufrufen, dann erneut versuchen.
-9. **Session-Limit:** Der MCP schließt seine alte Session vor dem Neuanmelden.
-   `logout` am Ende langlebiger Sitzungen ist sauberer.
+9. **Eine Session pro Lauf:** der MCP meldet sich beim Start an und nach einem
+   401 erneut. `logout` am Ende langlebiger Sitzungen ist sauberer – die
+   Session liegt als Cookie auf dem Server (`sessions` in `auth.db`).
 
 ## 7. Selbsttest (ohne Cloud-Zugang)
 
@@ -217,10 +226,10 @@ printf '%s\n' \
  | node mcpserver/cli.js
 ```
 
-Erwartet: `initialize` mit `federwerk-appwrite` und `tools/list` mit 24 Tools.
+Erwartet: `initialize` mit `federwerk-mcp` und `tools/list` mit 24 Tools.
 
 ## 8. Weiterführend
 
-- `docs/mcp.md` – vollständige Doku (deutsch, inkl. Worker-/curl-Legacy-API)
+- `docs/mcp.md` – vollständige Doku (deutsch, inkl. Fehlerbilder)
 - `/agent` – Nutzer-Seite in der App
 - `FEDERWERK_FORMAT.md`, `federwerk.schema.json`, `llms.txt` – Notizformat

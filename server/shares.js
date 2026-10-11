@@ -26,9 +26,20 @@
 const crypto = require('crypto');
 const db = require('./db.js');
 
+/* Erlaubte Ereignisarten. Die Liste MUSS der des Clients entsprechen
+ * (js/liveshare.js: KINDS) - sonst lehnt der Server genau die Ereignisse ab,
+ * die der Client schickt, und Liveshare scheitert mit 400 statt zu syncen.
+ * tests/server.test.js vergleicht beide Listen, damit sie nicht auseinander-
+ * laufen.
+ *
+ * Die Liste ist eine Whitelist, keine Formpruefung: sie verhindert, dass ein
+ * Client beliebige "Arten" in den Ereignisstrom schreibt, auf die die
+ * Gegenseite ungeprueft reagiert. */
 const KINDS = new Set([
-  'cursor', 'stroke', 'stroke-deletes', 'text', 'page',
-  'bye', 'sync', 'join', 'leave', 'undo', 'redo',
+  'hello', 'heartbeat', 'bye',
+  'stroke-add', 'stroke-del',
+  'text-upsert', 'text-del',
+  'cursor', 'sync-request', 'sync-state', 'sync-chunk',
 ]);
 const MAX_EVENTS = 20000; // Ringpuffer: haelt die Tabelle auch ohne Aufraeum-Job klein
 const MAX_PAYLOAD = 256 * 1024;

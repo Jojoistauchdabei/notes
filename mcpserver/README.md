@@ -1,21 +1,31 @@
 # @federwerk/mcpserver
 
-> Vollständige Doku (Setup, alle 21 Tools, Speicherformat, Troubleshooting):
+> Vollständige Doku (Setup, alle 24 Tools, Speicherformat, Fehlerbilder):
 > [`docs/mcp.md`](../docs/mcp.md).
 
 Stateless Model Context Protocol (MCP) server core for Federwerk notes.
 
-This package implements the JSON-RPC 2.0 MCP protocol specifications and can run:
-1. As the protocol engine inside the Appwrite Function (`mcp/index.js`)
-2. As a standalone local MCP server over `stdio` (for Claude Desktop, Cursor, Antigravity, etc.)
-3. As a local HTTP server (`--http [port]`)
+Dieses Paket ist die Protokoll-Engine (JSON-RPC 2.0) und läuft lokal:
 
-Shared helpers: `content.js` (Markdown-lite, v1/v2 content envelope, SM-2,
-query search, wikilink graph – dependency-free, also bundled into the
-Appwrite Function via `npm run build:mcp`). Never `require()` `../js/*`
-from here – the Function package contains only `mcp/` + `mcpserver/`.
+1. über `stdio` (`node mcpserver/cli.js`) – für Claude Desktop, Cursor usw.,
+2. als lokaler HTTP-Server (`node mcpserver/cli.js --http [port]`),
+3. in den Tests (In-Memory-Backends, siehe `tests/mcpserver.test.js`).
 
-## Available Tools (21)
+Aufbau:
+
+| Datei | Aufgabe |
+| --- | --- |
+| `index.js` | Protokoll + Tool-Definitionen (24 Tools); fachfrei |
+| `backend.js` | Handler gegen die eigene Server-API (`/api/docs`, `/api/folders`) |
+| `content.js` | Markdown-lite, v1/v2-Content-Envelope, SM-2, Query-Suche, Wikilink-Graph |
+| `login.js` | Credential-Store + Session-Cookie (`fw_session`) |
+| `cli.js` | Transport (stdio/HTTP) und Backend-Wahl |
+
+`content.js` ist bewusst selbst-contained und wird von `backend.js` und den
+Tests gemeinsam benutzt; `../js/*` wird von hier **nie** `require()`d (die
+App-Module brauchen ein DOM).
+
+## Available Tools (24)
 
 Lesen:
 - `list_documents` (+ `kind`-Filter `notebook|flashcards`), `get_document`
@@ -25,8 +35,8 @@ Lesen:
   `get_graph` (Wikilinks `[[...]]`, optional lokaler Subgraph `id`+`depth`).
 Notizen wie ein Mensch: `create_document` (Markdown default),
 `update_document` (`append:true` hängt an), `delete_document`
-(Tombstone default, `permanent:true` löscht die Row),
-`duplicate_document`, `move_document`.
+(Tombstone – endgültig räumt der Server-GC auf), `duplicate_document`,
+`move_document`.
 Ordner: `create_folder` (optional `parentId`), `rename_folder`,
 `delete_folder` (Dokumente wandern nach `moveDocumentsTo`, default unsortiert).
 Karteikarten (SM-2, kompatibel zu `js/flashcards.js`): `create_deck`
@@ -34,22 +44,24 @@ Karteikarten (SM-2, kompatibel zu `js/flashcards.js`): `create_deck`
 (max 100/Aufruf), `update_card`, `delete_card`, `review_card`
 (`again|hard|good|easy`), `deck_stats` (Bestände, Accuracy, 7-Tage-Vorschau, Streak).
 
-Decks liegen als Content-Envelope v2 (`{v:2, pages, kind, cards,
-deckOptions, reviewLog}`) in `notes.content` (>40 KB automatisch als
-JSON-Datei im Bucket, wie der App-Sync). Bestand (v1, nur `pages`) bleibt
-lesbar. Der App-Sync (`js/appwrite-sync.js`) persistiert v2 ebenfalls
-(Änderungserkennung inkl. Karten); Migrationshinweis (einmaliger
-Full-Push): `docs/mcp.md` Kap. 5.
+Decks liegen als Content-Envelope v2 (`{v:2, pages, kind, cards, deckOptions,
+reviewLog}`) in `docs.content`; Bestand (v1, nur `pages`) bleibt lesbar. Der
+Inhalt geht **immer inline** in die Zeile – der eigene Server kennt keine
+64-KB-Grenze, die frühere Auslagerung in eine Datei ist entfallen.
 
 ## Local Usage
 
 ### Stdio Transport (Claude Desktop / Cursor)
 
 ```bash
-node mcpserver/cli.js
+node mcpserver/login.js --email DU@BEISPIEL.DE --save   # einmalig
+node mcpserver/cli.js                                   # danach genügt das
 ```
 
-Configure in Claude Desktop (`claude_desktop_config.json`):
+`login.js` fragt das Passwort interaktiv und legt es in
+`~/.config/federwerk/mcp-credentials.json` (chmod 600, außerhalb des Repos) ab.
+
+Ohne Credential-Datei (Container, CI) geht es über die Umgebung:
 
 ```json
 {
@@ -58,21 +70,23 @@ Configure in Claude Desktop (`claude_desktop_config.json`):
       "command": "node",
       "args": ["/path/to/notes/mcpserver/cli.js"],
       "env": {
-        "APPWRITE_ENDPOINT": "https://fra.cloud.appwrite.io/v1",
-        "APPWRITE_PROJECT_ID": "6ab0067c00244c28560a",
-        "APPWRITE_SESSION": "<session-secret-aus-login>",
-        "APPWRITE_USER_ID": "<your-appwrite-user-id>"
+        "FEDERWERK_URL": "http://127.0.0.1:8080",
+        "FEDERWERK_EMAIL": "<ADRESSE>",
+        "FEDERWERK_PASSWORD": "<PASSWORT>"
       }
     }
   }
 }
 ```
 
-Session erzeugen: `node mcpserver/login.js --email DU@BEISPIEL.DE`
-(`APPWRITE_USER_ID` wird auch daraus abgeleitet und ist optional).
+Statt E-Mail/Passwort geht auch ein fertiger Cookie-Wert:
+`FEDERWERK_SESSION=<wert>` (aus `node mcpserver/login.js --email …`).
 
 ### HTTP Transport
 
 ```bash
 node mcpserver/cli.js --http 3000
 ```
+
+Ohne `FEDERWERK_*` startet der Server mit einem flüchtigen In-Memory-Backend
+(Demo-Notiz) – gedacht zum Ausprobieren, nicht für echte Daten.
