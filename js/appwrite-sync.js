@@ -105,6 +105,24 @@
     }
     return { pages: out, missing: [...new Set(missing)] };
   }
+  /* Craft-Datei-Ref umschreiben: push (ref -> awfile:<hash>) bzw. pull
+   * (hash -> lokale Ref). Nicht aufloesbare Hashes bleiben beim Pull als
+   * `awfile:<hash>` stehen – die Ansicht laedt die Datei dann direkt vom Server
+   * (js/craft-ui.js: bytesAusRef). Ein Craft-Dokument darf nie ohne Datei
+   * dastehen, nur weil ein Download gerade scheitert. */
+  function rewriteCraftRef(craft, map, dir) {
+    if (!craft || typeof craft !== 'object') return null;
+    const out = JSON.parse(JSON.stringify(craft));
+    const ref = out.file;
+    if (typeof ref !== 'string' || !ref) return out;
+    if (dir === 'push') {
+      if (map[ref]) out.file = AWFILE + map[ref];
+      return out;
+    }
+    const h = hashFromAwRef(ref);
+    if (h && map[h]) out.file = map[h];
+    return out;
+  }
   function bookContentJson(book) {
     return JSON.stringify(bookEnvelope(book));
   }
@@ -114,6 +132,29 @@
       if (p && Array.isArray(p.pages)) return p.pages;
     } catch { /* ignore */ }
     return null;
+  }
+  /* Craft-Dokumente im Sync (v3-Envelope): {v:3, pages, kind:'craft', craft}.
+   * Der Inhalt ist eine DATEI, kein Seitenmodell – sie reist wie ein Bild als
+   * `awfile:<hash>` (craft.file) und wird beim Push hochgeladen, beim Pull
+   * wieder zu einer lokalen Blob-Ref materialisiert. Alles andere (Ordner,
+   * Titel, Loeschen, Konflikte) laeuft ueber denselben Weg wie bei Notizbuechern.
+   *
+   * Warum v3 und nicht ein Feld in v2: ein v2-Leser (aelterer Client, MCP)
+   * wuerde `craft` ignorieren und beim Zurueckschreiben verlieren. Die
+   * Versionsnummer macht den Unterschied sichtbar. */
+  function normCraft(c) {
+    const o = (c && typeof c === 'object') ? c : {};
+    return {
+      id: String(o.id || ''),
+      ext: String(o.ext || '').toLowerCase().replace(/^\./, ''),
+      mime: String(o.mime || ''),
+      name: String(o.name || ''),
+      size: Math.max(0, Number(o.size) || 0),
+      file: o.file ? String(o.file) : null,
+    };
+  }
+  function isCraftEnvelope(p) {
+    return !!(p && p.kind === 'craft' && p.craft && typeof p.craft === 'object' && p.craft.id);
   }
   // Karteikarten-Deck im Sync (v2-Envelope, wie MCP/mcpserver/content.js):
   // Notebooks reisen weiter als schlankes v1 ({v:1, pages}), Decks als
@@ -161,10 +202,12 @@
     }
     return out.length > REVIEW_LOG_MAX ? out.slice(out.length - REVIEW_LOG_MAX) : out;
   }
-  // Envelope eines Buchs (pages optional überschrieben, z. B. nach Ref-Rewrite).
-  function bookEnvelope(b, pages) {
+  // Envelope eines Buchs (pages/craft optional überschrieben, z. B. nach Ref-Rewrite).
+  function bookEnvelope(b, pages, craftOverride) {
     const pg = pages !== undefined ? pages : ((b && b.pages) || []);
     const bb = b || {};
+    const craft = craftOverride !== undefined ? craftOverride : (bb.craft || null);
+    if (craft && craft.id) return { v: 3, pages: pg, kind: 'craft', craft: normCraft(craft) };
     const hasDeckData = (Array.isArray(bb.cards) && bb.cards.length > 0)
       || (bb.deckOptions && typeof bb.deckOptions === 'object')
       || (Array.isArray(bb.reviewLog) && bb.reviewLog.length > 0);
@@ -178,12 +221,13 @@
   }
   // Tolerant: v1/v2/Altbestand/Müll -> {pages|null, kind, cards, deckOptions, reviewLog}.
   function parseEnvelope(json) {
-    const out = { pages: null, kind: 'notebook', cards: [], deckOptions: null, reviewLog: [] };
+    const out = { pages: null, kind: 'notebook', cards: [], deckOptions: null, reviewLog: [], craft: null };
     let p = null;
     try { p = JSON.parse(json || ''); } catch { return out; }
     if (!p || typeof p !== 'object') return out;
     if (Array.isArray(p.pages)) out.pages = p.pages;
     else return out;
+    if (isCraftEnvelope(p)) { out.kind = 'craft'; out.craft = normCraft(p.craft); }
     if (p.kind === 'flashcards' || p.kind === 'deck') out.kind = 'flashcards';
     if (Array.isArray(p.cards)) out.cards = p.cards;
     if (p.deckOptions && typeof p.deckOptions === 'object') out.deckOptions = p.deckOptions;
@@ -193,6 +237,16 @@
   // Übernimmt Remote-Envelope ins lokale Buch (kind immer, Deckfelder nur bei
   // Decks – ein Notebook-Envelope löscht lokale Karten nie stillschweigend).
   function applyEnvelopeToBook(b, env) {
+    if (env && env.kind === 'craft' && env.craft) {
+      /* Nur uebernehmen, wenn das Buch wirklich ein Craft-Dokument ist: ein
+       * Craft-Envelope darf kein Notizbuch in ein Craft-Buch verwandeln (und
+       * umgekehrt), sonst haengt der Inhalt an der falschen Ansicht. */
+      const alt = (b && b.craft) || {};
+      b.kind = 'craft';
+      b.craft = Object.assign(normCraft(env.craft), { savedAt: Number(alt.savedAt) || 0 });
+      if (!Array.isArray(b.pages)) b.pages = [];
+      return b;
+    }
     b.kind = env && env.kind === 'flashcards' ? 'flashcards' : 'notebook';
     if (b.kind === 'flashcards' && env) {
       b.cards = normDeckCards(env.cards);
@@ -203,13 +257,15 @@
   }
   // Hash-Basis für Änderungserkennung (Titel + Ordner + Seiten + Deckfelder).
   function hashableBook(b) {
-    const deck = isDeckBook(b);
+    const craft = (b && b.craft && b.craft.id) ? normCraft(b.craft) : null;
+    const deck = !craft && isDeckBook(b);
     return {
-      v: 2, title: b.title || '', folderId: b.folderId || null, pages: b.pages || [],
-      kind: deck ? 'flashcards' : 'notebook',
+      v: 3, title: (b && b.title) || '', folderId: (b && b.folderId) || null, pages: (b && b.pages) || [],
+      kind: craft ? 'craft' : (deck ? 'flashcards' : 'notebook'),
       cards: deck ? normDeckCards(b.cards) : [],
       deckOptions: deck ? normDeckOptions(b.deckOptions) : null,
       reviewLog: deck ? normReviewLog(b.reviewLog) : [],
+      craft: craft,
     };
   }
   function folderHash(f) {
@@ -448,6 +504,29 @@
     await Promise.all(jobs);
     return out;
   }
+  /* Refs eines BUCHS: Seitenbilder, Seitenhintergruende und die Datei eines
+   * Craft-Dokuments. Ein Craft-Dokument ist damit kein Sonderfall – seine Datei
+   * geht denselben Weg wie ein Bild (Hash, Dedupe, Upload). */
+  async function hashRefsInBook(book, store, F) {
+    const out = await hashRefsInPages((book && book.pages) || [], store, F);
+    const craft = book && book.craft;
+    const ref = craft && craft.file;
+    if (typeof ref === 'string' && ref && !out[ref] && !isAwFileRef(ref)) {
+      try {
+        let bytes = null;
+        let mime = (craft && craft.mime) || '';
+        if (ref.startsWith('data:')) {
+          const d = F.dataUrlToBytes(ref);
+          bytes = d.bytes; mime = mime || d.mime;
+        } else if (store && store.dataUrl) {
+          const du = await store.dataUrl(ref);
+          if (du) { const d = F.dataUrlToBytes(du); bytes = d.bytes; mime = mime || d.mime; }
+        }
+        if (bytes) out[ref] = { hash: await F.sha256Hex(bytes), bytes, mime };
+      } catch { /* unauflösbar -> Ref bleibt wie sie ist */ }
+    }
+    return out;
+  }
   // Stellt sicher, dass alle Hashes im Bucket liegen (Dedupe via 409).
   async function ensureUploaded(F, cfg, hashed) {
     for (const h of Object.keys(hashed)) {
@@ -486,7 +565,8 @@
     const map = {};
     for (const ref of Object.keys(hashedByRef)) map[ref] = hashedByRef[ref].hash;
     const { pages } = rewriteRefs(book.pages, map, 'push');
-    const json = JSON.stringify(bookEnvelope(book, pages));
+    const craft = rewriteCraftRef(book.craft, map, 'push');
+    const json = JSON.stringify(bookEnvelope(book, pages, craft));
     return { content: json, contentFileId: null };
   }
   async function payloadToEnvelope(F, cfg, store, row) {
@@ -509,6 +589,16 @@
     const refByHash = await materializeRefs(F, cfg, store, [...need]);
     const { pages: out } = rewriteRefs(env.pages, refByHash, 'pull');
     env.pages = out;
+    // Craft-Datei genauso: Hash -> lokale Blob-Ref, damit das Dokument auch
+    // ohne Netz zu oeffnen ist. Klappt der Download nicht, bleibt der
+    // awfile:-Ref stehen (js/craft-ui.js holt die Datei dann direkt).
+    if (env.craft && env.craft.file) {
+      const h = hashFromAwRef(env.craft.file);
+      if (h) {
+        const neu = await materializeRefs(F, cfg, store, [h]);
+        if (neu[h]) env.craft.file = neu[h];
+      }
+    }
     return env;
   }
   async function payloadToPages(F, cfg, store, row) {
@@ -519,9 +609,9 @@
   const Sync = {
     ROWMAP_KEY, LASTPULL_KEY, FOLDERS_KEY, OFFLOAD_BYTES, Q,
     msToIso, isoToMs, rowIdForBook, isAwFileRef, hashFromAwRef,
-    rewriteRefs, bookContentJson, parseContentJson, folderHash,
+    rewriteRefs, rewriteCraftRef, bookContentJson, parseContentJson, folderHash,
     isDeckBook, bookEnvelope, parseEnvelope, applyEnvelopeToBook, hashableBook,
-    normDeckCards, normDeckOptions, normReviewLog,
+    normDeckCards, normDeckOptions, normReviewLog, normCraft, isCraftEnvelope, hashRefsInBook,
     planRows, makeConflictTitle, rowToNoteMeta,
     loadRowMap, saveRowMap, loadLastPull, saveLastPull,
     loadFolders, saveFolders, loadFolderMeta, saveFolderMeta,
@@ -577,11 +667,12 @@
       }
       const F2 = F;
       const contentHashOf = async (b) => {
-        const hashed = await hashRefsInPages(b.pages, store, F2);
+        const hashed = await hashRefsInBook(b, store, F2);
         const rmap = {};
         for (const ref of Object.keys(hashed)) rmap[ref] = hashed[ref].hash;
         const { pages } = rewriteRefs(b.pages, rmap, 'push');
-        return F2.sha256Hex(new TextEncoder().encode(JSON.stringify(hashableBook(Object.assign({}, b, { pages })))));
+        const craft = rewriteCraftRef(b.craft, rmap, 'push');
+        return F2.sha256Hex(new TextEncoder().encode(JSON.stringify(hashableBook(Object.assign({}, b, { pages, craft })))));
       };
       // Content-Hash aller lokalen Bücher (Buchzahl klein, Hash schnell).
       for (const b of books) {
@@ -616,7 +707,7 @@
           const rh = env ? await F.sha256Hex(new TextEncoder().encode(JSON.stringify(hashableBook({
             title: remote[id].title || '', folderId: remote[id].row.folderId || null,
             pages: env.pages, kind: env.kind, cards: env.cards,
-            deckOptions: env.deckOptions, reviewLog: env.reviewLog,
+            deckOptions: env.deckOptions, reviewLog: env.reviewLog, craft: env.craft,
           })))) : 'unlesbar';
           if (rh === localClean[id].hash) {
             touchMeta(id, { rowId: r.$id, hash: rh, remoteUpdatedAtMs: remote[id].updatedAtMs });
@@ -697,7 +788,7 @@
         say(`Lade hoch (${reason}) …`);
         try {
           const rowId = (byId[id] && byId[id].cloudRowId) || (map[id] && map[id].rowId) || rowIdForBook(id);
-          const hashed = await hashRefsInPages(b.pages, store, F);
+          const hashed = await hashRefsInBook(b, store, F);
           await ensureUploaded(F, cfg, hashed);
           const payload = await contentToPayload(F, cfg, b, hashed);
           const nowIso = msToIso(Date.now());

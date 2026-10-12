@@ -38,10 +38,29 @@ function extForMime(mime) {
     case 'image/png': return 'png';
     case 'image/webp': return 'webp';
     case 'image/gif': return 'gif';
+    case 'image/bmp': return 'bmp';
+    case 'image/tiff': return 'tiff';
+    case 'image/svg+xml': return 'svg';
+    case 'image/vnd.adobe.photoshop': return 'psd';
+    case 'image/vnd.dxf': return 'dxf';
     case 'application/pdf': return 'pdf';
     case 'application/json': return 'json';
     case 'text/plain': return 'txt';
-    default: return 'bin';
+    case 'text/csv': return 'csv';
+    case 'audio/wav': return 'wav';
+    case 'audio/mpeg': return 'mp3';
+    case 'audio/flac': return 'flac';
+    case 'audio/ogg': return 'ogg';
+    case 'video/mp4': return 'mp4';
+    case 'video/quicktime': return 'mov';
+    case 'video/webm': return 'webm';
+    case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': return 'docx';
+    case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': return 'xlsx';
+    case 'application/vnd.openxmlformats-officedocument.presentationml.presentation': return 'pptx';
+    case 'application/vnd.adobe.indesign-idml-package': return 'idml';
+    case 'application/x-filmcraft-project': return 'fcproj';
+    case 'application/x-effectcraft-project': return 'ecproj';
+      default: return 'bin';
   }
 }
 
@@ -178,7 +197,12 @@ function hashesFromContent(contentJson) {
   const found = new Set();
   const text = typeof contentJson === 'string' ? contentJson : JSON.stringify(contentJson || '');
   for (const m of text.matchAll(/awfile:([0-9a-f]{64})/g)) found.add(m[1]);
-  for (const m of text.matchAll(/"([0-9a-f]{64})\.(?:jpg|png|webp|gif|pdf|json|txt|bin)"/g)) found.add(m[1]);
+  // Auch als Dateiname referenzierte Hashes. Die Endungsliste spiegelt
+  // extForMime() oben: sie waechst mit jeder Dateiart, die Federwerk ablegt
+  // (Bilder, PDFs UND die Craft-Dokumente: DOCX, XLSX, PPTX, PSD, SVG, IDML,
+  // DXF, WAV, MP4 …). Fehlt eine Endung hier, gilt die Datei als unreferenziert
+  // und der Aufraeumer loescht sie.
+  for (const m of text.matchAll(/"([0-9a-f]{64})\.(?:jpg|png|webp|gif|bmp|tiff|svg|psd|dxf|pdf|json|txt|csv|wav|mp3|flac|ogg|mp4|mov|webm|docx|xlsx|pptx|idml|fcproj|ecproj|bin)"/g)) found.add(m[1]);
   return [...found];
 }
 

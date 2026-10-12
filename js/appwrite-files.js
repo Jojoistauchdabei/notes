@@ -66,8 +66,28 @@
       case 'image/png': return 'png';
       case 'image/webp': return 'webp';
       case 'image/gif': return 'gif';
+      case 'image/bmp': return 'bmp';
+      case 'image/tiff': return 'tiff';
+      case 'image/svg+xml': return 'svg';
+      case 'image/vnd.adobe.photoshop': return 'psd';
+      case 'image/vnd.dxf': return 'dxf';
       case 'application/pdf': return 'pdf';
       case 'application/json': return 'json';
+      case 'text/plain': return 'txt';
+      case 'text/csv': return 'csv';
+      case 'audio/wav': return 'wav';
+      case 'audio/mpeg': return 'mp3';
+      case 'audio/flac': return 'flac';
+      case 'audio/ogg': return 'ogg';
+      case 'video/mp4': return 'mp4';
+      case 'video/quicktime': return 'mov';
+      case 'video/webm': return 'webm';
+      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': return 'docx';
+      case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': return 'xlsx';
+      case 'application/vnd.openxmlformats-officedocument.presentationml.presentation': return 'pptx';
+      case 'application/vnd.adobe.indesign-idml-package': return 'idml';
+      case 'application/x-filmcraft-project': return 'fcproj';
+      case 'application/x-effectcraft-project': return 'ecproj';
       default: return 'bin';
     }
   }
