@@ -82,12 +82,32 @@
     const m = /^fw([0-9a-f]{32})$/i.exec(String(fileId || ''));
     return m ? m[1].toLowerCase() : null;
   }
+  /* SHA-256 des Inhalts.
+   *
+   * crypto.subtle gibt es nur in einem sicheren Kontext - also ueber HTTPS
+   * oder auf localhost. Ueber http://192.168.x.x:8080 ist es undefined, und
+   * dann faellt der komplette Sync aus: Content-Hashing fuer Dedupe,
+   * Konflikterkennung und die Namenspruefung des Servers beim Upload.
+   *
+   * Deshalb der Rueckfall auf js/sha256.js. Der ist getestet (NIST-Vektoren
+   * und Blockgrenzen, tests/sha256.test.js) - er muss exakt dasselbe liefern
+   * wie der Server, sonst lehnt der jedes Upload mit 422 ab.
+   */
   async function sha256Hex(bytes) {
-    const c = (typeof crypto !== 'undefined' && crypto.subtle)
-      || (typeof require === 'function' && require('crypto').webcrypto.subtle);
-    if (!c) throw new Error('kein subtle crypto');
-    const d = await c.digest('SHA-256', bytes);
-    return Array.from(new Uint8Array(d)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const subtle = (typeof crypto !== 'undefined' && crypto.subtle) || null;
+    if (subtle) {
+      const d = await subtle.digest('SHA-256', bytes);
+      return Array.from(new Uint8Array(d)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    const pure = (typeof window !== 'undefined' && window.FederwerkSha256) || null;
+    if (!pure && typeof require === 'function') {
+      try { pure = require('./sha256.js'); } catch { /* ignore */ }
+    }
+    if (!pure) throw new Error('weder crypto.subtle noch js/sha256.js verfuegbar');
+    // Der Fallback ist synchron - so weit, bis jemand ein Web-Worker-Aequivalent
+    // braucht. Bei Bildern im MB-Bereich kostet das ein paar Hundertstel.
+    const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    return pure(arr);
   }
   function base64ToBytes(b64) {
     const bin = (typeof atob !== 'undefined') ? atob(b64) : Buffer.from(b64, 'base64').toString('binary');

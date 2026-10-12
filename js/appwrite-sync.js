@@ -549,7 +549,7 @@
       // „lokal gelöscht“ unterscheiden. Der vollständige, paginierte Bestand
       // ist nötig, damit Löschungen als Tombstones synchronisiert werden.
       say('Frage Cloud-Stand ab …');
-      const rows = await listRows(cfg, 'notes', [Q.equal('userId', userId), Q.orderAsc('updatedAt')]);
+      const rows = await listRows(cfg, 'notes', null);
       const remote = {};
       let maxSeen = lastPull.notes || null;
       for (const r of rows) {
@@ -787,7 +787,7 @@
       } catch { /* Mirror bleibt */ }
       // Ordner haben ihr eigenes updated_at (der Server legt es selbst an) -
       // attribute in the table schema.
-      const rows = await listRows(cfg, 'folders', [Q.equal('userId', userId)]);
+      const rows = await listRows(cfg, 'folders', null);
       const remote = {};
       for (const r of rows) {
         // Lokale Ordner-IDs sind die fachliche ID; der Server verwendet daraus
