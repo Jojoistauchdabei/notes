@@ -291,7 +291,7 @@ test('shares: Ereignisse nur mit gueltiger Freigabe, Cursor ist stabil', () => {
   const s = shares.create(owner.id, { bookId: 'b1' });
 
   shares.appendEvent(guest.id, s.shareId, { kind: 'cursor', payload: { x: 1 } });
-  shares.appendEvent(owner.id, s.shareId, { kind: 'stroke', payload: { pts: 3 } });
+  shares.appendEvent(owner.id, s.shareId, { kind: 'stroke-add', payload: { pts: 3 } });
 
   const alle = shares.events(guest.id, s.shareId, 0);
   assert.strictEqual(alle.length, 2);
@@ -299,7 +299,7 @@ test('shares: Ereignisse nur mit gueltiger Freigabe, Cursor ist stabil', () => {
 
   const nach = shares.events(guest.id, s.shareId, alle[0].seq);
   assert.strictEqual(nach.length, 1, 'Cursor liefert exakt den Rest');
-  assert.strictEqual(nach[0].kind, 'stroke');
+  assert.strictEqual(nach[0].kind, 'stroke-add');
 
   // Fremder mit dem Code darf mitlesen - der Code ist die Berechtigung.
   assert.doesNotThrow(() => shares.events(fremd.id, s.shareId, 0));

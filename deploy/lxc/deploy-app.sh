@@ -32,10 +32,18 @@ log "Quelle: $SRC"
 log "Installiere Server nach $APP_ROOT/app/server"
 install -d -m 755 -o "$APP_USER" -g "$APP_USER" "$APP_ROOT/app/server"
 install -m 644 "$SRC"/server/*.js "$APP_ROOT/app/server/"
-install -m 644 "$SRC/server/schema.sql" "$APP_ROOT/app/server/schema.sql"
+install -m 644 "$SRC/server/schema.sql" "$APP_ROOT/app/server/"
 # gc.js und schema.sql liegen zusaetzlich flach - so rufen es die Timer auf.
 install -m 644 "$SRC/server/gc.js"      "$APP_ROOT/app/gc.js"
 install -m 644 "$SRC/server/schema.sql" "$APP_ROOT/app/schema.sql"
+
+# Der MCP-Kern. server/mcp.js laedt ihn ueber "../mcpserver/content" -
+# ohne dieses Verzeichnis startet der Dienst nicht, und das faellt erst
+# beim Neustart auf, nicht beim Test.
+log "Installiere MCP-Kern nach $APP_ROOT/app/mcpserver"
+install -d -m 755 -o "$APP_USER" -g "$APP_USER" "$APP_ROOT/app/mcpserver"
+install -m 644 "$SRC"/mcpserver/*.js "$APP_ROOT/app/mcpserver/"
+
 chown -R "$APP_USER:$APP_USER" "$APP_ROOT/app"
 
 # ---- 2. Statische App ----

@@ -150,12 +150,12 @@ async function call(method, p, body, opts = {}) {
   ok('Freigabe erstellt', r.status === 201 && /^s/.test(code), JSON.stringify(r.data));
   r = await call('GET', `/api/shares/${code}`);
   ok('Freigabe lesbar', r.status === 200 && r.data.share.bookId === 'b1');
-  r = await call('POST', `/api/shares/${code}/events`, { kind: 'stroke', payload: { pts: 5 } });
+  r = await call('POST', `/api/shares/${code}/events`, { kind: 'stroke-add', payload: { pts: 5 } });
   ok('Event angehaengt', r.status === 201);
   r = await call('POST', `/api/shares/${code}/events`, { kind: 'boese' });
   ok('unbekannte Ereignisart abgelehnt', r.status === 400);
   r = await call('GET', `/api/shares/${code}/events?after=0`);
-  ok('Event abrufbar', r.data.items.length === 1 && r.data.items[0].kind === 'stroke');
+  ok('Event abrufbar', r.data.items.length === 1 && r.data.items[0].kind === 'stroke-add');
 
   console.log('\n== Live-Kanal (SSE) ==');
   const ac = new AbortController();

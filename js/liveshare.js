@@ -827,7 +827,14 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
         userId: S.me.userId, userName: S.me.userName, userColor: S.me.userColor,
         kind, payload: Object.assign({ pageId: currentPageId(), isOwner: S.isOwner }, payload || {}),
       });
-      await postEvent(ev).catch(() => null);
+      await postEvent(ev).catch((err) => {
+        // Vorher: .catch(() => null). Das hat jeden Fehler ungenannt
+        // geschluckt - ein 400 vom Server, ein 404 bei abgelaufener
+        // Freigabe, ein defekter Pfad. Es sah dann aus, als waere alles
+        // in Ordnung, waehrend nichts ankam. Der Statusbalken zeigte
+        // "Live (1 online)" und es wurde nichts gesendet.
+        if (typeof console !== 'undefined') console.warn('[liveshare] send(' + kind + ') fehlgeschlagen:', err);
+      });
     }
     function currentPageId() {
       try {
