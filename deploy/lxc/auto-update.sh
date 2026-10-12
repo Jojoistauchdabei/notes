@@ -139,8 +139,12 @@ else
   T_LOG=$(mktemp)
   TEST_FAIL=0
   (cd "$REPO" && npm test) >"$T_LOG" 2>&1 || TEST_FAIL=1
-  (cd "$REPO" && node --test server/test/server.test.js) >>"$T_LOG" 2>&1 || TEST_FAIL=1
+  (cd "$REPO" && node --test server/test/server.test.js \
+                         server/test/security.test.js \
+                         server/test/share-kinds.test.js \
+                         server/test/share-code.test.js) >>"$T_LOG" 2>&1 || TEST_FAIL=1
   (cd "$REPO" && node server/test/http.test.js) >>"$T_LOG" 2>&1 || TEST_FAIL=1
+  (cd "$REPO" && node server/test/mcp-http.test.js) >>"$T_LOG" 2>&1 || TEST_FAIL=1
   if [ "$TEST_FAIL" = "1" ]; then
     fail "Tests fehlgeschlagen - alter Stand bleibt aktiv."
     grep -E "^\s*(not ok|# fail|fail [1-9])|AssertionError|ERGEBNIS: [0-9]" "$T_LOG" | head -20 >&2
@@ -166,6 +170,12 @@ install -m 644 "$REPO"/server/*.js "$LIVE/server/"
 install -m 644 "$REPO/server/schema.sql" "$LIVE/server/"
 install -m 644 "$REPO/server/gc.js"    "$LIVE/gc.js"
 install -m 644 "$REPO/server/schema.sql" "$LIVE/schema.sql"
+
+# Der MCP-Kern. server/mcp.js laedt ihn ueber "../mcpserver/content";
+# fehlt das Verzeichnis, startet der Dienst nicht. Das faellt erst beim
+# Neustart auf - der Health-Check hier unten faengt es dann ab.
+install -d -m 755 "$LIVE/mcpserver"
+install -m 644 "$REPO"/mcpserver/*.js "$LIVE/mcpserver/"
 
 # dist/ wird komplett ersetzt, nicht hinuebergelegt. Sonst bleiben alte
 # Bundle-Dateien liegen; sie sind zwar nur unbenutzter Speicher, aber der

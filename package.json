@@ -5,6 +5,9 @@
   "description": "Handschrift-Notizbuch im Papier-Stil mit GoodNotes-Import",
   "scripts": {
     "test": "node --test tests/*.test.js",
+    "test:server": "node --test server/test/server.test.js server/test/security.test.js server/test/share-kinds.test.js server/test/share-code.test.js",
+    "test:http": "node server/test/http.test.js && node server/test/mcp-http.test.js",
+    "test:gc": "bash server/test/gc.test.sh",
     "test:mcp": "node --test tests/mcpserver.test.js tests/mcp-function.test.js",
     "test:mcp:live": "node scripts/live-mcp-selftest.js",
     "build": "node scripts/build.js",

@@ -16,9 +16,77 @@
 
 const crypto = require('crypto');
 const db = require('./db.js');
+const { createLimiter } = require('./ratelimit.js');
 
 const SESSION_DAYS = Number(process.env.FW_SESSION_DAYS || 90);
 const COOKIE = 'fw_session';
+
+/* Fehlversuche zaehlen. Zwei Schluessel, weil sie zwei verschiedene Angriffe
+ * stoppen:
+ *   login:mail:<adresse>  verhindert das Raten GEGEN ein Konto
+ *   login:ip:<adresse>    verhindert das Raten vieler Konten von einer
+ *                         Adresse aus (Spray-Angriff, bei dem kein einzelnes
+ *                         Konto die Schwelle erreicht)
+ *
+ * Wichtig fuer das Nicht-Orakel: Beide Schluessel werden im Zweifel auch dann
+ * gefuehrt, wenn die Adresse der IP unbekannt ist. Die Sperre fuer
+ * "E-Mail existiert nicht" sieht damit exakt so aus wie die fuer "Passwort
+ * falsch" - sonst koennte man durch Warten auf die SperreAdressen aufspueren.
+ * Ohne IP fehlt einfach der zweite Schluessel, nicht der erste.
+ */
+const loginLimiter = createLimiter({
+  limit: Number(process.env.FW_LOGIN_MAX_FAILS || 5),
+  baseMs: Number(process.env.FW_LOGIN_LOCK_MS || 60 * 1000),
+  maxMs: Number(process.env.FW_LOGIN_MAX_LOCK_MS || 15 * 60 * 1000),
+  maxEntries: Number(process.env.FW_RATELIMIT_MAX_ENTRIES || 10000),
+});
+
+/* Registrierung ist offen, sonst waere Erstnutzung unmoeglich - aber ein Skript
+ * darf davon nicht beliebig viele Konten anlegen, sonst wird die Datenbank mit
+ * Wegwerf-Konten und Wegwerf-Sessions gefuellt.
+ *
+ * Anders als beim Login wird hier NACH einem Erfolg NICHT zurueckgesetzt: der
+ * Missbrauch besteht ja gerade aus vielen ERFOLGREICHEN Registrierungen. Also
+ * zaehlt jeder Versuch, gleich ob er geklappt hat oder nicht.
+ *
+ * Ohne bekannte IP (Aufrufe aus dem Prozess heraus, Tests) wird gar nicht erst
+ * gezaehlt - ein gemeinsamer globaler Schluessel wuerde jeden internen Aufruf
+ * in einen Sperrtreffer laufen lassen.
+ */
+const registerLimiter = createLimiter({
+  limit: Number(process.env.FW_REGISTER_MAX || 5),
+  baseMs: Number(process.env.FW_REGISTER_LOCK_MS || 10 * 60 * 1000),
+  maxMs: Number(process.env.FW_REGISTER_MAX_LOCK_MS || 60 * 60 * 1000),
+  maxEntries: Number(process.env.FW_RATELIMIT_MAX_ENTRIES || 10000),
+});
+
+const normMail = (v) => String(v || '').trim().toLowerCase();
+
+function loginKeys(email, clientIp) {
+  const keys = ['login:mail:' + normMail(email)];
+  const ip = normIp(clientIp);
+  if (ip) keys.push('login:ip:' + ip);
+  return keys;
+}
+
+/* Der Aufrufer (server/index.js) reicht die Remote-Adresse der Anfrage
+ * weiter. Hier wird sie nur normalisiert: IPv4-mapped IPv6 und Port
+ * abschneiden, sonst haette dieselbe Adresse je nach Weg mehrere
+ * Schluessel und die Sperre waere umgehbar. */
+function normIp(clientIp) {
+  const ip = String(clientIp || '').trim()
+    .replace(/^\[|\]$/g, '')
+    .replace(/^::ffff:/, '')
+    .replace(/:\d+$/, '');
+  return /^[0-9a-f:.]{1,45}$/i.test(ip) ? ip : '';
+}
+
+function lockedError(retryAfterMs) {
+  const min = Math.max(1, Math.ceil(retryAfterMs / 60000));
+  const e = httpError(429, `Zu viele Fehlversuche - gesperrt. Bitte in ${min} Minute(n) erneut versuchen.`);
+  e.retryAfterMs = retryAfterMs;
+  return e;
+}
 
 function hashPassword(password, salt) {
   const s = salt || crypto.randomBytes(16).toString('hex');
@@ -55,16 +123,32 @@ function httpError(status, message) {
   return e;
 }
 
-function createUser(email, password, name) {
-  const a = db.auth();
-  const { email: e, password: p } = validateCredentials(email, password);
-  const exists = a.prepare('SELECT id FROM users WHERE email = ?').get(e);
-  if (exists) throw httpError(409, 'Diese E-Mail-Adresse ist bereits registriert.');
-  const { hash, salt } = hashPassword(p);
-  const id = 'u_' + crypto.randomBytes(12).toString('hex');
-  a.prepare('INSERT INTO users (id, email, name, pass_hash, pass_salt, created_at) VALUES (?,?,?,?,?,?)')
-    .run(id, e, String(name || '').slice(0, 128), hash, salt, Date.now());
-  return getUser(id);
+function createUser(email, password, name, clientIp) {
+  const ip = normIp(clientIp);
+  // VOR dem Hash. Ein Registrierungsversuch ist ein scrypt so teuer wie ein
+  // Loginversuch; wer die Sperre erst danach prueft, hat gegen genau das
+  // Werkzeug geschuetzt, das man ihm nehmen wollte.
+  const regKey = ip ? 'register:ip:' + ip : '';
+  if (regKey) {
+    const s = registerLimiter.check(regKey);
+    if (s.blocked) throw lockedError(s.retryAfterMs);
+  }
+  // Zaehlen passiert unabhaengig vom Ergebnis - deshalb das try/finally.
+  // Sonst koennte man durch Absenden ungueltiger Registrierungen (400/409)
+  // unbegrenzt scrypt auf den Server treiben.
+  try {
+    const a = db.auth();
+    const { email: e, password: p } = validateCredentials(email, password);
+    const exists = a.prepare('SELECT id FROM users WHERE email = ?').get(e);
+    if (exists) throw httpError(409, 'Diese E-Mail-Adresse ist bereits registriert.');
+    const { hash, salt } = hashPassword(p);
+    const id = 'u_' + crypto.randomBytes(12).toString('hex');
+    a.prepare('INSERT INTO users (id, email, name, pass_hash, pass_salt, created_at) VALUES (?,?,?,?,?,?)')
+      .run(id, e, String(name || '').slice(0, 128), hash, salt, Date.now());
+    return getUser(id);
+  } finally {
+    if (regKey) registerLimiter.fail(regKey);
+  }
 }
 
 function getUser(id) {
@@ -72,23 +156,61 @@ function getUser(id) {
   return row ? { id: row.id, email: row.email, name: row.name } : null;
 }
 
-function login(email, password, userAgent) {
+function login(email, password, userAgent, clientIp) {
+  const keys = loginKeys(email, clientIp);
+  // Die Sperrpruefung kommt VOR dem scrypt - und zwar vor der Datenbankabfrage,
+  // nicht danach. Ein Angreifer, der 10.000mal "bob@example.org, falsch"
+  // schickt, darf davon keinen einzigen Hash kosten, sonst ist die Sperre nur
+  // eine Verzoegerung fuer ihn und eine Last fuer uns.
+  for (const key of keys) {
+    const s = loginLimiter.check(key);
+    if (s.blocked) throw lockedError(s.retryAfterMs);
+  }
+
   const a = db.auth();
-  const row = a.prepare('SELECT * FROM users WHERE email = ?').get(String(email || '').trim().toLowerCase());
+  const row = a.prepare('SELECT * FROM users WHERE email = ?').get(normMail(email));
   // Auch bei unbekannter Adresse einen Hash rechnen, damit die Antwortzeit
   // nicht verrät, ob eine E-Mail existiert.
   const salt = row ? row.pass_salt : 'dummy-salt-for-constant-time';
   const ok = verifyPassword(String(password || ''), row ? row.pass_hash : hashPassword('x', salt).hash, salt);
-  if (!row || !ok) throw httpError(401, 'E-Mail oder Passwort falsch.');
+  if (!row || !ok) {
+    // Beide Faelle - unbekannte Adresse und falsches Passwort - zaehlen auf
+    // denselben Schluessel. Genau das ist der Grund, warum es hier KEINEN
+    // Sonderfall "unbekannte E-Mail" gibt: die Sperre waere sonst selbst das
+    // Orakel, das die Antwortzeit bisher verdeckt hat.
+    for (const key of keys) loginLimiter.fail(key);
+    throw httpError(401, 'E-Mail oder Passwort falsch.');
+  }
+  // Erfolg zaehlt nicht als Fehlschlag und setzt den Zaehler zurueck: wer
+  // das richtige Passwort hat, darf nicht unter einer alten Sperre leiden.
+  for (const key of keys) loginLimiter.ok(key);
   return issue(row.id, userAgent);
 }
 
 function issue(userId, userAgent) {
+  // Abgelaufene Sessions hier mitraeumen, nicht nur beim Aufloesen: resolve()
+  // trifft genau die Zeile, die der Cookie gerade traegt. Alle anderen
+  // abgelaufenen Zeilen wuerden bis zum 90-Tage-Ablauf liegen bleiben, weil
+  // niemand sie je ansieht. Beim Anlegen einer Session ist die DB ohnehin
+  // offen - das Aufraeumen kostet also fast nichts.
+  purgeSessions();
   const token = crypto.randomBytes(32).toString('base64url');
   const now = Date.now();
   db.auth().prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at, user_agent) VALUES (?,?,?,?,?)')
     .run(tokenHash(token), userId, now, now + SESSION_DAYS * 86400000, String(userAgent || '').slice(0, 200));
   return { token, user: getUser(userId) };
+}
+
+/* Loescht alle abgelaufenen Sessions und gibt die Anzahl zurueck.
+ *
+ * Bewusst eigenstaendig und exportiert, damit server/index.js sie entweder
+ * direkt beim Start oder in einem Intervall aufrufen kann (z.B. stuendlich
+ * per setInterval). Hier wird sie NICHT eingebunden - das gehoert in den
+ * Server, der die Lebensdauer des Prozesses kennt.
+ */
+function purgeSessions() {
+  const r = db.auth().prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Date.now());
+  return r.changes;
 }
 
 /* Cookie -> Nutzer. Beendet abgelaufene Sessions und raeumt sie gleich mit. */
@@ -140,4 +262,12 @@ const clearCookie = () => cookieHeader('', 0);
 module.exports = {
   COOKIE, createUser, getUser, login, logout, resolve,
   issue, parseCookies, cookieHeader, clearCookie, httpError, validateCredentials,
+  purgeSessions,
+  /* Nur fuer Tests und Diagnose: die Limiter selbst und ein Zuruecksetzen.
+   * Echte Nutzer sehen davon nichts. */
+  rateLimits: {
+    login: loginLimiter,
+    register: registerLimiter,
+    clear: () => { loginLimiter.clear(); registerLimiter.clear(); },
+  },
 };

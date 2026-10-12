@@ -23,6 +23,7 @@ const docsApi = require('./docs.js');
 const filesApi = require('./files.js');
 const shares = require('./shares.js');
 const events = require('./events.js');
+const createMcpDeps = require('./mcp.js');
 
 const PORT = Number(process.env.FW_PORT || 8080);
 // 0.0.0.0 statt 127.0.0.1: Der Cloudflare-Tunnel laeuft in einem ANDEREN
@@ -322,6 +323,30 @@ async function handleApi(req, res, u) {
     // selbst bekommt bewusst kein Echo.
     events.notifyShare(r.shareId, user.id);
     return sendJson(res, 201, r);
+  }
+
+  // ---- MCP (JSON-RPC 2.0) ----
+  //
+  // Der Kern in mcpserver/index.js ist nutzerblind: createMcpHandler(deps)
+  // reicht kein userId durch, jeder Aufruf lautet listDocuments(limit,
+  // folderId, opts) statt listDocuments(userId, limit, ...). Die Identitaet
+  // entscheidet also der Aufrufer - hier die Session, die gerade
+  // aufgeloest wurde. Deshalb werden die deps PRO ANFRAGE neu gebaut:
+  // ein einmalig gebautes Objekt wuerde den ersten Nutzer einfrieren und
+  // allen weiteren dieselben Notizen zeigen.
+  if ((p === '/api/mcp' || p === '/api/mcp/') && m === 'POST') {
+    const body = await readJson(req);
+    const { createMcpHandler } = require('../mcpserver/index.js');
+    const deps = createMcpDeps({
+      userId: user.id,
+      email: user.email,
+      // Die Session gehoert dem Aufrufer, nicht diesem MCP: logout darf sie
+      // nicht beenden, sonst wirft ein KI-Agent den Browser aus.
+      ownedSession: false,
+    });
+    const handle = createMcpHandler(deps);
+    const result = await handle(body);
+    return sendJson(res, 200, result);
   }
 
   // ---- Live-Kanal ----

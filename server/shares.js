@@ -28,12 +28,61 @@
 const crypto = require('crypto');
 const db = require('./db.js');
 
+/* Die Ereignisarten des Clients - exakt diese elf, in dieser Schreibweise.
+ *
+ * Diese Liste ist eine Vereinbarung zwischen server/shares.js und
+ * js/liveshare.js (dort KINDS). Sie war zuerst geraten und falsch: der
+ * Server kannte "stroke", "text", "sync", der Client sendet aber
+ * "stroke-add", "text-upsert", "sync-chunk". Neun von elf Arten wuerden mit
+ * 400 "Unbekannte Ereignisart" abgewiesen - der Fehler faellt erst auf, wenn
+ * zwei echte Geraete miteinander live teilen.
+ *
+ * Deshalb haengt an der Liste ein Test: server/test/share-kinds.test.js liest
+ * die KINDS aus js/liveshare.js und vergleicht sie mit dieser. Wer eine Seite
+ * aendert, ohne die andere zu beruehren, bekommt einen roten Test statt eines
+ * stillen Live-Bruchs.
+ */
 const KINDS = new Set([
-  'cursor', 'stroke', 'stroke-deletes', 'text', 'page',
-  'bye', 'sync', 'join', 'leave', 'undo', 'redo',
+  // Anwesenheit
+  'hello', 'heartbeat', 'bye', 'cursor',
+  // Aenderungen am Dokument
+  'stroke-add', 'stroke-del', 'text-upsert', 'text-del',
+  // Abgleich grosser Schnipsel
+  'sync-request', 'sync-state', 'sync-chunk',
 ]);
 const MAX_EVENTS = 20000; // Ringpuffer: haelt die Tabelle auch ohne Aufraeum-Job klein
+/* Freigabe-Codes: 11 Zeichen aus [a-z0-9], Praefix "s".
+ *
+ * Das Alphabet ist NICHT frei gewaehlt, sondern vom Client vorgegeben:
+ * js/liveshare.js prueft jeden eingehenden Code gegen /^s[a-z0-9]{11}$/.
+ * Ein Code mit Grossbuchstaben - oder mit dem '-' und '_' aus base64url -
+ * wird vom eigenen Client als "shareId ungueltig" verworfen, und weil der
+ * Sendeweg seinen Fehler mit .catch(() => null) schluckt, faellt das nur
+ * als "nichts kommt an" auf.
+ *
+ * Das Modulo ist bewusst mit Ausschluss: 256 % 36 = 4, ein blinder %36
+ * bevorzugt also die ersten vier Zeichen des Alphabets. 252 = 7 * 36, und
+ * nur Werte 0..251 werden verwendet - damit ist jeder Buchstabe gleich
+ * wahrscheinlich.
+ */
+const CODE_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const CODE_REJECT_AT = 252; // 7 * 36
 const MAX_PAYLOAD = 256 * 1024;
+
+function shareCode() {
+  const bytes = crypto.randomBytes(32);
+  let out = '';
+  for (let i = 0; i < bytes.length && out.length < 11; i++) {
+    if (bytes[i] >= CODE_REJECT_AT) continue;
+    out += CODE_ALPHABET[bytes[i] % 36];
+  }
+  // 32 Zufallsbytes reichen fuer 11 Zeichen praktisch immer; die Schleife
+  // kann theoretisch zu kurz bleiben, dann wird schlicht neu gewuerfelt.
+  return out.length === 11 ? 's' + out : 's' + crypto.randomBytes(9).toString('hex').slice(0, 11);
+}
+
+// Der Client-Pfad. server/test/share-code.test.js haelt beides zusammen.
+const CODE_RE = /^s[a-z0-9]{11}$/;
 
 const ensure = () => db.social();
 
@@ -81,8 +130,7 @@ function create(userId, input) {
   if (!bookId || bookId.length > 64) throw bad('bookId fehlt.');
   const mode = (input && input.mode) === 'edit' ? 'edit' : 'read';
   const now = Date.now();
-  // 11 Zeichen aus crypto - nicht Math.random, nicht eine Zaehlvariable.
-  const shareId = 's' + crypto.randomBytes(8).toString('base64url').slice(0, 11);
+  const shareId = shareCode();
   let snapshot = String((input && input.snapshot) || '');
   if (Buffer.byteLength(snapshot, 'utf8') > 512 * 1024) snapshot = '';
 

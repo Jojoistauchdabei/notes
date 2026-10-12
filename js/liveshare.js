@@ -592,7 +592,16 @@
         pageId: s.pageId || null,
         expiresAt: s.expiresAt ? new Date(s.expiresAt).toISOString() : null,
         revoked: !!s.revoked,
-        snapshot: s.snapshot || null,
+        // Der Snapshot wird hier geparst - ensureLiveBook() greift auf
+        // snap.strokes und snap.truncated zu, erwartet also ein Objekt.
+        // Das Event-payload dagegen bleibt ein String: validateEvent()
+        // prueft genau darauf, und routeEvent() parst es selbst. Zwei
+        // verschiedene Regeln an einer Stelle - daher beide hier ausdruecklich.
+        snapshot: (() => {
+          if (s.snapshot == null) return null;
+          if (typeof s.snapshot === 'object') return s.snapshot;
+          try { return JSON.parse(s.snapshot); } catch { return null; }
+        })(),
         createdAt: new Date(s.createdAt).toISOString(),
         updatedAt: new Date(s.updatedAt).toISOString(),
       };
@@ -615,6 +624,19 @@
         userColor: ev.userColor,
       });
     }
+    /* payload bleibt ein STRING.
+       validateEvent() prueft ausdruecklich auf typeof payload === 'string',
+       und routeEvent() ruft selbst parsePayload(ev). Ein hier bereits
+       geparster Gegenstand wuerde jedes Ereignis als ungueltig verwerfen.
+
+       Das war kurz der Plan - bis der Browser-Test die Gegenprobe machte:
+       der Client rechnet von Anfang an mit JSON-Text, weil das bei
+       Appwrite das Zeilenattribut war. Der Server liefert es so, also
+       bleibt es so. */
+    function payloadOf(raw) {
+      return raw == null ? '' : String(raw);
+    }
+
     async function listEvents(code, sinceSeq) {
       const j = await api().shareEvents(code, sinceSeq, 200);
       return (j.items || []).map((e) => ({
@@ -625,7 +647,7 @@
         userName: e.userName,
         userColor: e.userColor,
         kind: e.kind,
-        payload: e.payload,
+        payload: payloadOf(e.payload),
         createdAt: new Date(e.createdAt).toISOString(),
       }));
     }
@@ -827,7 +849,14 @@ renderAll: (typeof g.renderAll === 'function') ? g.renderAll : null,
         userId: S.me.userId, userName: S.me.userName, userColor: S.me.userColor,
         kind, payload: Object.assign({ pageId: currentPageId(), isOwner: S.isOwner }, payload || {}),
       });
-      await postEvent(ev).catch(() => null);
+      await postEvent(ev).catch((err) => {
+        // Vorher: .catch(() => null). Das hat jeden Fehler ungenannt
+        // geschluckt - ein 400 vom Server, ein 404 bei abgelaufener
+        // Freigabe, ein defekter Pfad. Es sah dann aus, als waere alles
+        // in Ordnung, waehrend nichts ankam. Der Statusbalken zeigte
+        // "Live (1 online)" und es wurde nichts gesendet.
+        if (typeof console !== 'undefined') console.warn('[liveshare] send(' + kind + ') fehlgeschlagen:', err);
+      });
     }
     function currentPageId() {
       try {
