@@ -420,7 +420,9 @@
   const CraftUI = {
     open, exportiere, importiere, ablegen, wire, createDoc, toggleMenue, schliesseMenue, baueMenue, badgeHtml,
     currentCraft: () => zustand.craftId,
-    _internals: { bytesAusRef, engineVorhanden, horcheAufBruecke, zustand },
+    /* Getter statt Referenz: open() ersetzt den Zustand bei jedem Oeffnen,
+     * eine feste Referenz zeigte danach auf den alten Stand. */
+    _internals: { bytesAusRef, engineVorhanden, horcheAufBruecke, get zustand() { return zustand; } },
   };
 
   if (typeof window !== 'undefined') {

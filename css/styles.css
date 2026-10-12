@@ -1118,164 +1118,150 @@ select { cursor: pointer; }
 .fw-theme-name { font-weight: bold; font-size: 13.5px; line-height: 1.2; }
 .fw-theme-desc { font-size: 11.5px; opacity: .72; line-height: 1.3; }
 
-/* ===== Office (SPEC-40) =================================================
- * Styles liegen bewusst hier und nicht in einer eigenen Datei: scripts/
- * build-dist.js kopiert nur styles.css in dist/ und hasht sie. Eine zweite
- * Datei wuerde eine Erweiterung des Builds noetig machen -- dieselbe Datei
- * wuerde aber auch die unfertige Markdown-Arbeit (SPEC-39) anfassen.
- * Nach der Einarbeitung in Federwerk gehoert Office ohnehin in die App. */
+/* ===== Craft-Apps (SPEC-40) ============================================
+ * Word-, Excel-, PowerPoint- und die Adobe-Klone laufen als WASM-Builds der
+ * Upstream-Repos (github.com/storytold) in einem iframe. Hier stehen nur
+ * Rahmen, Leiste und Statusanzeige - die App bringt ihre Oberflaeche selbst
+ * mit. Die Styles liegen bewusst in styles.css und nicht in einer eigenen
+ * Datei: scripts/build-dist.js kopiert nur diese Datei (gehasht) ins dist. */
 
-.fw-office {
+.fw-craft {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  background: var(--bg);
+  gap: 10px;
+  height: calc(100vh - 24px);
+  min-height: 420px;
+  padding: 10px;
+  box-sizing: border-box;
 }
 
-.fw-office-bar {
+.fw-craft-bar {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  padding: 6px 10px;
+  border: 1px solid var(--line, #d8d2c4);
+  border-radius: 10px;
+  background: var(--panel, rgba(255, 255, 255, .7));
 }
 
-/* DOCX-Import/Export: nach rechts in die Leiste, damit sie nicht zwischen
-   Titel und Art landen. */
-.fw-office-io {
-    display: inline-flex;
-    gap: 6px;
-    margin-left: auto;
-}
-.fw-office-bar h2 {
+.fw-craft-bar h2 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  max-width: 44ch;
+  max-width: 46vw;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.fw-office-kind {
+.fw-craft-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
-  opacity: .75;
-  padding: 1px 8px;
   border: 1px solid currentColor;
   border-radius: 999px;
+  padding: 1px 9px;
+  opacity: .95;
 }
 
-.fw-office-toolbar {
+.fw-craft-io { margin-left: auto; display: flex; gap: 6px; }
+
+.fw-craft-status { font-size: 12.5px; opacity: .8; min-height: 17px; }
+.fw-craft-status-ok { color: #1d7a3d; opacity: 1; }
+.fw-craft-status-warn { color: #a0522d; opacity: 1; }
+
+.fw-craft-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 320px;
+  border: 1px solid var(--line, #d8d2c4);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1c1c1c;
+}
+
+/* Die App selbst: voller Platz, keine eigene Leiste - die liegt darueber. */
+.fw-craft-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #1c1c1c;
+}
+
+.fw-craft-missing {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-strong, var(--surface));
-}
-
-.fw-office-btn {
-  font: inherit;
-  font-size: 13px;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.fw-office-btn:hover { border-color: var(--accent); }
-
-.fw-office-btn.is-active {
-  background: var(--accent);
-  color: var(--accent-fg, #fff);
-  border-color: var(--accent);
-}
-
-.fw-office-type {
-  font: inherit;
-  font-size: 13px;
-  margin-left: auto;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: inherit;
-}
-
-/* Blatt: helles Blatt in der Mitte, wie in den meisten Editoren. */
-.fw-office-page {
-  flex: 1;
-  min-height: 0;
+  justify-content: center;
+  padding: 24px;
+  background: var(--panel, #f6f3ec);
+  color: var(--ink, #222);
   overflow: auto;
-  padding: 20px 16px 80px;
 }
+.fw-craft-missing-inner { max-width: 560px; line-height: 1.5; }
+.fw-craft-missing h3 { margin: 0 0 8px; font-size: 16px; }
+.fw-craft-missing code { font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; }
+.fw-craft-hint { opacity: .75; font-size: 12.5px; }
 
-.fw-office-paper {
-  max-width: 78ch;
-  margin: 0 auto;
-  min-height: 60vh;
-  padding: 40px 44px;
-  background: var(--paper, #fff);
-  color: var(--ink, #1a1a1a);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .09);
-}
-
-.fw-office-block {
-  margin: 0 0 .55em;
-  line-height: 1.6;
-  outline: none;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.fw-office-block:focus-visible {
-  box-shadow: 0 0 0 2px var(--accent);
-  border-radius: 3px;
-}
-
-.fw-office-b-h1 { font-size: 1.9em; font-weight: 700; line-height: 1.25; margin: .9em 0 .4em; }
-.fw-office-b-h2 { font-size: 1.5em; font-weight: 700; line-height: 1.3; margin: .8em 0 .35em; }
-.fw-office-b-h3 { font-size: 1.24em; font-weight: 600; line-height: 1.35; margin: .7em 0 .3em; }
-.fw-office-b-quote { border-left: 3px solid var(--accent); padding-left: 12px; opacity: .9; font-style: italic; }
-.fw-office-b-code { font-family: var(--mono, ui-monospace, monospace); font-size: .92em; background: rgba(127, 127, 127, .12); padding: 2px 5px; border-radius: 4px; }
-
-.fw-office-hr {
-  display: block;
-  height: 0;
-  border-top: 1px solid var(--border);
-  margin: 1.1em 0;
-}
-
-.fw-office-placeholder { color: var(--muted, #6b6b6b); padding: 20px 0; }
-
-.fw-office-status {
-  padding: 6px 12px;
-  border-top: 1px solid var(--border);
-  background: var(--surface);
-  font-size: 12px;
-  opacity: .8;
-}
-
-/* Badge der Office-Karte in der Bibliothek, neben den Deck-Karten. */
-.notebook-cover .fw-office-badge {
+/* Badge der Craft-Karte in der Bibliothek, neben den Deck-Karten. */
+.notebook-cover .fw-craft-badge {
   display: inline-block;
   font-size: 11px;
-  border: 1px solid currentColor;
+  border: 1px solid var(--fw-craft-color, currentColor);
+  color: var(--fw-craft-color, currentColor);
   border-radius: 999px;
   padding: 0 8px;
   margin-left: 8px;
-  opacity: .9;
+  white-space: nowrap;
 }
 
+/* "+ Neu"-Menue: eine Zeile pro Craft, gefuellt aus js/craft-catalog.js. */
+.fw-new-craft { position: relative; display: inline-block; }
+.fw-new-craft-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 230px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line, #d8d2c4);
+  border-radius: 10px;
+  background: var(--panel, #fff);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .18);
+}
+.fw-new-craft-group {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  opacity: .6;
+  padding: 6px 8px 2px;
+}
+.fw-new-craft-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.fw-new-craft-item:hover { background: rgba(127, 127, 127, .16); }
+.fw-new-craft-icon { width: 18px; text-align: center; }
+.fw-new-craft-ext { margin-left: auto; opacity: .55; font-size: 11.5px; }
+
 @media print {
-  .fw-office-toolbar, .fw-office-status, .fw-office-bar { display: none; }
-  .fw-office-paper { border: 0; box-shadow: none; padding: 0; max-width: none; }
+  .fw-craft-bar, .fw-craft-status, .fw-craft-missing { display: none; }
 }
