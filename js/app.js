@@ -5034,6 +5034,76 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeGraphOverlay();
 });
 
+/* ===== ARTCRAFT-APPS =====
+ *
+ * Verzeichnis der zwoelf Crafting Apps (https://getartcraft.com/apps). Reine
+ * Verweisliste, keine Engine: die tatsaechliche Dateiverarbeitung passiert in
+ * craft-wasm (PSD/SVG/IDML) und office-wasm (DOCX/XLSX/PPTX). `builtin`
+ * markiert genau die Apps, deren Formate schon ohne Link im Notizbuch
+ * aufgehen - die Kachel verlinkt dann nicht, damit niemand einen Weg
+ * vermutet, den es nicht braucht.
+ *
+ * Bewusst als Daten im Code und nicht als HTML: `esc()` haelt die
+ * Beschreibungen escaped, und ein neues Update an der Seite aendert nur
+ * diese Liste, nicht das Markup.
+ */
+const CRAFT_APPS = [
+  { slug: 'photocraft',  name: 'PhotoCraft',   role: 'Bildbearbeitung',     builtin: true,  note: 'PSD öffnen sich direkt im Notizbuch.' },
+  { slug: 'vectorcraft', name: 'VectorCraft',  role: 'Vektorillustration', builtin: true,  note: 'SVG öffnen sich direkt im Notizbuch.' },
+  { slug: 'designcraft', name: 'DesignCraft',  role: 'Satz & Layout',       builtin: true,  note: 'IDML öffnen sich direkt im Notizbuch.' },
+  { slug: 'wordcraft',   name: 'WordCraft',    role: 'Textverarbeitung',    builtin: true,  note: 'DOCX öffnen sich direkt im Notizbuch.' },
+  { slug: 'gridcraft',   name: 'GridCraft',    role: 'Tabellen',            builtin: true,  note: 'XLSX öffnen sich direkt im Notizbuch.' },
+  { slug: 'deckcraft',   name: 'DeckCraft',    role: 'Präsentationen',      builtin: true,  note: 'PPTX öffnen sich direkt im Notizbuch.' },
+  { slug: 'pdfcraft',    name: 'PdfCraft',     role: 'PDF-Werkstatt' },
+  { slug: 'lightcraft',  name: 'LightCraft',   role: 'Fotobibliothek & RAW' },
+  { slug: 'effectcraft', name: 'EffectCraft',  role: 'Motion Graphics' },
+  { slug: 'filmcraft',   name: 'FilmCraft',    role: 'Video-Schnitt' },
+  { slug: 'soundcraft',  name: 'SoundCraft',   role: 'Audio & MIDI' },
+  { slug: 'cadcraft',    name: 'CADCraft',     role: 'CAD & Zeichnen' },
+];
+const CRAFT_APPS_BASE = 'https://getartcraft.com/apps/';
+
+function renderCraftApps() {
+  const grid = $('craftAppGrid');
+  if (!grid) return;
+  grid.innerHTML = CRAFT_APPS.map(app => {
+    const badge = app.builtin
+      ? '<span class="craft-app__badge">eingebaut</span>'
+      : '<span class="craft-app__badge" aria-hidden="true">↗</span>';
+    const note = app.note ? '<div class="craft-app__note">' + esc(app.note) + '</div>' : '';
+    // Eingebaute Apps verlinken nicht: ohne Link bleibt klar, dass man sie
+    // gar nicht erst aufzurufen braucht. Der Link-Ziel bleibt trotzdem
+    // dieselbe Seite, damit Tastatur- und Screenreader-Nutzer die Info
+    // ueber aria-label bekommen.
+    const head = '<div class="craft-app__name">' + esc(app.name) + badge + '</div>'
+      + '<div class="craft-app__role">' + esc(app.role) + '</div>' + note;
+    if (app.builtin) {
+      return '<div class="craft-app craft-app--builtin" role="listitem" aria-label="'
+        + esc(app.name) + ', ' + esc(app.role) + ', in Federwerk eingebaut">' + head + '</div>';
+    }
+    return '<a class="craft-app" role="listitem" href="' + esc(CRAFT_APPS_BASE + app.slug)
+      + '" target="_blank" rel="noopener" aria-label="' + esc(app.name) + ', '
+      + esc(app.role) + ', auf getartcraft.com öffnen">' + head + '</a>';
+  }).join('');
+}
+
+function openCraftOverlay() {
+  const o = $('craftOverlay');
+  if (!o) return;
+  renderCraftApps();
+  o.classList.add('active');
+}
+function closeCraftOverlay() {
+  const o = $('craftOverlay');
+  if (o) o.classList.remove('active');
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const o = $('craftOverlay');
+  if (!o || !o.classList.contains('active')) return;
+  closeCraftOverlay();
+});
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }

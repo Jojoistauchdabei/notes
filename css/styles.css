@@ -627,6 +627,28 @@ select { cursor: pointer; }
 .editor-sep { border-left: 1px solid var(--border); height: 18px; margin: 0 2px; }
 .editor-body { flex: 1; min-height: 240px; max-height: 55vh; overflow-y: auto; padding: 16px; font-family: 'Crimson Text', serif; font-size: 16px; line-height: 1.5; color: var(--text); background: var(--field-bg); outline: none; border: none; white-space: pre-wrap; word-break: break-word; }
 .editor-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--border-light); flex-wrap: wrap; }
+
+/* ===== ARTCRAFT-APPS ===== */
+/* Kachelraster fuer die zwoelf Crafting Apps. Die Kacheln sind Links
+   (echte <a> mit href), damit sie ohne JavaScript funktionieren, mit Tab
+   und Screenreader bedienbar bleiben und man sie mittels Klick auf das
+   Label in einem neuen Tab oeffnen kann. */
+.craft-app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; padding: 0 14px 14px; /* Das Modal selbst schneidet bei max-height: 92dvh ab (overflow: hidden), deshalb scrollt das Raster hier ueber sich, sonst verschwinden auf dem iPad die unteren Kacheln. */ overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+.craft-app {
+  display: block; padding: 9px 11px; border: 1px solid var(--border-light);
+  border-radius: 8px; background: var(--field-bg); color: var(--text);
+  text-decoration: none; line-height: 1.35;
+}
+.craft-app:hover { border-color: var(--accent); background: var(--surface-2); }
+.craft-app:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.craft-app__name { display: flex; align-items: center; gap: 6px; font-weight: 700; }
+.craft-app__role { font-size: 12px; opacity: .75; }
+.craft-app__note { font-size: 11px; opacity: .65; margin-top: 2px; }
+.craft-app__badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 9px;
+  border: 1px solid var(--accent); color: var(--accent); white-space: nowrap;
+}
+.craft-app--builtin { border-style: dashed; }
 .rich-field h1, .editor-body h1, .rich-field h2, .editor-body h2, .rich-field h3, .editor-body h3 { font-family: 'Cinzel', serif; color: var(--accent); margin: 4px 0 2px; line-height: 1.2; }
 .rich-field h1, .editor-body h1 { font-size: 20px; }
 .rich-field h2, .editor-body h2 { font-size: 17px; }

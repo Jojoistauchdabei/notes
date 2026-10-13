@@ -52,6 +52,7 @@
         <div class="search-bar no-print">
           <input type="text" id="librarySearch" placeholder="Suchen: Text, tag:#x, file:Titel, &quot;Phrase&quot;, -aus, A OR B ..." oninput="renderLibrarySoon()" aria-label="Federwerk durchsuchen" title="Syntax: Text | tag:#name | file:Titel | &quot;exakte Phrase&quot; | -ausschluss | A OR B">
           <button onclick="openGraphOverlay()" style="white-space:nowrap" aria-label="Graph-Ansicht öffnen">◈ Graph</button>
+          <button onclick="openCraftOverlay()" style="white-space:nowrap" aria-label="ArtCraft-Apps öffnen" title="Zwölf quelloffene Rust-Apps von ArtCraft">◆ Craft</button>
           <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
           <button onclick="createFlashDeck()" style="white-space:nowrap" aria-label="Neues Karteikarten-Deck erstellen">+ 🂠 Deck</button>
 <button id="newOfficeBtn" onclick="createOfficeDoc('doc')" style="white-space:nowrap" aria-label="Neues Office-Dokument erstellen und im Writer öffnen" title="Office (SPEC-40): Textdokument mit Überschriften, Listen, Formatierung und DOCX-Import/Export">+ 📄 Office</button>
@@ -545,6 +546,27 @@
           <span style="font-size:11px;opacity:.75">V1: statisches Layout, kein Force/Zoom</span>
           <button type="button" class="inactive" onclick="closeGraphOverlay()" aria-label="Schließen">Schließen</button>
         </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ARTCRAFT-OVERLAY: Verweis auf die zwölf Crafting Apps -->
+  <div id="craftOverlay" class="editor-overlay" onclick="if (event.target === this) closeCraftOverlay()">
+    <div class="editor-modal" style="max-width:720px">
+      <div class="editor-header">
+        <div class="editor-header-title">◆ ARTCRAFT APPS</div>
+        <button type="button" class="mini-button" onclick="closeCraftOverlay()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="ArtCraft-Apps schließen">✕</button>
+      </div>
+      <div style="padding:12px 14px;font-size:13px">
+        Zwölf native Rust-Apps von ArtCraft, quelloffen und kostenlos. Die mit
+        <b>eingebaut</b> markierten sind als WASM-Engine in Federwerk verdrahtet –
+        dafür braucht es keinen Link, die Formate lassen sich direkt in der
+        Bibliothek öffnen. Die übrigen öffnen sich in einem neuen Tab.
+      </div>
+      <div id="craftAppGrid" class="craft-app-grid" role="list"></div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <a class="mini-button" id="craftAllLink" href="https://getartcraft.com/apps" target="_blank" rel="noopener" style="text-decoration:none" aria-label="Alle ArtCraft-Apps auf getartcraft.com öffnen">Alle zwölf ansehen</a>
+        <button type="button" class="inactive" onclick="closeCraftOverlay()" aria-label="Schließen">Schließen</button>
       </div>
     </div>
   </div>
