@@ -648,7 +648,18 @@ select { cursor: pointer; }
   display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 9px;
   border: 1px solid var(--accent); color: var(--accent); white-space: nowrap;
 }
-.craft-app--builtin { border-style: dashed; }
+/* Die Endung als Code-Chip: zeigt auf einen Blick, welche Datei die Kachel
+   annimmt. Kein var(--font-mono) - die Variable definiert nur das Theme 15,
+   in den anderen 15 Themes waere der Stack leer und der Chip faelle auf die
+   Serifenschrift der Oberflaeche zurueck. */
+.craft-app__fmt {
+  display: inline-block; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px; padding: 0 5px; margin: 0 3px 0 0; border-radius: 4px;
+  border: 1px solid var(--border-soft); background: var(--surface-2);
+}
+/* Fallback wie in md-editor.css:255 - das Standard-Theme "Papier" kennt
+   --warn nicht, die 15 anderen schon. */
+.craft-app__note--warn { color: var(--warn, #a35a1c); opacity: .9; }
 .rich-field h1, .editor-body h1, .rich-field h2, .editor-body h2, .rich-field h3, .editor-body h3 { font-family: 'Cinzel', serif; color: var(--accent); margin: 4px 0 2px; line-height: 1.2; }
 .rich-field h1, .editor-body h1 { font-size: 20px; }
 .rich-field h2, .editor-body h2 { font-size: 17px; }

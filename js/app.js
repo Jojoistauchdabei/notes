@@ -5036,54 +5036,62 @@ document.addEventListener('keydown', e => {
 
 /* ===== ARTCRAFT-APPS =====
  *
- * Verzeichnis der zwoelf Crafting Apps (https://getartcraft.com/apps). Reine
- * Verweisliste, keine Engine: die tatsaechliche Dateiverarbeitung passiert in
- * craft-wasm (PSD/SVG/IDML) und office-wasm (DOCX/XLSX/PPTX). `builtin`
- * markiert genau die Apps, deren Formate schon ohne Link im Notizbuch
- * aufgehen - die Kachel verlinkt dann nicht, damit niemand einen Weg
- * vermutet, den es nicht braucht.
+ * Die Engine-Herkunft der Formate, fuer die im Repo eine WASM-Bridge liegt.
  *
- * Bewusst als Daten im Code und nicht als HTML: `esc()` haelt die
- * Beschreibungen escaped, und ein neues Update an der Seite aendert nur
- * diese Liste, nicht das Markup.
+ * `engine` nennt die Datei, die geladen wird. Zu `builtin` siehe
+ * CRAFT_ENGINES_BUILTIN unten - das Overlay behauptet nicht mehr, dass sich
+ * die Dateien direkt oeffnen, solange das nicht nachweislich stimmt.
+ *
+ * Die sechs Desktop-Apps ueber dem Video, Audio, CAD und PDF stehen
+ * bewusst NICHT hier: sie sind native Rust-Programme, eine Web-Seite kann
+ * sie nicht einbetten, und ein Link dorthin wuerde nur auf eine
+ * Produktseite fuehren - also kein Weg, den man hier versprechen kann.
+ *
+ * Bewusst als Daten im Code, damit ein Update an der Seite nur diese
+ * Liste anfasst und `esc()` die Beschreibung absichert.
  */
 const CRAFT_APPS = [
-  { slug: 'photocraft',  name: 'PhotoCraft',   role: 'Bildbearbeitung',     builtin: true,  note: 'PSD öffnen sich direkt im Notizbuch.' },
-  { slug: 'vectorcraft', name: 'VectorCraft',  role: 'Vektorillustration', builtin: true,  note: 'SVG öffnen sich direkt im Notizbuch.' },
-  { slug: 'designcraft', name: 'DesignCraft',  role: 'Satz & Layout',       builtin: true,  note: 'IDML öffnen sich direkt im Notizbuch.' },
-  { slug: 'wordcraft',   name: 'WordCraft',    role: 'Textverarbeitung',    builtin: true,  note: 'DOCX öffnen sich direkt im Notizbuch.' },
-  { slug: 'gridcraft',   name: 'GridCraft',    role: 'Tabellen',            builtin: true,  note: 'XLSX öffnen sich direkt im Notizbuch.' },
-  { slug: 'deckcraft',   name: 'DeckCraft',    role: 'Präsentationen',      builtin: true,  note: 'PPTX öffnen sich direkt im Notizbuch.' },
-  { slug: 'pdfcraft',    name: 'PdfCraft',     role: 'PDF-Werkstatt' },
-  { slug: 'lightcraft',  name: 'LightCraft',   role: 'Fotobibliothek & RAW' },
-  { slug: 'effectcraft', name: 'EffectCraft',  role: 'Motion Graphics' },
-  { slug: 'filmcraft',   name: 'FilmCraft',    role: 'Video-Schnitt' },
-  { slug: 'soundcraft',  name: 'SoundCraft',   role: 'Audio & MIDI' },
-  { slug: 'cadcraft',    name: 'CADCraft',     role: 'CAD & Zeichnen' },
+  { name: 'PhotoCraft',   role: 'Bildbearbeitung',     formats: ['.psd'],  engine: 'craft-wasm' },
+  { name: 'VectorCraft',  role: 'Vektorillustration', formats: ['.svg'],  engine: 'craft-wasm' },
+  { name: 'DesignCraft',  role: 'Satz & Layout',       formats: ['.idml'], engine: 'craft-wasm' },
+  { name: 'WordCraft',    role: 'Textverarbeitung',    formats: ['.docx'], engine: 'office-wasm' },
+  { name: 'GridCraft',    role: 'Tabellen',            formats: ['.xlsx'], engine: 'office-wasm' },
+  { name: 'DeckCraft',    role: 'Präsentationen',      formats: ['.pptx'], engine: 'office-wasm' },
 ];
-const CRAFT_APPS_BASE = 'https://getartcraft.com/apps/';
+const CRAFT_APPS_URL = 'https://getartcraft.com/apps';
+
+/* Ob die Engine wirklich benutzt wird, steht hier und nicht als Harttext in
+ * den Kacheln. Grund: craft_wasm_bg.wasm laedt zwar, liefert bei jedem Aufruf
+ * aber `undefined` (alle sieben Exporte vorhanden, Init laeuft, kein Fehler -
+ * am 13.10.2026 gegen dist/ aus Release v1.9.45 nachgemessen). Solange das so
+ * ist, wuerde ein "eingebaut" etwas versprechen, das nicht stattfindet.
+ * Sobald ein Craft-Import im Browser nachgewiesen laeuft, hier auf true
+ * drehen - dann zeigen die Kacheln wieder "eingebaut".
+ *
+ * office-wasm ist nicht betroffen: dafuer gibt es 775 gruene Tests und
+ * tests/build-wasm.test.js. */
+const CRAFT_ENGINES_BUILTIN = false;
 
 function renderCraftApps() {
   const grid = $('craftAppGrid');
   if (!grid) return;
   grid.innerHTML = CRAFT_APPS.map(app => {
-    const badge = app.builtin
+    const fmts = app.formats
+      .map(f => '<code class="craft-app__fmt">' + esc(f) + '</code>').join('');
+    const badge = CRAFT_ENGINES_BUILTIN
       ? '<span class="craft-app__badge">eingebaut</span>'
-      : '<span class="craft-app__badge" aria-hidden="true">↗</span>';
-    const note = app.note ? '<div class="craft-app__note">' + esc(app.note) + '</div>' : '';
-    // Eingebaute Apps verlinken nicht: ohne Link bleibt klar, dass man sie
-    // gar nicht erst aufzurufen braucht. Der Link-Ziel bleibt trotzdem
-    // dieselbe Seite, damit Tastatur- und Screenreader-Nutzer die Info
-    // ueber aria-label bekommen.
-    const head = '<div class="craft-app__name">' + esc(app.name) + badge + '</div>'
-      + '<div class="craft-app__role">' + esc(app.role) + '</div>' + note;
-    if (app.builtin) {
-      return '<div class="craft-app craft-app--builtin" role="listitem" aria-label="'
-        + esc(app.name) + ', ' + esc(app.role) + ', in Federwerk eingebaut">' + head + '</div>';
-    }
-    return '<a class="craft-app" role="listitem" href="' + esc(CRAFT_APPS_BASE + app.slug)
-      + '" target="_blank" rel="noopener" aria-label="' + esc(app.name) + ', '
-      + esc(app.role) + ', auf getartcraft.com öffnen">' + head + '</a>';
+      : '';
+    const hinweis = CRAFT_ENGINES_BUILTIN ? ''
+      : '<div class="craft-app__note craft-app__note--warn">Import noch nicht freigegeben</div>';
+    return '<div class="craft-app" role="listitem" aria-label="' + esc(app.name) + ', '
+      + esc(app.role) + ', Formate ' + esc(app.formats.join(', ')) + ', Engine '
+      + esc(app.engine) + '">'
+      + '<div class="craft-app__name">' + esc(app.name) + badge + '</div>'
+      + '<div class="craft-app__role">' + esc(app.role) + '</div>'
+      + '<div class="craft-app__note">' + fmts + '</div>'
+      + hinweis
+      + '<div class="craft-app__note">Engine: ' + esc(app.engine) + '</div>'
+      + '</div>';
   }).join('');
 }
 

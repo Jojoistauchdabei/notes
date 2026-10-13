@@ -558,14 +558,15 @@
         <button type="button" class="mini-button" onclick="closeCraftOverlay()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="ArtCraft-Apps schließen">✕</button>
       </div>
       <div style="padding:12px 14px;font-size:13px">
-        Zwölf native Rust-Apps von ArtCraft, quelloffen und kostenlos. Die mit
-        <b>eingebaut</b> markierten sind als WASM-Engine in Federwerk verdrahtet –
-        dafür braucht es keinen Link, die Formate lassen sich direkt in der
-        Bibliothek öffnen. Die übrigen öffnen sich in einem neuen Tab.
+        Diese Engines stecken hinter den Formaten unten. Der Grafik-Import
+        (PSD/SVG/IDML) ist noch nicht freigegeben – die Dateien öffnen sich
+        erst, wenn das nachgewiesen läuft. Die übrigen ArtCraft-Apps (Video,
+        Audio, CAD, PDF) sind native Desktop-Programme und lassen sich in
+        eine Web-Seite nicht einbetten.
       </div>
       <div id="craftAppGrid" class="craft-app-grid" role="list"></div>
       <div class="editor-footer" style="justify-content:space-between">
-        <a class="mini-button" id="craftAllLink" href="https://getartcraft.com/apps" target="_blank" rel="noopener" style="text-decoration:none" aria-label="Alle ArtCraft-Apps auf getartcraft.com öffnen">Alle zwölf ansehen</a>
+        <a class="mini-button" id="craftAllLink" href="https://getartcraft.com/apps" target="_blank" rel="noopener" style="text-decoration:none" aria-label="ArtCraft-Projekt auf getartcraft.com ansehen">ArtCraft ansehen</a>
         <button type="button" class="inactive" onclick="closeCraftOverlay()" aria-label="Schließen">Schließen</button>
       </div>
     </div>
@@ -663,6 +664,9 @@
 <!-- Übersetzt zwischen Office-Modell und dem WordCraft-JSON. Muss nach dem
      Adapter geladen werden, wird aber von ihm nicht referenziert. -->
 <script src="js/office-bridge.js"></script>
+<!-- Grafik-Engine (PSD/SVG/IDML aus craft-wasm). Wie das Office-WASM laedt sie
+     die 13 MB erst bei Bedarf nach, deshalb nur der Adapter im Bundle. -->
+<script src="js/craft-engine.js"></script>
 <script src="js/app.js"></script>
   <script src="js/flash-ui.js"></script>
   <script src="js/presentflow.js"></script>
