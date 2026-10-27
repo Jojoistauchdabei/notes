@@ -12,7 +12,10 @@ const HOT = process.argv[3];
 const COLD = process.argv[4];
 
 const db = new DatabaseSync(dbPath);
-db.exec(fs.readFileSync('/tmp/schema.sql', 'utf8'));
+const schemaCandidate = path.join(__dirname, '../schema.sql');
+const schemaPath = process.env.FW_SCHEMA_SQL
+  || (fs.existsSync(schemaCandidate) ? schemaCandidate : '/tmp/schema.sql');
+db.exec(fs.readFileSync(schemaPath, 'utf8'));
 
 // schema.sql setzt die Produktionspfade (/srv/federwerk/files, ...). Die
 // Fixture zeigt auf Testverzeichnisse, sonst sucht der GC die Dateien an

@@ -118,8 +118,14 @@ function hasFileSchema(db) {
 function indexState(db) {
   const f = db.prepare('SELECT count(*) AS n FROM files').get();
   const r = db.prepare('SELECT count(*) AS n FROM file_refs').get();
-  const docs = db.prepare('SELECT count(*) AS n FROM docs').get();
-  return { files: f.n, refs: r.n, docs: docs.n, empty: f.n > 0 && r.n === 0 };
+  let docCount = 0;
+  try {
+    const docs = db.prepare('SELECT count(*) AS n FROM docs').get();
+    docCount = docs ? docs.n : 0;
+  } catch {
+    docCount = 0;
+  }
+  return { files: f.n, refs: r.n, docs: docCount, empty: f.n > 0 && r.n === 0 };
 }
 
 function indexWarning(user, st) {
