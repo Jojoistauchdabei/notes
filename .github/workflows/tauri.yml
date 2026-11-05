@@ -328,3 +328,69 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ needs.version.outputs.tag }}" ${{ steps.apk.outputs.apks }} --clobber
+
+  ios:
+    name: iOS (unsigned, iPad/iPhone)
+    needs: version
+    runs-on: macos-14
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Release-Tag auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Version synchronisieren (package.json <-> Manifest <-> Tauri <-> Cargo)
+        run: npm run sync-version
+        shell: bash
+
+      - name: Node einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Rust einrichten (iOS-Ziele: Gerät + Simulator)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Rust-Build-Cache (iOS)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: ios
+
+      - name: Office-WASM bauen (DOCX/XLSX/PPTX-Engine)
+        uses: ./.github/actions/build-office-wasm
+
+      - name: Craft-WASM bauen (PSD/SVG/IDML-Engine)
+        uses: ./.github/actions/build-craft-wasm
+
+      - name: Web-Frontend bauen + Version stempeln
+        env:
+          REQUIRE_OFFICE_WASM: "1"
+          REQUIRE_CRAFT_WASM: "1"
+        run: npm run release-web
+
+      - name: iOS-Projekt initialisieren (falls neu)
+        run: |
+          if [ ! -d src-tauri/gen/apple ]; then npx --yes @tauri-apps/cli ios init --ci; fi
+
+      - name: iOS unsigned bauen (Simulator .app + .ipa, kein Signing)
+        run: npx --yes @tauri-apps/cli ios build --no-sign
+
+      - name: Unsigned-iOS-Artefakte einsammeln
+        if: always()
+        run: |
+          ls -la src-tauri/gen/apple/build 2>/dev/null || true
+          find src-tauri/gen/apple/build -maxdepth 3 \( -name '*.ipa' -o -name '*.xcarchive' \) -print
+
+      - name: Unsigned-iOS-Artefakte hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: federwerk-unsigned-ios
+          path: |
+            src-tauri/gen/apple/build/**/*.ipa
+            src-tauri/gen/apple/build/**/*.xcarchive
+          if-no-files-found: warn

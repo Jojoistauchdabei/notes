@@ -16,6 +16,7 @@
     "release-web": "npm run build && node scripts/inject-version.js",
     "tauri": "tauri",
     "sync-version": "node scripts/sync-version.js",
-    "setup:liveshare": "node scripts/setup-liveshare.js"
+    "setup:liveshare": "node scripts/setup-liveshare.js",
+    "tauri:ios": "tauri ios build --no-sign"
   }
 }
