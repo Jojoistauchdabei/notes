@@ -35,6 +35,7 @@
 const C = require('../mcpserver/content');
 const db = require('./db.js');
 const docsApi = require('./docs.js');
+const { createLlm, parseCards } = require('../mcpserver/llm.js');
 
 // Wie viele Dokumente ein Schreibvorgang bei einem Ordnerloeschen maximal
 // umhaengt. Unbounded waere hier eine Denial-of-Service-Klammer: ein Ordner
@@ -178,6 +179,90 @@ function ensureFolder(userId, folderId) {
   const row = d.prepare('SELECT id, deleted_at FROM folders WHERE id = ?').get(fid);
   if (!row || !live(row)) throw notFound('Folder not found');
   return row;
+}
+
+/* ---------- Tutor-/Lernkontext ueber LLM ---------- */
+
+async function tutorContext(userId, deckId) {
+  const ctx = { deckId: String(deckId || ''), deckTitle: '', cards: [], notes: [] };
+  const docs = fullDocs(userId);
+  const decks = docs.filter(function (d) { return d.kind === 'flashcards'; });
+  const did = String(deckId || '');
+  if (did) {
+    const deck = decks.find(function (d) { return d.id === did; });
+    if (deck) {
+      ctx.deckTitle = deck.title || '';
+      ctx.cards = (deck.cards || []).slice(0, 20).map(function (c) { return { front: c.front, back: c.back }; });
+    }
+  }
+  const notes = docs.filter(function (d) { return d.kind !== 'flashcards'; }).slice(0, 3);
+  for (var i = 0; i < notes.length; i++) {
+    const n = notes[i];
+    ctx.notes.push({ id: n.id, title: n.title || '', text: String(n.markdown || '').slice(0, 1200) });
+  }
+  return ctx;
+}
+
+function tutorContextText(ctx) {
+  const parts = [];
+  if (ctx.deckTitle) parts.push('Deck: ' + ctx.deckTitle);
+  if (ctx.cards && ctx.cards && ctx.cards.length) {
+    parts.push('Karteikarten:');
+    ctx.cards.forEach(function (c, i) { parts.push((i + 1) + '. F: ' + c.front + ' | A: ' + c.back); });
+  }
+  if (ctx.notes && ctx.notes && ctx.notes.length) {
+    parts.push('Eigene Notizen:');
+    ctx.notes.forEach(function (n) { parts.push('Notiz "' + n.title + '": ' + n.text); });
+  }
+  return parts.join('\n');
+}
+
+function buildTutorSystemPrompt(mode) {
+  if (mode === 'socratic') {
+    return 'Du bist ein geduldiger sokratischer KI-Tutor. Stelle gezielte Rueckfragen, statt die Antwort vorwegzunehmen. Fuehr das Gespraech schrittweise, bis das Verstaendnis da ist.';
+  }
+  if (mode === 'solve') {
+    return 'Du bist ein KI-Tutor, der eine Aufgabe Schritt fuer Schritt durchfuehrt. Erklae den Schritt und pruefe nach jedem Schritt die Vorstellung des Schuelers.';
+  }
+  if (mode === 'quiz') {
+    return 'Du erstellst ein kleines Quiz zum Thema. Stelle zielgerichtete Fragen und gib danach die Antwort.';
+  }
+  return 'Du bist ein geduldiger KI-Tutor. Erklae Schritt fuer Schritt, pruefe nach jedem Schritt, ob der Schueler es verstanden hat, und biete bei Bedarf Rueckfragen an.';
+}
+
+function buildTutorUserPrompt(mode, prompt, ctx) {
+  const lines = ['Schuelerfrage: ' + prompt];
+  const ct = tutorContextText(ctx);
+  if (ct) lines.push('Lernkontext:\n' + ct);
+  if (mode === 'socratic') lines.push('Starte mit einer Rueckfrage.');
+  if (mode === 'quiz') lines.push('Stelle zuerst Fragen.');
+  return lines.join('\n');
+}
+
+async function upsertDeckWithCards(userId, title, cards) {
+  C.checkTitle(title);
+  const rowId = newDocId();
+  saveDocParts(userId, rowId, {
+    title: C.normTitle(title),
+    folderId: null,
+    pages: [C.blankPage()],
+    kind: 'flashcards',
+    cards: cards,
+    deckOptions: C.normalizeDeckOptions(null),
+    reviewLog: [],
+    createdAt: Date.now(),
+  });
+  const { row } = loadDocParts(userId, rowId);
+  return C.docFromRow(toMcpRow(row), { cardsLimit: 200 });
+}
+
+async function addCardsToDeck(userId, deckId, cards) {
+  const fresh = C.checkCards(cards, true);
+  const { parts } = loadDocParts(userId, deckId);
+  if (parts.kind !== 'flashcards') throw new Error('Document is not a deck');
+  for (var i = 0; i < fresh.length; i++) parts.cards.push(fresh[i]);
+  saveDocParts(userId, deckId, parts);
+  return fresh;
 }
 
 /* ---------- Fabrik ---------- */
@@ -567,6 +652,68 @@ function createMcpDeps(opts = {}) {
       const { parts } = loadDocParts(userId, deckId);
       if (parts.kind !== 'flashcards') throw new Error('Document is not a deck');
       return { deckId, ...C.deckStats(parts.cards, parts.reviewLog) };
+    },
+
+    /* ---------- Lernen ueber LLM (DeepSeek) ---------- */
+
+    askTutor: async (deckId, input) => {
+      const userId = requireUser(state);
+      const prompt = String((input && input.prompt) || '');
+      const modeRaw = String((input && input.mode) || 'explain');
+      const mode = ['explain', 'socratic', 'solve', 'quiz'].indexOf(modeRaw) >= 0 ? modeRaw : 'explain';
+      const llm = createLlm({
+        baseUrl: process.env.DEEPSEEK_BASE_URL,
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        model: process.env.DEEPSEEK_MODEL,
+      });
+      const ctx = await tutorContext(userId, deckId);
+      const systemPrompt = buildTutorSystemPrompt(mode);
+      const userPrompt = buildTutorUserPrompt(mode, prompt, ctx);
+      const answer = await llm.ask([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ], { temperature: 0.2, maxTokens: 3000 });
+      return { answer: answer.content, deckId: String(deckId || ''), mode: mode, model: answer.model };
+    },
+
+    generateCards: async (deckId, input) => {
+      const userId = requireUser(state);
+      const prompt = String((input && input.prompt) || '');
+      const sourceDeckId = String((input && input.sourceDeckId) || '');
+      const count = Math.max(1, Math.min(100, Math.round(Number((input && input.count) || 10)) || 10));
+      const llm = createLlm({
+        baseUrl: process.env.DEEPSEEK_BASE_URL,
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        model: process.env.DEEPSEEK_MODEL,
+      });
+      const ctx = await tutorContext(userId, sourceDeckId);
+      const systemPrompt = [
+        'Du erstellst Karteikarten fuer einen Lern-Deck.',
+        'Antworte AUSSCHLIESSLICH mit einem JSON-Array oder Objekt {"cards":[...]}.',
+        'Jede Karte: {"front": "Fragewort", "back": "Antwort"}.',
+      ].join(' ');
+      const userPrompt = [
+        'Thema: ' + prompt,
+        'Anzahl: ' + count,
+      ].join('\n') + '\n\nKontext:\n' + tutorContextText(ctx);
+      const gen = await llm.ask([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ], { temperature: 0.2, maxTokens: 3000 });
+      const cards = parseCards(gen.content).slice(0, count);
+      if (!cards || !cards.length) throw new Error('LLM hat keine Karten zurueckgegeben');
+      const fresh = C.checkCards(cards, true);
+      let targetDeckId = String(deckId || '');
+      let created = false;
+      let added = fresh;
+      if (!targetDeckId) {
+        const deck = await upsertDeckWithCards(userId, 'KI-Karten: ' + String(prompt || 'Unbenannt').slice(0, 40), fresh);
+        targetDeckId = String(deck.id);
+        created = true;
+      } else {
+        added = await addCardsToDeck(userId, targetDeckId, fresh);
+      }
+      return { created: created, deckId: targetDeckId, added: added.length, cards: added };
     },
   };
 }

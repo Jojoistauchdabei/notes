@@ -18,7 +18,7 @@ describe('mcpserver', () => {
     assert.ok(response.result.capabilities.tools);
   });
 
-  it('listet alle 24 Tools (Login, Lesen, Schreiben, Ordner, Karten, Suche, Graph)', async () => {
+  it('listet alle 26 Tools (Login, Lesen, Schreiben, Ordner, Karten, Suche, Graph, Tutor)', async () => {
     const list = await handler({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
     assert.deepEqual(list.result.tools.map(tool => tool.name), [
       'session_info', 'login', 'logout',
@@ -32,6 +32,8 @@ describe('mcpserver', () => {
       'create_deck', 'list_cards', 'add_cards',
       'update_card', 'delete_card', 'review_card',
       'deck_stats',
+      'ask_tutor',
+      'generate_cards',
     ]);
   });
 

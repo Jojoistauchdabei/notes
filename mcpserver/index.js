@@ -2,12 +2,12 @@
 /* Federwerk MCP-Serverkern (JSON-RPC 2.0, ohne Dependencies).
  *
  * Stateless Protokoll-Engine: Alle Fachoperationen kommen als injizierte
- * Handler herein, damit derselbe Kern an drei Stellen läuft:
+ * Handler herein, damit derselbe Kern an drei Stellen laeuft:
  *  1) Appwrite Function (mcp/index.js, mit APPWRITE_API_KEY),
  *  2) lokaler stdio/HTTP-Server (mcpserver/cli.js, Demo- oder Appwrite-Backend),
  *  3) Node-Tests (Mocks).
  *
- * Tools (21):
+ * Tools (26):
  *  Lesen: list_documents, get_document, list_folders, search_documents,
  *         advanced_search, get_graph
  *  Notizen (wie ein Mensch): create_document, update_document, delete_document,
@@ -15,6 +15,7 @@
  *  Ordner: create_folder, rename_folder, delete_folder
  *  Karteikarten (SM-2, js/flashcards.js-kompatibel): create_deck, list_cards,
  *         add_cards, update_card, delete_card, review_card, deck_stats
+ *  Lernen ueber LLM: ask_tutor (Tutor-Chat), generate_cards (Karten-Generierung).
  */
 
 const PROTOCOL_VERSION = '2024-11-05';
@@ -35,11 +36,9 @@ const LIMIT = { type: 'integer', minimum: 1, maximum: 100, description: 'Max res
 
 function createMcpHandler(deps) {
   const d = deps || {};
-  // Lesende Handler sind Pflicht, schreibende optional: fehlt einer, meldet
-  // das Tool einen verständlichen Fehler statt "Unknown tool".
   const need = (name) => {
     const fn = d[name];
-    if (typeof fn !== 'function') throw new Error(`Tool nicht verfügbar (Backend ohne ${name})`);
+    if (typeof fn !== 'function') throw new Error(`Tool nicht verfugbar (Backend ohne ${name})`);
     return fn;
   };
 
@@ -321,6 +320,33 @@ function createMcpHandler(deps) {
         required: ['deckId'],
       },
     },
+    {
+      name: 'ask_tutor',
+      description: 'Tutor-Chat via LLM (DeepSeek). modes: explain (Schritt-fuer-Schritt), socratic (fragend), solve (Hilfe bei Aufgabe), quiz (Selbsttest).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', minLength: 1, description: 'Frage/Problem des Schuelers.' },
+          deckId: { type: 'string', description: 'Optionale Deck-ID als Lernkontext.' },
+          mode: { type: 'string', enum: ['explain', 'socratic', 'solve', 'quiz'], description: 'Tutor-Modus. Default explain.' },
+        },
+        required: ['prompt'],
+      },
+    },
+    {
+      name: 'generate_cards',
+      description: 'LLM generiert Karteikarten (front/back) aus Prompt, Notiz oder Deck-Inhalt.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', minLength: 1, description: 'Thema/Frage fuer die Karten.' },
+          deckId: { type: 'string', description: 'Ziel-Deck (Karten werden hinzugefuegt); ohne Deck wird neu erstellt.' },
+          sourceDeckId: { type: 'string', description: 'Quell-Deck (Lernkontext).' },
+          count: { type: 'integer', minimum: 1, maximum: 100, description: 'Anzahl Karten. Default 10.' },
+        },
+        required: ['prompt'],
+      },
+    },
   ];
 
   async function callTool(name, args) {
@@ -445,6 +471,16 @@ function createMcpHandler(deps) {
       if (!input.deckId) throw new Error('deckId is required');
       const row = await call('deckStats', String(input.deckId), input);
       return toolResult(JSON.stringify(row), row);
+    }
+    if (name === 'ask_tutor') {
+      if (!input.prompt) throw new Error('prompt is required');
+      const rows = await call('askTutor', String(input.deckId || ''), input);
+      return toolResult(JSON.stringify(rows), rows);
+    }
+    if (name === 'generate_cards') {
+      if (!input.prompt) throw new Error('prompt is required');
+      const rows = await call('generateCards', String(input.deckId || ''), input);
+      return toolResult(JSON.stringify(rows), rows);
     }
     throw new Error(`Unknown tool: ${name}`);
   }
