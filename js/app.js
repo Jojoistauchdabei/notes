@@ -229,7 +229,8 @@ function applyTouchActionToStage(el, laserOn) {
   const on = laserOn == null
     ? ((typeof GrimoireLaser !== 'undefined' && GrimoireLaser.isLaserTool) ? GrimoireLaser.isLaserTool(tool) : tool === 'laser')
     : !!laserOn;
-  el.style.touchAction = (on || inputPrefs.fingerDraw) ? 'none' : 'pan-x pan-y';
+  const writingTool = (tool === 'pen' || tool === 'marker' || tool === 'eraser');
+  el.style.touchAction = (on || writingTool || inputPrefs.fingerDraw) ? 'none' : 'pan-x pan-y';
   el.classList.toggle('finger-ink', !!inputPrefs.fingerDraw);
   el.classList.toggle('tool-laser', !!on);
   el.style.cursor = on ? 'none' : stageCursorFor(tool);
