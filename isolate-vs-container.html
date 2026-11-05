@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V8-Isolate statt Container</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:var(--font-sans);color:var(--foreground);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1{font-size:1.5rem;line-height:1.2;margin:0 0 .35rem;letter-spacing:-.02em}
+h2{font-size:1.02rem;margin:2rem 0 .5rem;letter-spacing:-.01em;display:flex;align-items:center;gap:.45rem}
+h2::before{content:"";width:3px;height:.95em;background:var(--accent);border-radius:2px;flex:none}
+p{margin:.5rem 0;font-size:.86rem;color:var(--muted-foreground)}
+strong{color:var(--foreground);font-weight:600}
+code{font-family:var(--font-mono);font-size:.82em}
+.lead{font-size:.9rem}
+.badges{display:flex;flex-wrap:wrap;gap:.35rem;margin:.9rem 0 0}
+.b{font-size:.68rem;padding:.16rem .5rem;border-radius:99px;border:1px solid var(--border);color:var(--muted-foreground);font-family:var(--font-mono)}
+.b.ok{color:var(--success);border-color:color-mix(in srgb,var(--success) 40%,transparent);background:color-mix(in srgb,var(--success) 9%,transparent)}
+.b.no{color:var(--destructive);border-color:color-mix(in srgb,var(--destructive) 40%,transparent);background:color-mix(in srgb,var(--destructive) 9%,transparent)}
+.b.mid{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 40%,transparent);background:color-mix(in srgb,var(--warning) 9%,transparent)}
+table{width:100%;border-collapse:collapse;font-size:.8rem;margin:.35rem 0}
+th,td{text-align:left;padding:.44rem .55rem;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-foreground);font-weight:600}
+td:not(:first-child),th:not(:first-child){font-variant-numeric:tabular-nums}
+.hl{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.hl td:first-child{font-weight:600}
+.mut{color:var(--muted-foreground)}
+.sm{font-size:.76rem}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:.4rem}
+.card{border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .8rem;background:var(--card);color:var(--card-foreground)}
+.card ul{margin:.15rem 0 0;padding-left:1.05rem}
+.card li{font-size:.8rem;margin:.28rem 0;color:var(--muted-foreground)}
+.card li b{color:var(--foreground);font-weight:600}
+.card.yes{border-left:3px solid var(--success)}
+.card.no{border-left:3px solid var(--destructive)}
+.ct{font-size:.73rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem}
+.card.yes .ct{color:var(--success)}
+.card.no .ct{color:var(--destructive)}
+.diagram{margin:.6rem 0 0;font-family:var(--font-mono);font-size:.68rem;line-height:1.55}
+.node{border:1px dashed var(--border);border-radius:var(--radius);padding:.5rem .6rem;margin-top:.45rem}
+.node .lbl{font-size:.65rem;color:var(--muted-foreground);letter-spacing:.04em}
+.lxc{border:1px solid rgba(128,150,200,.45);background:rgba(128,150,200,.06);border-radius:8px;padding:.5rem .55rem;margin-top:.4rem}
+.lxc.hot{border-color:color-mix(in srgb,var(--accent) 60%,transparent);background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.lxc.t2{border-color:color-mix(in srgb,var(--chart-3) 50%,transparent);background:color-mix(in srgb,var(--chart-3) 7%,transparent)}
+.lname{font-size:.68rem;font-weight:600;color:var(--foreground)}
+.lsub{font-size:.63rem;color:var(--muted-foreground)}
+.isos{display:flex;flex-wrap:wrap;gap:.28rem;margin-top:.35rem}
+.iso{font-size:.62rem;padding:.14rem .38rem;border-radius:5px;background:var(--secondary);color:var(--secondary-foreground);border:1px solid var(--border)}
+.iso.idle{opacity:.45;border-style:dashed}
+.flow{font-size:.63rem;color:var(--muted-foreground);margin-top:.5rem}
+.rules{list-style:none;padding:0;margin:.4rem 0 0}
+.rules li{display:grid;grid-template-columns:128px 1fr;gap:.6rem;padding:.42rem 0;border-bottom:1px solid var(--border);font-size:.81rem}
+.rules li:last-child{border-bottom:0}
+.rules .k{font-family:var(--font-mono);font-size:.72rem;color:var(--accent)}
+.rules .v{color:var(--muted-foreground)}
+.calc{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-top:.5rem}
+.metric{border:1px solid var(--border);border-radius:var(--radius);padding:.55rem .7rem;background:var(--card)}
+.metric .v{font-size:1.15rem;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.metric .l{font-size:.7rem;color:var(--muted-foreground);margin-top:.1rem}
+.metric.good .v{color:var(--success)}
+.metric.bad .v{color:var(--destructive)}
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:.4rem 0 0}
+ol.steps li{counter-increment:s;position:relative;padding:.4rem 0 .4rem 1.7rem;border-bottom:1px solid var(--border);font-size:.82rem;color:var(--muted-foreground)}
+ol.steps li:last-child{border-bottom:0}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:.42rem;width:1.15rem;height:1.15rem;border-radius:5px;background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);font-size:.68rem;font-weight:700;display:grid;place-items:center;font-family:var(--font-mono)}
+ol.steps li b{color:var(--foreground);font-weight:600}
+.note{border-left:2px solid var(--border);padding-left:.7rem;margin-top:1rem;font-size:.79rem;color:var(--muted-foreground)}
+@media(max-width:640px){
+  .cols{grid-template-columns:1fr}
+  .calc{grid-template-columns:1fr}
+  .rules li{grid-template-columns:1fr;gap:.1rem}
+}
+</style>
+</head>
+<body>
+
+<h1>V8-Isolate statt Container</h1>
+<p class="lead">LXC ist die richtige <strong>Verpackung</strong>, aber die falsche <strong>Isolationslogik</strong>. Bei &bdquo;1 App = 1 Container&ldquo; zahlst du 35&ndash;45 MB pro App &ndash; egal ob Docker oder LXC. Die 10&ndash;100&times; Gewinnung entsteht erst, wenn <em>ein</em> Prozess viele Apps als V8-Isolate hostet. Das LXC steht dann eine Ebene dar&uuml;ber.</p>
+<div class="badges">
+  <span class="b ok">funktioniert: stateless JS/TS/WASM</span>
+  <span class="b ok">funktioniert: Agent-Harness</span>
+  <span class="b mid">bedingt: git / npm / native Tools</span>
+  <span class="b no">geht nicht: Postgres, GPU, Binaries</span>
+</div>
+
+<h2>1 &nbsp;Die drei Isolationsstufen im Vergleich</h2>
+<table>
+<thead><tr><th>Schicht</th><th>RAM pro App (idle)</th><th>Cold Start</th><th>Dichte je 8 GB</th><th>Native Binaries</th><th>Echtes Dateisystem</th></tr></thead>
+<tbody>
+<tr><td>KVM / VM</td><td>512 MB &ndash; 1 GB</td><td>5 &ndash; 20 s</td><td>10 &ndash; 20</td><td>ja</td><td>voll</td></tr>
+<tr><td>LXC (1 App = 1 CT)</td><td>~38 MB <span class="mut">+</span> ~5 MB</td><td>~150 ms</td><td>~150 &ndash; 250</td><td>ja</td><td>CoW</td></tr>
+<tr><td>Docker (1 App = 1 CT)</td><td>~40 MB</td><td>~400 &ndash; 800 ms</td><td>~150 &ndash; 250</td><td>ja</td><td>CoW, Layer</td></tr>
+<tr class="hl"><td>V8-Isolat (1 Prozess = N Apps)</td><td>2 &ndash; 5 MB</td><td>~5 ms <span class="mut">(ab Snapshot &lt; 1 ms)</span></td><td>~1 500 &ndash; 3 000</td><td>nein, nur WASM</td><td>VFS im RAM, read-only m&ouml;glich</td></tr>
+</tbody>
+</table>
+<p class="sm">Die LXC-Zeile ist der ehrliche Punkt: <strong>LXC vs. Docker ist ~5&ndash;15 MB und ~200 ms</strong>, kein Faktor 10. LXC ist flinker beim Booten und braucht keinen Daemon &ndash; das ist alles. Wer &bdquo;RAM sparen mit LXC&ldquo; verspricht, rechnet falsch.</p>
+
+<h2>2 &nbsp;Zielarchitektur: eine LXC f&uuml;r viele Apps</h2>
+<div class="diagram">
+<div class="node">
+<span class="lbl">PROXMOX-NODE / BARE METAL</span>
+<div class="lxc hot">
+<div class="lname">LXC &middot; 1,5 GB Limit &nbsp;&mdash; &bdquo;Isolator-Tier&ldquo;</div>
+<div class="lsub">1 Host-Prozess: V8 eingebettet (Rust) &middot; Idle-Eviction &middot; CPU-/RAM-Guards &middot; Snapshot-Pool</div>
+<div class="isos">
+<span class="iso">app-a</span><span class="iso">app-b</span><span class="iso">docs-ssr</span><span class="iso">ai-agent-1</span><span class="iso">ai-agent-2</span><span class="iso idle">app-x &middot; idle</span><span class="iso idle">app-y &middot; idle</span><span class="iso idle">&hellip; 1 500 weitere</span>
+</div>
+</div>
+<div class="lxc t2">
+<div class="lname">LXC &middot; 512 MB &nbsp;&mdash; &bdquo;Tool-Tier&ldquo;</div>
+<div class="lsub">git &middot; ripgrep &middot; node &middot; npm &middot; Compiler &middot; Sidecar, pro Session eine Instanz, danach sofort destroy</div>
+</div>
+<div class="lxc">
+<div class="lname">LXC &middot; 1 GB &nbsp;&mdash; &bdquo;State-Tier&ldquo;</div>
+<div class="lsub">Postgres + PgBouncer (einmal f&uuml;r alle Apps, pro App Role + Schema) &middot; Redis &middot; Volumes</div>
+</div>
+<div class="lxc">
+<div class="lname">LXC &middot; gVisor / unprivilegiertes LXC &nbsp;&mdash; &bdquo;Fremdcode-Tier&ldquo;</div>
+<div class="lsub">alles mit nativem Code, Kernel-Syscalls oder persistenten Listenern</div>
+</div>
+<div class="lxc">
+<div class="lname">VMM / eigener Host &nbsp;&mdash; &bdquo;Inference&ldquo;</div>
+<div class="lsub">Modellgewichte, GPU, vLLM &ndash; kommt nie in ein Isolat</div>
+</div>
+<div class="flow">Alle Tiers h&auml;ngen hinter <b>einem</b> Caddy/Traefik ohne publizierte Ports. Skaliert wird pro Tier: erst Isolate-Idle-TTL, dann LXC-freeze, dann VM.</div>
+</div>
+</div>
+<p>Als Host-Daemon nimm <code>workerd</code> (Cloudflare, OSS, nodejs_compat, Wrangler) &ndash; das ist der produktionsreife Pfad. <code>nano-rs</code> oder <code>edge-runtime</code> sind die Rust-Alternativen mit eingebautem VFS. F&uuml;r reine Rechen-Isolate reicht auch <code>vm.Isolate</code> aus Node, dann hast du aber wieder 38 MB Grundlast.</p>
+
+<h2>3 &nbsp;Scale to 0 &ndash; die eigentlichen Mechaniken</h2>
+<ul class="rules">
+<li><span class="k">Idle-Eviction</span><span class="v">Isolat nach 15&ndash;30 s ohne Request &rarr; <code>Dispose()</code>. Bei 5 ms Start ist das f&uuml;r den Client unsichtbar. Das ist der ganze Trick: billiges Wegwerfen statt teures Wiederherstellen.</span></li>
+<li><span class="k">CPU-Limit</span><span class="v"><code>timer_create(CLOCK_THREAD_CPUTIME_ID)</code> &rarr; bei 50 ms <code>Isolate::TerminateExecution()</code>. Bricht auch <code>while(true){}</code>; die Exception ist nicht abfangbar.</span></li>
+<li><span class="k">RAM-Limit</span><span class="v">Hartes Limit killt den <em>Prozess</em>, nicht das Isolat &rarr; <code>GetHeapStatistics()</code> nach jedem Turn pr&uuml;fen, bei &Uuml;berschreitung soft evictieren (in-flight fertig, neue Requests auf neues Isolat).</span></li>
+<li><span class="k">LXC auf 0</span><span class="v">cgroup-v2-Freezer: <code>freeze=1</code> &rarr; 0 % CPU. RAM bleibt aber belegt. lohnt sich erst bei fetten Workloads, nicht bei Isolaten.</span></li>
+<li><span class="k">Agent-Snapshots</span><span class="v">Session-Start: serialisierten Heap-Snapshot erstellen, pro Turn CoW-Klon, Session-Ende: wegwerfen. Das ist &bdquo;Sliver&ldquo;-Restoration &ndash; ~0,3 ms statt 5 ms.</span></li>
+</ul>
+<p class="sm">Faustregel: <strong>Scale-to-0 geh&ouml;rt ins Isolat, nicht ins LXC.</strong> Der Host-Daemon selbst bleibt warm (~60&ndash;80 MB). Einen 8-GB-Server &bdquo;einzuschlafen&ldquo; ist keine Isolations-, sondern eine Energiefrage.</p>
+
+<h2>4 &nbsp;Was in ein Isolat passt &ndash; und was nicht</h2>
+<div class="cols">
+<div class="card yes">
+<div class="ct">Passt rein</div>
+<ul>
+<li><b>Stateless HTTP/SSR</b> &ndash; Next, Nuxt, Svelte, Remix via Worker-Adapter</li>
+<li><b>Edge-Logik</b> &ndash; Auth, Rate-Limits, Webhooks, A/B, Routing, Geo</li>
+<li><b>Agent-Harness</b> &ndash; Prompt-Assembly, Tool-Loop, RAG, Memory, Compaction, Streaming</li>
+<li><b>Build-Loop</b> &ndash; Typecheck via <code>ts-rs</code> (Rust&rarr;WASM), Bundler via <code>esbuild-wasm</code>/<code>oxc</code></li>
+<li><b>Reines Datenformat</b> &ndash; Parsen, Transcode, Regex, CSV/JSON/Protobuf</li>
+<li><b>KI-Orchestrierung</b> &ndash; Modellaufrufe gehen raus, Gewichte kommen nicht rein</li>
+<li><b>Fake-Bash</b> &ndash; Vercels <code>just-bash</code> (In-Memory-FS, In-Memory-Prozesse)</li>
+</ul>
+</div>
+<div class="card no">
+<div class="ct">Passt nicht rein</div>
+<ul>
+<li><b>Postgres / Redis</b> &ndash; alles Zustandige: eine geteilte Instanz + PgBouncer</li>
+<li><b>Inference / GPU</b> &ndash; Gr&ouml;&szlig;enordnung GB, meist nicht-JS</li>
+<li><b>Native Module</b> &ndash; <code>better-sqlite3</code>, <code>sharp</code>, <code>canvas</code>, <code>bcrypt</code> &rarr; WASM-Port oder Sidecar</li>
+<li><b>git, ripgrep, docker</b> &ndash; echte Prozesse: Tool-Tier oder Fake</li>
+<li><b>Lang laufende Server</b> &ndash; kein Listener, kein Timer-Loop, kein Worker-Thread-Pool</li>
+<li><b>npm install</b> &ndash; Symlinks, Lifecycle-Scripts, Binaries: in VFS richtig m&uuml;hsam</li>
+<li><b>Shared State zwischen Requests</b> &ndash; das ist der stille Killer, nicht die CPU</li>
+</ul>
+</div>
+</div>
+<p class="sm">Der entscheidende Punkt ist nicht das RAM, sondern die <strong>Zustandslosigkeit</strong>. Der Isolat-Schnitt bricht dort, wo ein App-Design In-Memory-Zustand zwischen Requests hat &ndash; und das ist genau der Punkt, an dem Docker bisher &bdquo;kaputt&ldquo; wirkt, obwohl es funktioniert.</p>
+
+<h2>5 &nbsp;Docker effizienter hosten &ndash; was wirklich etwas bringt</h2>
+<ol class="steps">
+<li><b>Vertrauensw&uuml;rdige Apps: gar kein Container.</b> systemd-Unit mit <code>DynamicUser</code>, <code>MemoryMax</code>, <code>ProtectSystem=strict</code>, <code>PrivateTmp</code>. Spart den ganzen Image-/Daemon-Pfad.</li>
+<li><b>Fremdcode: gVisor (<code>runsc</code>) statt runc.</b> Eigener syscall-Pfad, gleiche RAM-Klasse, ~10&ndash;20 % Perf-Kost. Unprivilegierte LXC ist ungef&auml;hr gleichwertig &ndash; mit weniger Werkzeug.</li>
+<li><b>Datenbanken: eine Instanz pro Host.</b> Pro App eigener Role + Schema, PgBouncer davor. Aus 12 &times; 300 MB werden 1 &times; ~120 MB + Connection-Pool.</li>
+<li><b>Ein Reverse Proxy f&uuml;r alles, keine Ports publizieren.</b> Spart NAT-Overhead und macht TLS/Logging zu einer Sache.</li>
+<li><b>Platte ist der eigentliche Kostenhebel, nicht RAM.</b> Images &uuml;ber 500 MB, Layer-Duplikate und Snapshots pro App vernichten den Speicher still. zram + ZFS-Kompression.</li>
+<li><b>Nicht verwechseln:</b> LXC statt Docker bringt ~5&ndash;15 MB und ~200 ms. Faktor 10+ gibt es nur mit Isolaten.</li>
+</ol>
+
+<h2>6 &nbsp;Rechenbeispiel: 50 JS-Apps auf einer Kiste</h2>
+<div class="calc">
+<div class="metric bad"><div class="v">1,9 &ndash; 2,6 GB</div><div class="l">50 &times; LXC/Docker mit Node, je ~38&ndash;52 MB</div></div>
+<div class="metric good"><div class="v">290 &ndash; 350 MB</div><div class="l">1 Isolator-Prozess + 50 &times; 2&ndash;5 MB, Idle-Eviction aktiv</div></div>
+<div class="metric"><div class="v">+120 MB</div><div class="l">dazu geteiltes Postgres &ndash; einmal, nicht 50&times;</div></div>
+</div>
+
+<h2>7 &nbsp;Reihenfolge</h2>
+<ol class="steps">
+<li><b>workerd in einem unprivilegierten LXC</b>, dazu 2&ndash;3 zustandslose Apps als Test. RSS pro App messen, bevor du weitermachst.</li>
+<li><b>VFS + Idle-Eviction + CPU-/RAM-Guards.</b> Erst danach ist das Setup multi-tenant-tauglich.</li>
+<li><b>Agent-Stack ins Isolat</b> (just-bash, <code>ts-rs</code> als WASM, esbuild-wasm), native Tools in die Tool-Tier-LXC.</li>
+<li><b>State-Tier aufziehen</b> &ndash; geteiltes Postgres, PgBouncer, dann Fremdcode nach gVisor/LXC. Ein Router entscheidet pro Route, welches Tier lebt.</li>
+</ol>
+
+<div class="note"><b>Ehrliche Einordnung:</b> Self-Hosting lohnt bei Datensouver&auml;nit&auml;t, fehlendem Lock-in, keinem Egress und persistenten Sessions. Bei unter ~10 Mio. Requests/Monat ist Workers ($5) + Pages g&uuml;nstiger als ein dedizierter Server plus deine Zeit &ndash; ein 8-GB-Server kostet 40&ndash;80 &euro;/Monat. Die Strategie aus dem Video (Inference f&auml;llt ~10&times;/Jahr, RAM-Preise steigen ~25&ndash;30 %/Jahr) ist trotzdem richtig: Orchestrierung geh&ouml;rt ins Isolat, Gewichte bleiben auf der GPU.</div>
+
+</body>
+</html>
