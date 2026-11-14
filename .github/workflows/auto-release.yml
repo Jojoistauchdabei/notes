@@ -52,10 +52,12 @@ jobs:
 
       - name: Prüfen ob ein Release gewünscht ist
         id: gate
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "wanted=true" >> "$GITHUB_OUTPUT"
-          elif printf '%s' "${{ github.event.head_commit.message }}" | grep -qiE '\[skip release\]|\[no release\]'; then
+          elif printf '%s' "$COMMIT_MSG" | grep -qiE '\[skip release\]|\[no release\]'; then
             echo "wanted=false" >> "$GITHUB_OUTPUT"
             echo "[skip release] in der Commit-Message – kein Release, Workflow endet hier."
           else
