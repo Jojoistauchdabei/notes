@@ -47,7 +47,8 @@
     { id: '12-herbarium', name: 'Herbarium', file: '12-herbarium', desc: 'Mix 01+02+07+08, ausgewogen und warm.', sw: ['#f0ebdc', '#2f4f3a', '#b0603a', '#4a6f8a', '#1d3b5c'] },
     { id: '13-feldlabor', name: 'Feldlabor', file: '13-feldlabor', desc: 'Mix 01+02+07+08, krassig: Plan um Papier.', sw: ['#0e2c4c', '#f7f1e2', '#b0603a', '#7fd4ff', '#2f4f3a'] },
     { id: '14-werkbank', name: 'Werkbank', file: '14-werkbank', desc: 'Mix 01+02+07+08, komplett dunkel und warm.', sw: ['#07120c', '#0e1a12', '#e8a15c', '#8fb98a', '#c96f4a'] },
-    { id: '15-werkstattpapier', name: 'Werkstattpapier', file: '15-werkstattpapier', desc: 'Mix 01+02+07+08, handwerklich und hell.', sw: ['#fff6d9', '#3f5c3a', '#e2574c', '#2a6f97', '#f0d9a8'] }
+    { id: '15-werkstattpapier', name: 'Werkstattpapier', file: '15-werkstattpapier', desc: 'Mix 01+02+07+08, handwerklich und hell.', sw: ['#fff6d9', '#3f5c3a', '#e2574c', '#2a6f97', '#f0d9a8'] },
+    { id: '16-liquidglass', name: 'Liquid Glass', file: '16-liquidglass', desc: 'Apfels Liquid Glass: milchige Glaeser, Lichtkanten, Pastellnebel.', sw: ['#dfe9f7', '#0a84ff', '#bf5af2', '#ffffff', '#101828'] }
   ];
 
   function byId(id) {

@@ -34,9 +34,9 @@ function themeList() {
   );
 }
 
-test('themes.js: die 16 Themen liegen in css/themes/', () => {
+test('themes.js: die 17 Themen liegen in css/themes/', () => {
   const list = themeList();
-  assert.strictEqual(list.length, 16, 'erwartet: 15 Designs + Standard "Papier"');
+  assert.strictEqual(list.length, 17, 'erwartet: 16 Designs + Standard "Papier"');
   assert.strictEqual(list[0].id, 'papier', 'Standard-Thema steht vorn');
 
   for (const t of list) {
