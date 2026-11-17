@@ -22,7 +22,7 @@
    * zum Brechen haben. --bg bleibt eine Farbe (viele Stellen setzen
    * background-color), das eigentliche Licht kommt ueber --bg-image. */
   --bg:#e3ebf7; --bg-2:#d8e2f2;
-  --surface:rgba(255,255,255,.42); --surface-2:rgba(255,255,255,.58);
+  --surface:rgba(255,255,255,.45); --surface-2:rgba(255,255,255,.6);
   --text:#101828; --text-dim:#5a6478;
   --accent:#0a84ff; --accent-2:#bf5af2; --accent-contrast:#ffffff;
   --border:rgba(255,255,255,.65); --border-soft:rgba(255,255,255,.4);
@@ -31,24 +31,33 @@
   --shadow:0 24px 60px rgba(40,60,120,.18), 0 2px 8px rgba(40,60,120,.08);
   --shadow-sm:0 10px 30px rgba(40,60,120,.14), 0 1px 4px rgba(40,60,120,.08);
   --rule:rgba(20,40,90,.18); --ink:#101828;
-  --page:rgba(255,255,255,.52); --page-edge:rgba(255,255,255,.8);
+  --page:rgba(255,255,255,.5); --page-edge:rgba(255,255,255,.85);
   --tbox-bg:rgba(255,255,255,.35); --tbox-border:rgba(10,132,255,.5);
   --ok:#1f9d4d; --warn:#b45309;
 
-  /* Signatur-Hilfslichter: helle Glasoberkante, weiche Unterkante. */
-  --glass-rim:rgba(255,255,255,.75);
+  /* Das Glas-Rezept. Technique wie bei Glisse: die Flaeche liegt in
+   * padding-box, die LICHTKANTE ist ein Verlauf in border-box hinter
+   * einem transparenten 1px-Rahmen – oben links am hellsten, unten
+   * rechts ein zweiter Glanz, dazwischen fast dunkel. */
+  --glass-face:linear-gradient(135deg, rgba(255,255,255,.66), rgba(255,255,255,.30) 42%, rgba(255,255,255,.44) 88%);
+  --glass-face-btn:linear-gradient(135deg, rgba(255,255,255,.78), rgba(255,255,255,.42) 45%, rgba(255,255,255,.6));
+  --glass-edge:linear-gradient(135deg, rgba(255,255,255,.95), rgba(255,255,255,.28) 30%, rgba(255,255,255,.1) 55%, rgba(255,255,255,.65) 100%);
+  --glass-hover:linear-gradient(135deg,
+    color-mix(in srgb, var(--accent) 22%, rgba(255,255,255,.6)),
+    color-mix(in srgb, var(--accent) 10%, rgba(255,255,255,.4)));
+  --glass-rim:rgba(255,255,255,.8);
   --glass-rim-soft:rgba(255,255,255,.3);
   --glass-blur:blur(22px) saturate(1.8);
-  --glass-glow:rgba(10,132,255,.22);
+  --glass-glow:rgba(10,132,255,.25);
 
   /* Das Lichtraum-Bild: weiche Farbnebel hinter den Glaesern
    * (Apfel-Tinten: Blau, Violett, Cyan, warmer Pfirsich). */
   --bg-image:
-    radial-gradient(at 8% 10%, rgba(10,132,255,.20) 0px, transparent 55%),
-    radial-gradient(at 92% 6%, rgba(191,90,242,.18) 0px, transparent 50%),
-    radial-gradient(at 78% 88%, rgba(100,210,255,.18) 0px, transparent 55%),
-    radial-gradient(at 12% 88%, rgba(255,178,120,.16) 0px, transparent 45%),
-    radial-gradient(at 50% 45%, rgba(255,255,255,.35) 0px, transparent 60%),
+    radial-gradient(at 8% 10%, rgba(10,132,255,.22) 0px, transparent 55%),
+    radial-gradient(at 92% 6%, rgba(191,90,242,.2) 0px, transparent 50%),
+    radial-gradient(at 78% 88%, rgba(100,210,255,.2) 0px, transparent 55%),
+    radial-gradient(at 12% 88%, rgba(255,178,120,.18) 0px, transparent 45%),
+    radial-gradient(at 50% 45%, rgba(255,255,255,.4) 0px, transparent 60%),
     linear-gradient(180deg, #e9f0fb, #d9e3f4);
 }
 
@@ -58,41 +67,49 @@
   --font-mono:'SF Mono',ui-monospace,'Cascadia Mono',Menlo,monospace;
 
   --bg:#0b1020; --bg-2:#0e1428;
-  --surface:rgba(28,38,68,.42); --surface-2:rgba(42,52,88,.5);
+  --surface:rgba(28,38,68,.45); --surface-2:rgba(42,52,88,.55);
   --text:#eef2ff; --text-dim:#9aa4c4;
   --accent:#0a84ff; --accent-2:#bf5af2; --accent-contrast:#ffffff;
-  --border:rgba(255,255,255,.16); --border-soft:rgba(255,255,255,.09);
+  --border:rgba(255,255,255,.18); --border-soft:rgba(255,255,255,.1);
   --field:rgba(18,26,50,.5);
   --radius:26px; --radius-sm:16px;
   --shadow:0 24px 60px rgba(0,0,0,.5), 0 2px 10px rgba(0,0,0,.35);
   --shadow-sm:0 10px 30px rgba(0,0,0,.4), 0 1px 4px rgba(0,0,0,.3);
   --rule:rgba(140,170,255,.2); --ink:#eef2ff;
-  --page:rgba(18,26,54,.5); --page-edge:rgba(255,255,255,.16);
+  --page:rgba(18,26,54,.48); --page-edge:rgba(255,255,255,.2);
   --tbox-bg:rgba(191,90,242,.08); --tbox-border:rgba(10,132,255,.55);
   --ok:#30d158; --warn:#ffd60a;
 
-  --glass-rim:rgba(255,255,255,.28);
+  --glass-face:linear-gradient(135deg, rgba(255,255,255,.17), rgba(255,255,255,.06) 42%, rgba(255,255,255,.11) 88%);
+  --glass-face-btn:linear-gradient(135deg, rgba(255,255,255,.24), rgba(255,255,255,.09) 45%, rgba(255,255,255,.16));
+  --glass-edge:linear-gradient(135deg, rgba(255,255,255,.5), rgba(255,255,255,.14) 30%, rgba(255,255,255,.05) 55%, rgba(255,255,255,.3) 100%);
+  --glass-hover:linear-gradient(135deg,
+    color-mix(in srgb, var(--accent) 30%, rgba(255,255,255,.14)),
+    color-mix(in srgb, var(--accent) 16%, rgba(255,255,255,.07)));
+  --glass-rim:rgba(255,255,255,.3);
   --glass-rim-soft:rgba(255,255,255,.07);
   --glass-blur:blur(22px) saturate(1.8);
   --glass-glow:rgba(10,132,255,.35);
 
   --bg-image:
-    radial-gradient(at 10% 8%, rgba(10,132,255,.30) 0px, transparent 55%),
-    radial-gradient(at 90% 10%, rgba(191,90,242,.24) 0px, transparent 50%),
-    radial-gradient(at 72% 90%, rgba(64,200,255,.18) 0px, transparent 55%),
-    radial-gradient(at 18% 92%, rgba(255,120,170,.14) 0px, transparent 45%),
+    radial-gradient(at 10% 8%, rgba(10,132,255,.32) 0px, transparent 55%),
+    radial-gradient(at 90% 10%, rgba(191,90,242,.26) 0px, transparent 50%),
+    radial-gradient(at 72% 90%, rgba(64,200,255,.2) 0px, transparent 55%),
+    radial-gradient(at 18% 92%, rgba(255,120,170,.16) 0px, transparent 45%),
     linear-gradient(180deg, #0d1226, #080c1a);
 }
 
 /* ---- Signatur: was dieses Design vom Adapter abweichend will ---- */
 :root[data-theme="16-liquidglass"] {
 
-  /* 1) Die Glaeser: Panels werden zu echtem Liquid Glass – halbtransparent,
-   *    mit Refraktion (blur + saturate) und Lichtkante oben/unten. */
+  /* 1) Die Glaeser. Jedes Panel: Glasflaeche (padding-box) + Lichtkante
+   *    (border-box, 1px transparenter Rahmen), Refraktion durch
+   *    blur+saturate, Glanzlicht oben, Widerschein unten. */
   .box, .folder-sidebar, .editor-modal, .fw-theme-modal,
-  .notebook-card, .flash-body, .fw-dlg-body, .preview-body,
-  .flash-body, .fw-office-bar {
-    background: var(--surface);
+  .notebook-card, .notebook-cover, .flash-body, .fw-dlg-body,
+  .preview-body, .fw-office-bar {
+    border: 1px solid transparent;
+    background: var(--glass-face) padding-box, var(--glass-edge) border-box;
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     box-shadow:
@@ -100,14 +117,18 @@
       inset 0 1px 0 var(--glass-rim),
       inset 0 -1px 0 var(--glass-rim-soft);
   }
-  .box { border-color: var(--border); }
 
   /* 2) Kopfzeile: bewusst OHNE backdrop-filter – am iPad/iOS verwischt
    *    WebKit den Inhalt einer stickigen, geblurten Leiste (unlesbar).
-   *    Sie bekommt stattdessen Farbfilm + Lichtkante (wie Neon-Glas). */
+   *    Sie bleibt deshalb eine deckende Scheibe, kriegt aber dieselbe
+   *    Lichtkante und denselben Schein wie die uebrigen Glaeser. */
   .header {
-    border-color: var(--border);
-    box-shadow: inset 0 1px 0 var(--glass-rim), 0 10px 30px rgba(20,40,90,.12);
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--surface), var(--surface)) padding-box,
+      var(--glass-edge) border-box;
+    background-color: var(--bg);
+    box-shadow: inset 0 1px 0 var(--glass-rim), 0 12px 32px rgba(20,40,90,.14);
   }
   .header h1 { color: var(--text); }
   .brand-name {
@@ -115,41 +136,61 @@
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
 
-  /* 3) Buttons: Pillen aus Glas, wie die lg-Buttons bei Glisse. */
+  /* 3) Buttons: Pillen aus Glas – Flaeche heller als die Panels, gleiche
+   *    Lichtkante, Glanzlicht oben. Hover laesst die Akzentfarbe durch das
+   *    Glas scheinen (getoentes Glas statt Deckfarbe). */
   button, .mini-button {
+    border: 1px solid transparent;
     border-radius: 999px;
-    background: var(--surface-2);
-    backdrop-filter: blur(10px) saturate(1.5);
-    -webkit-backdrop-filter: blur(10px) saturate(1.5);
+    background: var(--glass-face-btn) padding-box, var(--glass-edge) border-box;
+    backdrop-filter: blur(12px) saturate(1.6);
+    -webkit-backdrop-filter: blur(12px) saturate(1.6);
     box-shadow:
       inset 0 1px 0 var(--glass-rim),
       inset 0 -1px 0 var(--glass-rim-soft),
       0 4px 14px rgba(20,40,90,.10);
-    border-color: var(--border);
   }
-  button:hover {
-    border-color: var(--accent);
+  button:hover, .mini-button:hover {
+    border-color: transparent;
+    background: var(--glass-hover) padding-box, var(--glass-edge) border-box;
     box-shadow:
       inset 0 1px 0 var(--glass-rim),
       inset 0 -1px 0 var(--glass-rim-soft),
       0 4px 20px var(--glass-glow);
   }
+  .mini-button.picked, button.picked {
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)) padding-box, var(--glass-edge) border-box;
+    color: var(--accent-contrast);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.35),
+      0 4px 18px var(--glass-glow);
+  }
+  button.inactive {
+    background: var(--glass-face) padding-box, var(--glass-edge) border-box;
+    color: var(--text-dim);
+  }
   .btn-export, .btn-import, .btn-print {
+    border-color: transparent;
+    background: var(--glass-hover) padding-box, var(--glass-edge) border-box;
+    color: var(--accent-contrast);
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,.35),
       0 4px 16px var(--glass-glow);
   }
 
-  /* 4) Eingaben: Mattglas-Felder. */
+  /* 4) Eingaben: Mattglas-Felder mit Lichtkante statt Unterstrich. */
   input[type="text"], input[type="number"], input[type="password"],
   input[type="color"], input[type="search"], textarea, select {
-    background: var(--field);
+    border: 1px solid transparent;
+    background: linear-gradient(var(--field), var(--field)) padding-box, var(--glass-edge) border-box;
     backdrop-filter: blur(8px) saturate(1.3);
     -webkit-backdrop-filter: blur(8px) saturate(1.3);
   }
   :focus-visible { outline: 3px solid var(--glass-glow); outline-offset: 2px; }
 
-  /* 5) Das Blatt: ein Glasscheiben-Blatt – der Farbnebel scheint durch. */
+  /* 5) Das Blatt: eine Glasscheibe – der Farbnebel scheint durch,
+   *    Lichtkante rundum, weicher Wurf. */
   .stage {
     backdrop-filter: blur(16px) saturate(1.4);
     -webkit-backdrop-filter: blur(16px) saturate(1.4);
@@ -159,13 +200,19 @@
       inset 0 1px 0 var(--glass-rim);
   }
 
-  /* 6) Ausgewaehlte Notiz/Ordner: linshafter Akzentglanz. */
-  .notebook-card:hover { border-color: var(--accent); }
+  /* 6) Auswahl-Zustande: linshafter Akzentglanz statt Vollfarbe. */
+  .notebook-card:hover, .folder-row.active { border-color: transparent; }
   .folder-row.active, .fw-theme-item.picked {
     box-shadow:
       inset 0 0 0 1.5px var(--accent),
       inset 0 1px 0 var(--glass-rim),
       0 6px 24px var(--glass-glow);
+  }
+  .fw-theme-item {
+    border: 1px solid transparent;
+    background: var(--glass-face) padding-box, var(--glass-edge) border-box;
+    backdrop-filter: blur(10px) saturate(1.4);
+    -webkit-backdrop-filter: blur(10px) saturate(1.4);
   }
 
   /* 7) Statuszeile: feine Lichtlinie statt harter Trenner. */
