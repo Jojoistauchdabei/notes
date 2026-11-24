@@ -1,0 +1,10 @@
+name = "federwerk-api"
+main = "pocketbase-worker-backend.js"
+compatibility_date = "2024-11-01"
+
+[vars]
+POCKETBASE_URL = "https://federwerk.deine-domain.com"
+
+# Secrets (set via: wrangler secret put POCKETBASE_ADMIN_TOKEN)
+# [secrets]
+# POCKETBASE_ADMIN_TOKEN
