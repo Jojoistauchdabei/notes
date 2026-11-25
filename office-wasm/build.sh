@@ -60,15 +60,30 @@ case "$os_name" in
 esac
 echo "Runner: ${os_name}/${machine} -> ${wa}"
 
-if [ ! -x "$cli_dir/$bin" ]; then
+url="https://github.com/rustwasm/wasm-bindgen/releases/download/${wb_version}/wasm-bindgen-${wb_version}-${wa}.tar.gz"
+
+download_wasm_bindgen() {
   echo "::group::wasm-bindgen ${wb_version} fuer ${wa}"
-  url="https://github.com/rustwasm/wasm-bindgen/releases/download/${wb_version}/wasm-bindgen-${wb_version}-${wa}.tar.gz"
   echo "hole $url"
-  curl -fsSL "$url" | tar -xz -C "$cli_dir" --strip-components=1
+  tmp="$cli_dir/.download"
+  mkdir -p "$tmp"
+  curl -fsSL "$url" | tar -xz -C "$tmp"
+  src="$(find "$tmp" -maxdepth 3 -name "$bin" -print | head -1)"
+  test -n "$src" || { echo "::error::$bin im Archiv nicht gefunden"; exit 1; }
+  mv "$src" "$cli_dir/$bin"
   chmod +x "$cli_dir/$bin" 2>/dev/null || true
+}
+
+if [ ! -x "$cli_dir/$bin" ]; then
+  download_wasm_bindgen
 fi
 # Gegenprobe: startet das Binary ueberhaupt? Auf der falschen Plattform
-# faellt das erst beim Aufruf auf, dann ist die Fehlermeldung schwer lesbar.
+# (z. B. ein Linux-Binary aus dem Cache) faellt das erst beim Aufruf auf –
+# da ist die Datei zu loeschen und nochmal zu holen.
+if ! "$cli_dir/$bin" --version >/dev/null 2>&1; then
+  rm -f "$cli_dir/$bin"
+  download_wasm_bindgen
+fi
 if ! "$cli_dir/$bin" --version >/dev/null 2>&1; then
   echo "::error::wasm-bindgen aus $cli_dir laesst sich hier nicht ausfuehren (falsche Plattform?)."
   exit 1

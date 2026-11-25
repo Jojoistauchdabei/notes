@@ -20,9 +20,9 @@ runs:
           ~/.cargo/git
           office-wasm/target
           office-wasm/.tooling
-        key: office-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('office-wasm/Cargo.lock') }}
+        key: office-wasm-${{ env.RUNNER_OS }}-${{ env.RUNNER_ARCH }}-${{ hashFiles('office-wasm/Cargo.lock') }}
         restore-keys: |
-          office-wasm-${{ runner.os }}-${{ runner.arch }}-
+          office-wasm-${{ env.RUNNER_OS }}-${{ env.RUNNER_ARCH }}-
 
     - name: WASM bauen
       # Ueber `bash`, nicht ./build.sh: core.filemode ist auf Windows-Checkouts

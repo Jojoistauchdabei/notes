@@ -25,9 +25,9 @@ runs:
           ~/.cargo/git
           craft-wasm/target
           craft-wasm/.tooling
-        key: craft-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('craft-wasm/Cargo.lock') }}
+        key: craft-wasm-${{ env.RUNNER_OS }}-${{ env.RUNNER_ARCH }}-${{ hashFiles('craft-wasm/Cargo.lock') }}
         restore-keys: |
-          craft-wasm-${{ runner.os }}-${{ runner.arch }}-
+          craft-wasm-${{ env.RUNNER_OS }}-${{ env.RUNNER_ARCH }}-
 
     - name: WASM bauen
       # Ueber `bash`, nicht ./build.sh: core.filemode ist auf Windows-Checkouts
