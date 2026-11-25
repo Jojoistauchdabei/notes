@@ -1,10 +1,9 @@
 name = "federwerk-api"
-main = "pocketbase-worker-backend.js"
+main = "index.js"
 compatibility_date = "2024-11-01"
 
 [vars]
-POCKETBASE_URL = "https://federwerk.deine-domain.com"
+POCKETBASE_URL = "https://federwerk.ponnet.org"
 
-# Secrets (set via: wrangler secret put POCKETBASE_ADMIN_TOKEN)
-# [secrets]
-# POCKETBASE_ADMIN_TOKEN
+# Secrets: nichts noetig – der Worker proxt durch mit dem Bearer-Token
+# des Frontends (Authorization-Header).
