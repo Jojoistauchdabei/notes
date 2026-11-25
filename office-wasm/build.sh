@@ -96,7 +96,7 @@ wasm="$out/office_wasm_bg.wasm"
 if [ -f "$wasm" ]; then
   # Bash-Arithmetik statt awk: `print (x) > 25` ist in awk eine Umleitung und
   # damit ein Syntaxfehler.
-  bytes="$(stat -c%s "$wasm")"
+  bytes="$(wc -c < "$wasm" | tr -d '[:space:]')"
   mib=$(( bytes / 1048576 ))
   kib=$(( (bytes / 1024) % 1024 ))
   echo "WASM: ${mib} MiB ${kib} KiB (${bytes} Bytes)"

@@ -85,7 +85,7 @@ if [ ! -f "$wasm" ]; then
   echo "::error::craft_wasm_bg.wasm fehlt nach wasm-bindgen"
   exit 1
 fi
-bytes="$(stat -c%s "$wasm")"
+bytes="$(wc -c < "$wasm" | tr -d '[:space:]')"
 mib=$(( bytes / 1048576 ))
 kib=$(( (bytes / 1024) % 1024 ))
 echo "WASM: ${mib} MiB ${kib} KiB (${bytes} Bytes)"
