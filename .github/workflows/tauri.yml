@@ -12,7 +12,7 @@ name: Tauri – Linux / Windows / Android
 #   + iOS: unsigned IPA/XCArchive (`tauri ios build --no-sign`) hängen die
 #     Artefakte automatisch an dasselbe Release – keine Secrets nötig.
 #     Hintergrund: Xcode/iOS-Builds brauchen ein macOS-Hostsystem (Apple Silicon
-#     in der Praxis); sie laufen auf den macos-14-Runnern, siehe
+#     in der Praxis); sie laufen auf den macos-15-Runnern, siehe
 #     docs/ios-release-builds.md.
 #   + latest.json für das Desktop-Autoupdate (tauri-plugin-updater).
 # - Manuell wiederholbar: Actions → „Tauri" → Run workflow → Tag (z. B. v1.7.2).
@@ -337,7 +337,7 @@ jobs:
   ios:
     name: iOS (unsigned, iPad/iPhone)
     needs: version
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:

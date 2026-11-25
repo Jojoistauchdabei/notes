@@ -6,7 +6,7 @@ GitHub Releases von Federwerk.
 ## Wie es funktioniert
 
 - Workflow: [tauri.yml](../.github/workflows/tauri.yml) → Job `ios`
-- Runner: `macos-14` (Apple Silicon)
+- Runner: `macos-15` (Apple Silicon; `macos-14` ist ausgelöst, `macos-26` ebenfalls verfügbar)
 - Build: `npx --yes @tauri-apps/cli ios build --no-sign`
   (kein Signing, `--no-sign` – mit `--release` oder Debug-Modus: optional)
 - Assets auf dem Release: alle `*.ipa` / `*.xcarchive` aus `src-tauri/gen/apple/build`
