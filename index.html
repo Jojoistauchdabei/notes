@@ -18,6 +18,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/canvas.css">
   <!-- Theme-System: laeuft synchron VOR dem ersten Paint und setzt
        data-theme/data-scheme, damit die Seite nicht kurz im Standard-Theme
        aufblitzt. Das data-boot-Attribut ist wichtig: build-dist.js bündelt
@@ -129,6 +130,7 @@
       <div class="toolbar box no-print" role="toolbar" aria-label="Werkzeugleiste">
         <div class="tool-group tool-group--tools" id="toolButtons" role="group" aria-label="Werkzeuge">
           <button class="mini-button picked" data-tool="pen" onclick="setTool('pen')" aria-label="Stift-Werkzeug" aria-pressed="true">✒ Stift</button>
+          <button class="mini-button" onclick="openCanvasFlow()" aria-label="Canvas-Schreibfluss öffnen" title="HTML5-Canvas auf der Seite: Stift/Marker/Radierer, Druck, Pinch-Zoom">Canvas</button>
           <button class="mini-button" data-tool="marker" onclick="setTool('marker')" aria-label="Marker-Werkzeug" aria-pressed="false">🖍 Marker</button>
           <button class="mini-button" data-tool="eraser" onclick="setTool('eraser')" aria-label="Radierer-Werkzeug" aria-pressed="false">⌫ Radierer</button>
           <button class="mini-button" data-tool="text" onclick="setTool('text')" aria-label="Text-Werkzeug" aria-pressed="false">T Text</button>
@@ -635,6 +637,10 @@
   <script src="js/sanitize.js"></script>
   <script src="js/pencil.js"></script>
   <script src="js/inkdraw.js"></script>
+  <!-- Canvas-Schreibfluss (js/canvas.js + css/canvas.css): Canvas auf der
+       aktiven Seite – Pointer Events, Druck, Palette, Zoom, PDF/PNG-Export.
+       Nach app.js laden, globale Behandlungsfunktionen sind dann verfügbar. -->
+  <script src="js/canvas.js"></script>
   <script src="js/folders.js"></script>
   <script src="js/split.js"></script>
   <script src="js/markdown.js"></script>
