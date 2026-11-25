@@ -42,3 +42,23 @@ Assets land unter `Federwerk-<tag>-*` bzw. in der genauen Tauri-Ausgabe, z. B.:
 - Ohne unsigned erhält man die Dateien nur als CI-Artifacts
   (`federwerk-unsigned-ios`), das Release-Upload ist bewusst optional
   (`::warning::` statt Fehler).
+
+## Auto-Updates: `apps.json` (Source-Manifest)
+
+Für Auto-Updates der **iOS-App** (unsigned IPA via GitHub Releases) gibt es ein
+Source-Manifest im `LiveContainer`-Apps.json-Format:
+
+- Datei: [`apps.json`](../apps.json) im Repo-Root
+- Schema: `name`, `identifier`, `website`, `subtitle`, `description`, `tintColor`,
+  `iconURL`, `headerURL`, `apps[]`, `news[]`
+- Aktueller Eintrag: App-Version `1.9.62` → Download:
+  `https://github.com/Jojoistauchdabei/notes/releases/download/v1.9.62/Federwerk.ipa`
+
+- Der iOS-Job des Workflows hängt das Manifest nach erfolgreichem IPA-Upload per
+  `gh release upload <tag> apps.json --clobber` an das Release.
+- Clients (z. B. Source-Registry-Apps wie LiveContainer/iloader/SideStore) laden
+  das Manifest und holen sich Updates automatisch – analog zu
+  `LiveContainer/LiveContainer/releases/download/1.0/apps.json`.
+
+**Direkter Link (latest):** `https://github.com/Jojoistauchdabei/notes/releases/latest/download/apps.json`
+**Aktuelles Release-Manifest:** `https://github.com/Jojoistauchdabei/notes/releases/download/v1.9.62/apps.json`

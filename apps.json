@@ -1,0 +1,60 @@
+{
+  "name": "Federwerk",
+  "identifier": "org.ponnet.federwerk.source",
+  "website": "https://github.com/Jojoistauchdabei/notes",
+  "subtitle": "Federwerk – Handschriftliches Notizbuch",
+  "description": "Federwerk: Handschriftliches Notizbuch im Papier-Stil mit Stift, Marker, Texteditor, Bildern, Seiten und GoodNotes-Import. Offline-fähig, Daten bleiben lokal. Dieses Source-Manifest (apps.json) ist die offizielle Quelle für iOS-Installation und Auto-Updates der Federwerk-iOS-App über die GitHub Releases.",
+  "tintColor": "#2a1a0e",
+  "iconURL": "https://raw.githubusercontent.com/Jojoistauchdabei/notes/main/icons/icon-512.png",
+  "headerURL": "https://raw.githubusercontent.com/Jojoistauchdabei/notes/main/icons/icon-512.png",
+  "apps": [
+    {
+      "beta": false,
+      "name": "Federwerk",
+      "bundleIdentifier": "org.ponnet.federwerk",
+      "developerName": "Federwerk",
+      "subtitle": "Handschrift-Notizbuch im Papier-Stil",
+      "version": "1.9.62",
+      "versionDate": "2026-11-25T15:28:54Z",
+      "versionDescription": "Federwerk 1.9.62 – Update des handschriftlichen Notizbuchs. Vollständiger Changelog: https://github.com/Jojoistauchdabei/notes/compare/v1.9.61...v1.9.62",
+      "downloadURL": "https://github.com/Jojoistauchdabei/notes/releases/download/v1.9.62/Federwerk.ipa",
+      "localizedDescription": "Handschrift-Notizbuch im Papier-Stil",
+      "iconURL": "https://raw.githubusercontent.com/Jojoistauchdabei/notes/main/icons/icon-512.png",
+      "tintColor": "#2a1a0e",
+      "category": "productivity",
+      "size": 6482823,
+      "screenshotURLs": [],
+      "appPermissions": {
+        "entitlements": [
+          "application-identifier",
+          "get-task-allow"
+        ],
+        "privacy": {
+          "SBAppUsesLocalNotifications": "Die App plant lokale Lern-Erinnerungen als Benachrichtigungen."
+        }
+      },
+      "versions": [
+        {
+          "version": "1.9.62",
+          "date": "2026-11-25T15:28:54Z",
+          "localizedDescription": "Federwerk 1.9.62 – Update des handschriftlichen Notizbuchs. Vollständiger Changelog: https://github.com/Jojoistauchdabei/notes/compare/v1.9.61...v1.9.62",
+          "downloadURL": "https://github.com/Jojoistauchdabei/notes/releases/download/v1.9.62/Federwerk.ipa",
+          "size": 6482823
+        }
+      ]
+    }
+  ],
+  "news": [
+    {
+      "appID": "org.ponnet.federwerk",
+      "caption": "Update of Federwerk just got released!",
+      "date": "2026-11-25T15:28:54Z",
+      "identifier": "release-1.9.62",
+      "imageURL": "https://raw.githubusercontent.com/Jojoistauchdabei/notes/main/icons/icon-512.png",
+      "notify": true,
+      "tintColor": "#2a1a0e",
+      "title": "1.9.62 - Federwerk",
+      "url": "https://github.com/Jojoistauchdabei/notes/releases/tag/v1.9.62"
+    }
+  ]
+}

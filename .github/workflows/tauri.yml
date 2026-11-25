@@ -14,6 +14,10 @@ name: Tauri – Linux / Windows / Android
 #     Hintergrund: Xcode/iOS-Builds brauchen ein macOS-Hostsystem (Apple Silicon
 #     in der Praxis); sie laufen auf den macos-15-Runnern, siehe
 #     docs/ios-release-builds.md.
+#   + iOS-Source-Manifest `apps.json` (LiveContainer-Apps.json-Format) wird an
+#     das Release gehängt – Basis für Auto-Updates/Installation der iOS-App über
+#     GitHub Releases (analog https://github.com/LiveContainer/LiveContainer/
+#     releases/download/1.0/apps.json).
 #   + latest.json für das Desktop-Autoupdate (tauri-plugin-updater).
 # - Manuell wiederholbar: Actions → „Tauri" → Run workflow → Tag (z. B. v1.7.2).
 # - Wird außerdem von auto-release.yml als wiederverwendbarer Workflow aufgerufen
@@ -415,3 +419,13 @@ jobs:
           echo "iOS-Artefakte an Release ${{ needs.version.outputs.tag }}:"
           echo "$FILES"
           gh release upload "${{ needs.version.outputs.tag }}" $FILES --clobber
+
+      - name: iOS-Update-Manifest (apps.json) an Release hängen
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Source-Manifest im LiveContainer-Apps.json-Format (Auto-Updates über
+          # GitHub Releases): apps.json liegt im Repo-Root, wird vom Tag-Checkout
+          # übernommen und ist die offizielle Quelle für iOS-Installation/Updates.
+          gh release upload "${{ needs.version.outputs.tag }}" apps.json --clobber
