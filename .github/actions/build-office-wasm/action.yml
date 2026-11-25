@@ -35,6 +35,6 @@ runs:
       run: |
         wasm=office-wasm/dist/office_wasm_bg.wasm
         test -f "$wasm" || { echo "::error::$wasm fehlt"; exit 1; }
-        mib=$(( $(stat -c%s "$wasm") / 1048576 ))
+        mib=$(( $(wc -c < "$wasm" | tr -d '[:space:]') / 1048576 ))
         echo "Office-WASM: ${mib} MiB (Limit je Datei: 25 MiB)"
         echo "Office-WASM-Größe: ${mib} MiB" >> "$GITHUB_STEP_SUMMARY"

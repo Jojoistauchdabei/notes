@@ -405,7 +405,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          FILES=$(find src-tauri/gen/apple/build -maxdepth 3 \( -name '*.ipa' -o -name '*.xcarchive' \) 2>/dev/null)
+          # Nur Dateien: ein *.xcarchive ist ein Verzeichnis und kann nicht
+          # als Release-Asset hochgeladen werden.
+          FILES=$(find src-tauri/gen/apple/build -maxdepth 3 \( -name '*.ipa' -o -name '*.xcarchive' \) -type f 2>/dev/null)
           if [ -z "$FILES" ]; then
             echo "::warning::Keine unsigned-iOS-Artefakte gefunden – Release bleibt ohne iOS-Assets."
             exit 0
