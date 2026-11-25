@@ -9,6 +9,11 @@ name: Tauri – Linux / Windows / Android
 #     Android: APKs pro ABI (arm64/arm/x86_64/x86, GitHub-Verteilung, kein
 #       Play Store – kein 600MB-Universal-APK mehr, jedes Gerät lädt nur
 #       seine Architektur) (+ Debug-Variante ohne Keystore-Secrets)
+#   + iOS: unsigned IPA/XCArchive (`tauri ios build --no-sign`) hängen die
+#     Artefakte automatisch an dasselbe Release – keine Secrets nötig.
+#     Hintergrund: Xcode/iOS-Builds brauchen ein macOS-Hostsystem (Apple Silicon
+#     in der Praxis); sie laufen auf den macos-14-Runnern, siehe
+#     docs/ios-release-builds.md.
 #   + latest.json für das Desktop-Autoupdate (tauri-plugin-updater).
 # - Manuell wiederholbar: Actions → „Tauri" → Run workflow → Tag (z. B. v1.7.2).
 # - Wird außerdem von auto-release.yml als wiederverwendbarer Workflow aufgerufen
@@ -394,3 +399,17 @@ jobs:
             src-tauri/gen/apple/build/**/*.ipa
             src-tauri/gen/apple/build/**/*.xcarchive
           if-no-files-found: warn
+
+      - name: Unsigned-iOS-Artefakte an Release hängen
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILES=$(find src-tauri/gen/apple/build -maxdepth 3 \( -name '*.ipa' -o -name '*.xcarchive' \) 2>/dev/null)
+          if [ -z "$FILES" ]; then
+            echo "::warning::Keine unsigned-iOS-Artefakte gefunden – Release bleibt ohne iOS-Assets."
+            exit 0
+          fi
+          echo "iOS-Artefakte an Release ${{ needs.version.outputs.tag }}:"
+          echo "$FILES"
+          gh release upload "${{ needs.version.outputs.tag }}" $FILES --clobber
