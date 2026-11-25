@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Federwerk",
+    "slug": "federwerk-ios",
+    "version": "1.9.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "federwerk",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "org.ponnet.federwerk"
+    },
+    "android": {
+      "package": "org.ponnet.federwerk"
+    },
+    "web": {
+      "output": "static"
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "PB_URL": "https://federwerk.ponnet.org"
+    }
+  }
+}

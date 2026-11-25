@@ -1,0 +1,16 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "paths": {
+      "app/*": ["./app/*"],
+      "components/*": ["./components/*"],
+      "services/*": ["./services/*"],
+      "utils/*": ["./utils/*"],
+      "assets/*": ["./assets/*"]
+    }
+  },
+  "include": ["app", "components", "services", "utils"]
+}
