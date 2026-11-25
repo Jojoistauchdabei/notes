@@ -410,8 +410,18 @@
     [0, 1].forEach(i => {
       const c = drawCanvasOf(i);
       if (!c) return;
-      ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'].forEach(t => {
-        c.addEventListener(t, ev => { if (state.open) onPointer(ev); });
+      ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'wheel'].forEach(t => {
+        c.addEventListener(t, ev => {
+          if (ev.type === 'wheel') {
+            // Mausrad-Zoom (Trackpad), solange der Schreibfluss offen ist.
+            if (state.open && !ev.ctrlKey && ev.deltaY) {
+              try { ev.preventDefault(); } catch { /* ignore */ }
+              if (ev.deltaY < 0) zoomIn(); else zoomOut();
+            }
+            return;
+          }
+          if (state.open) onPointer(ev);
+        });
       });
     });
   }
@@ -424,17 +434,24 @@
 
   // ---------- Toolbar (DOM, ids + data-attrs) ----------
 
+  // Abgespeckte UI-Version beim Schreiben: die App-Toolbar/.status-line
+  // (body.canvas-writing) werden per CSS ausgeblendet; der Canvas-Toolbar
+  // selbst ist minimal (Werkzeug + Farbe + Breite + Zoom + Palette-Toggle).
+  function setBodyWriting(v) {
+    try { W.document && W.document.body && W.document.body.classList.toggle('canvas-writing', !!v); } catch { /* ignore */ }
+  }
+
   function toolbarHTML() {
     const tools = TOOLS.map(t => '<button type="button" data-tool="' + t + '" aria-label="Werkzeug ' + t + '">' +
       (t === 'pen' ? '✒' : t === 'marker' ? '🖍' : '⌫') + '</button>').join('');
     const palette = PALETTE.map(c => '<button type="button" data-color="' + c + '" style="background:' + c + '"></button>').join('');
-    const papers = paperOptionsHTML();
     return [
       '<div class="canvas-toolbar">',
         '<div class="canvas-toolbar-tools">' + tools + '</div>',
-        '<div class="canvas-toolbar-sep"></div>',
-        '<div class="canvas-toolbar-palette">' + palette + '</div>',
-        '<select id="canvasPaper" class="canvas-toolbar-select" aria-label="Papiervorlage">' + papers + '</select>',
+        '<span id="canvasColor" class="canvas-slim-color" style="background:' + state.color + '" aria-label="Aktive Farbe"></span>',
+        '<button type="button" id="canvasPaletteToggle" aria-label="Palette/Vorlagen öffnen/schließen" title="Palette + Papiervorlage"><span aria-hidden="true">☰</span></button>',
+        '<div class="canvas-toolbar-palette" id="canvasPalette">' + palette + '</div>',
+        '<select id="canvasPaper" class="canvas-toolbar-select" aria-label="Papiervorlage">' + paperOptionsHTML() + '</select>',
         '<div class="canvas-toolbar-sep"></div>',
         '<input type="range" id="canvasWidth" class="canvas-toolbar-width" min="' + WIDTH_MIN + '" max="' + WIDTH_MAX + '" value="' + state.width + '" aria-label="Strichbreite">',
         '<span id="canvasWidthLabel" class="canvas-toolbar-label">' + state.width + 'px</span>',
@@ -474,6 +491,13 @@
     tb.querySelectorAll('[data-color]').forEach(b => {
       b.addEventListener('click', () => setColor(b.dataset.color));
     });
+    const palToggle = tb.querySelector('#canvasPaletteToggle');
+    if (palToggle) {
+      palToggle.addEventListener('click', () => {
+        tb.classList.toggle('palette-open');
+        syncToolbar();
+      });
+    }
     const sel = tb.querySelector('#canvasPaper');
     if (sel) {
       const openB = W.openBook && W.openBook();
@@ -497,6 +521,8 @@
     tb.querySelectorAll('[data-tool]').forEach(b => {
       b.classList.toggle('picked', b.dataset.tool === state.tool);
     });
+    const chip = tb.querySelector('#canvasColor');
+    if (chip) chip.style.background = state.color;
     const width = tb.querySelector('#canvasWidth');
     const label = tb.querySelector('#canvasWidthLabel');
     if (width) width.value = String(state.width);
@@ -515,12 +541,15 @@
   function openCanvasFlow() {
     const page = currentPage();
     if (!page) return;
+    setBodyWriting(true);
     state.open = true;
     state.live = null;
     liveLive = null;
     resetTouch();
     const c = drawCanvasOf(paneIdx());
-    if (c) { try { c.style.touchAction = 'none'; } catch { /* ignore */ } }
+    if (c) {
+      try { c.style.touchAction = 'none'; c.classList.add('canvas-flow-open'); } catch { /* ignore */ }
+    }
     buildToolbar();
     attachDrawEvents();
     applyZoom();
@@ -535,10 +564,15 @@
     resetTouch();
     const c = drawCanvasOf(paneIdx());
     if (c) {
-      try { c.style.touchAction = ''; c.style.transform = 'none'; } catch { /* ignore */ }
+      try {
+        c.style.touchAction = '';
+        c.style.transform = 'none';
+        c.classList.remove('canvas-flow-open');
+      } catch { /* ignore */ }
     }
     const tb = $('canvasToolbar');
     if (tb) tb.remove();
+    setBodyWriting(false);
   }
 
   function isCanvasFlowOpen() { return !!state.open; }

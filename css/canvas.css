@@ -1,14 +1,22 @@
 /* Federwerk – Canvas-Schreibfluss: Toolbar, Palette, Zoom-Anzeige.
  * Zugeordnet zu js/canvas.js (global `FederwerkCanvas`, ids: canvasToolbar,
- * canvasPaper, canvasWidth, canvasZoom…). Loads via index.html. */
+ * canvasPaper, canvasWidth, canvasZoom…). Loads via index.html.
+ *
+ * Abgespeckte UI-Version (body.canvas-writing, solange der Schreibfluss
+ * offen ist): die App-Toolbar und die Status-Zeile werden ausgeblendet;
+ * #canvasToolbar ist Minimal (Werkzeug + Farbe + Breite + Zoom + Close,
+ * Palette/Vorlage via ☰-Toggle sichtbar). */
+
+body.canvas-writing .toolbar,
+body.canvas-writing .status-line { display: none !important; }
 
 #canvasToolbar {
   position: fixed;
   z-index: 1000;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: 4px;
+  padding: 4px 8px;
   flex-wrap: wrap;
   background: var(--surface-strong, #f7f3ec);
   border: 1px solid var(--border, #d8cbb8);
@@ -39,27 +47,45 @@
 }
 #canvasToolbar [data-tool].picked { outline: 2px solid var(--ring, #8b5a2b); }
 
-#canvasToolbar .canvas-toolbar-tools { display: flex; gap: 4px; }
-#canvasToolbar .canvas-toolbar-palette { display: flex; gap: 4px; }
-#canvasToolbar .canvas-toolbar-palette button {
+#canvasToolbar .canvas-slim-color {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  display: inline-block;
+}
+
+#canvasToolbar .canvas-toolbar-tools { display: flex; gap: 2px; }
+#canvasToolbar .canvas-toolbar-palette {
+  display: none;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px 2px;
+}
+#canvasToolbar.palette-open .canvas-toolbar-palette { display: flex; }
+#canvasToolbar.palette-open .canvas-toolbar-palette button {
   width: 18px;
   height: 18px;
   padding: 0;
   border-radius: 50%;
   border: 1px solid rgba(0, 0, 0, 0.2);
 }
-#canvasToolbar .canvas-toolbar-palette button[data-color="#000000"] { border-color: #555555; }
+#canvasToolbar.palette-open .canvas-toolbar-palette button[data-color="#000000"] { border-color: #555555; }
 
 #canvasToolbar #canvasPaper {
+  display: none;
   font-size: 12px;
   max-width: 140px;
   padding: 3px 6px;
 }
-#canvasToolbar .canvas-toolbar-width { width: 90px; margin: 0; }
+#canvasToolbar.palette-open #canvasPaper { display: inline-flex; }
+
+#canvasToolbar .canvas-toolbar-width { width: 80px; margin: 0; }
 #canvasToolbar .canvas-toolbar-label { font-size: 12px; min-width: 42px; text-align: center; }
 #canvasToolbar #canvasZoom { font-size: 12px; }
 #canvasToolbar #canvasClose { margin-left: auto; }
 
-/* Waehrend der Canvas-Schreibfluss offen: Toucheingaben gehen an den
+/* Während der Canvas-Schreibfluss offen: Toucheingaben gehen an den
  * drawCanvas (Pinch/Pan/Writing) statt an den nativen Scroll. */
 [data-part="drawCanvas"].canvas-flow-open { touch-action: none; }
