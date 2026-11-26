@@ -1,0 +1,191 @@
+/* ============================================================================
+ * ui/shared/shadcn-tokens.css
+ * shadcn/ui Design-System Tokens + Federwerk-App-Aliase. Gemeinsame Basis
+ * fuer beide Varianten (data-ui-variant="shadcn" | "liquid").
+ *
+ * shadcn/ui ist kein Framework, sondern kopierbarer Source + CSS-Variablen.
+ * Diese Datei stellt die shadcn-Variablen bereit und mappt sie zusaetzlich
+ * auf die bestehenden Federwerk-App-Tokens, damit die unveraenderte
+ * App-Logik automatisch die shadcn-Farben erbt.
+ *
+ * Hell/Dunkel: <html data-scheme="dark"> bzw. Klasse .dark
+ * (gesetzt von ui/shared/theme-switcher.js).
+ *
+ * KONFLIKT-AUFLOESUNG --accent:
+ *   Federwerks css/styles.css nutzt --accent als MARKEN-Akzent.
+ *   shadcn nutzt --accent als SUBTILEN Hover-Hintergrund.
+ *   -> Wurzel: --accent = Marken-Akzent (= shadcn --primary-Familie) fuer
+ *      die App; shadcn-Kit-Komponenten (Klasse .fw-ui) sehen darinnen
+ *      --accent = subtilen Hover. shadcn --accent-foreground ebenso.
+ *   -> Marken-Akzent ist zusaetzlich unter shadcn-Namen --primary
+ *      verfuegbar; subtiler Hover zusaetzlich als --accent-subtle.
+ * ========================================================================== */
+
+/* ---- Hell --------------------------------------------------------------- */
+html[data-ui-variant="shadcn"],
+html[data-ui-variant="liquid"] {
+  /* shadcn/ui Core (Light) */
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+
+  --primary: #171717;
+  --primary-foreground: #fafafa;
+
+  --secondary: #f5f5f5;
+  --secondary-foreground: #171717;
+
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+
+  --accent-subtle: #f5f5f5;
+  --accent-foreground: #171717;
+
+  --destructive: #e7000b;
+  --destructive-foreground: #fafafa;
+
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #a1a1a1;
+
+  --radius: 0.625rem;
+
+  /* shadcn Sidebar */
+  --sidebar: #fafafa;
+  --sidebar-foreground: #0a0a0a;
+  --sidebar-primary: #171717;
+  --sidebar-primary-foreground: #fafafa;
+  --sidebar-accent: #f5f5f5;
+  --sidebar-accent-foreground: #171717;
+  --sidebar-border: #e5e5e5;
+  --sidebar-ring: #a1a1a1;
+  --sidebar-width: 16rem;
+  --sidebar-width-mobile: 18rem;
+  --sidebar-width-icon: 3rem;
+
+  /* shadcn Charts */
+  --chart-1: #e76e50;
+  --chart-2: #2a9d90;
+  --chart-3: #274754;
+  --chart-4: #e8c468;
+  --chart-5: #f4a462;
+
+  /* ---- Federwerk-App-Tokens auf shadcn abbilden ----------------------- */
+  --app-bg: var(--background);
+  --bg: var(--background);
+  --header-bg: var(--card);
+  --header-text: var(--card-foreground);
+  --toolbar-bg: var(--card);
+  --toolbar-border: var(--border);
+  --sidebar-bg: var(--sidebar);
+  --sidebar-border: var(--sidebar-border);
+  --paper-bg: var(--background);
+  --paper-grid: var(--border);
+  --ink: var(--foreground);
+  --text: var(--foreground);
+  --accent: var(--primary);                 /* Marken-Akzent */
+  --accent-hover: var(--primary);
+  --accent-dark: var(--primary);
+  --accent-muted: var(--muted-foreground);
+  --danger: var(--destructive);
+  --border-light: var(--border);
+  --surface: var(--card);
+  --surface-strong: var(--card);
+  --field-bg: var(--background);
+  --disabled-bg: var(--muted);
+  --button-bg: var(--primary);
+  --button-text: var(--primary-foreground);
+  --button-inactive-bg: var(--secondary);
+  --button-inactive-text: var(--secondary-foreground);
+  --mini-button-hover-bg: var(--accent-subtle);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.08);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+/* ---- Dunkel ------------------------------------------------------------- */
+html[data-ui-variant="shadcn"][data-scheme="dark"],
+html[data-ui-variant="liquid"][data-scheme="dark"],
+html[data-ui-variant="shadcn"].dark,
+html[data-ui-variant="liquid"].dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+
+  --card: #171717;
+  --card-foreground: #fafafa;
+
+  --popover: #171717;
+  --popover-foreground: #fafafa;
+
+  --primary: #e5e5e5;
+  --primary-foreground: #171717;
+
+  --secondary: #262626;
+  --secondary-foreground: #fafafa;
+
+  --muted: #262626;
+  --muted-foreground: #a1a1a1;
+
+  --accent-subtle: #262626;
+  --accent-foreground: #fafafa;
+
+  --destructive: #ff6467;
+  --destructive-foreground: #fafafa;
+
+  --border: #ffffff1a;
+  --input: #ffffff26;
+  --ring: #737373;
+
+  --sidebar: #171717;
+  --sidebar-foreground: #fafafa;
+  --sidebar-primary: #1447e6;
+  --sidebar-primary-foreground: #fafafa;
+  --sidebar-accent: #262626;
+  --sidebar-accent-foreground: #fafafa;
+  --sidebar-border: #ffffff1a;
+  --sidebar-ring: #737373;
+
+  --chart-1: #1447e6;
+  --chart-2: #00bc7d;
+  --chart-3: #fd9a00;
+  --chart-4: #ad46ff;
+  --chart-5: #ff2357;
+
+  --app-bg: var(--background);
+  --bg: var(--background);
+  --header-bg: var(--card);
+  --header-text: var(--card-foreground);
+  --toolbar-bg: var(--card);
+  --toolbar-border: var(--border);
+  --sidebar-bg: var(--sidebar);
+  --sidebar-border: var(--sidebar-border);
+  --ink: var(--foreground);
+  --text: var(--foreground);
+  --surface: var(--card);
+  --surface-strong: var(--card);
+  --field-bg: var(--background);
+  --disabled-bg: var(--muted);
+  --button-inactive-bg: var(--secondary);
+  --button-inactive-text: var(--secondary-foreground);
+  --mini-button-hover-bg: var(--accent-subtle);
+  --shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.3);
+}
+
+/* ---- shadcn-Kit-Scope: hier --accent = subtiler Hover (shadcn-Name) ---- */
+html[data-ui-variant="shadcn"] .fw-ui,
+html[data-ui-variant="liquid"] .fw-ui {
+  --accent: var(--accent-subtle);
+}
+
+/* Karten/Boxen der App auf shadcn-Card */
+html[data-ui-variant="shadcn"] .box,
+html[data-ui-variant="liquid"] .box {
+  background: var(--card);
+  color: var(--card-foreground);
+}

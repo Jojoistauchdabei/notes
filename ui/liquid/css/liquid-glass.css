@@ -1,0 +1,202 @@
+/* ============================================================================
+ * ui/liquid/css/liquid-glass.css
+ * Variante "shadcn/ui + Liquid Glass".
+ *
+ * Gleiche shadcn-Komponenten + Tokens wie ui/shadcn, zusaetzlich:
+ *  - Glas-Panels: backdrop-blur + Saettigung, halbtransparente Flaechen
+ *  - Lichtkanten: Verlauf auf border-box (Gradient-Border, 1px Lichtkante)
+ *  - Glas-Pillen-Buttons: rounded-full + Glas + inneres Leuchten
+ *  - Smooth Hover-Animationen (scale/lift/glow, cubic-bezier)
+ *  - animierter Hintergrund (Pastell-Mesh) hinter dem Glas
+ * Apple "Liquid Glass"-Anmutung, barrierefrei mit reduced-motion Fallback.
+ * ========================================================================== */
+
+html[data-ui-variant="liquid"] {
+  /* halbtransparente Flaechen; Hintergrund durch Glas sichtbar */
+  --fw-glass-bg: rgb(255 255 255 / 0.55);
+  --fw-glass-bg-strong: rgb(255 255 255 / 0.72);
+  --fw-glass-blur: 20px;
+  --fw-glass-sat: 180%;
+  --fw-glass-border-light: rgba(255, 255, 255, 0.55);
+  --fw-glass-border-dark: rgba(255, 255, 255, 0.12);
+  --fw-glass-inner: inset 0 1px 0 0 rgba(255, 255, 255, 0.45), inset 0 -1px 0 0 rgba(255, 255, 255, 0.12);
+  --fw-glass-shadow: 0 8px 32px rgba(15, 23, 42, 0.14), 0 2px 8px rgba(15, 23, 42, 0.08);
+  --fw-glass-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* shadcn-Tokens halbtransparent ueberlagern */
+  --card: rgb(255 255 255 / 0.55);
+  --popover: rgb(255 255 255 / 0.78);
+  --secondary: rgb(255 255 255 / 0.45);
+  --muted: rgb(255 255 255 / 0.40);
+  --accent-subtle: rgb(255 255 255 / 0.55);
+  --sidebar: rgb(255 255 255 / 0.45);
+  --toolbar-bg: rgb(255 255 255 / 0.55);
+  --header-bg: rgb(255 255 255 / 0.55);
+  --surface: rgb(255 255 255 / 0.55);
+  --surface-strong: rgb(255 255 255 / 0.72);
+  --radius: 0.875rem;              /* etwas runder fuer Glas */
+}
+
+html[data-ui-variant="liquid"][data-scheme="dark"],
+html[data-ui-variant="liquid"].dark {
+  --fw-glass-bg: rgb(23 23 23 / 0.50);
+  --fw-glass-bg-strong: rgb(23 23 23 / 0.72);
+  --fw-glass-border-light: rgba(255, 255, 255, 0.18);
+  --fw-glass-border-dark: rgba(255, 255, 255, 0.06);
+  --fw-glass-inner: inset 0 1px 0 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 0 rgba(255, 255, 255, 0.04);
+  --fw-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+
+  --card: rgb(23 23 23 / 0.50);
+  --popover: rgb(23 23 23 / 0.78);
+  --secondary: rgb(38 38 38 / 0.55);
+  --muted: rgb(38 38 38 / 0.45);
+  --accent-subtle: rgb(255 255 255 / 0.10);
+  --sidebar: rgb(23 23 23 / 0.45);
+  --toolbar-bg: rgb(23 23 23 / 0.50);
+  --header-bg: rgb(23 23 23 / 0.50);
+  --surface: rgb(23 23 23 / 0.50);
+  --surface-strong: rgb(23 23 23 / 0.72);
+}
+
+/* ---- Animierter Pastell-Mesh-Hintergrund hinter dem Glas --------------- */
+html[data-ui-variant="liquid"] body {
+  background:
+    radial-gradient(60rem 60rem at 8% -10%, rgba(191, 90, 242, 0.20), transparent 60%),
+    radial-gradient(55rem 55rem at 100% 0%, rgba(10, 132, 255, 0.20), transparent 55%),
+    radial-gradient(50rem 50rem at 50% 110%, rgba(48, 209, 88, 0.16), transparent 55%),
+    var(--background);
+  background-attachment: fixed;
+}
+html[data-ui-variant="liquid"][data-scheme="dark"] body {
+  background:
+    radial-gradient(60rem 60rem at 8% -10%, rgba(191, 90, 242, 0.16), transparent 60%),
+    radial-gradient(55rem 55rem at 100% 0%, rgba(10, 132, 255, 0.16), transparent 55%),
+    radial-gradient(50rem 50rem at 50% 110%, rgba(48, 209, 88, 0.10), transparent 55%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+/* Canvas/Paper NICHT verglaeschen (Lesbarkeit der Tinte) */
+html[data-ui-variant="liquid"] .stage,
+html[data-ui-variant="liquid"] .stage-stack,
+html[data-ui-variant="liquid"] canvas[data-part] { background-color: var(--paper-bg, #fff); }
+
+/* =====================================================================
+ * GLAS-MIXIN-KLASSEN
+ * ===================================================================== */
+html[data-ui-variant="liquid"] .fw-glass,
+html[data-ui-variant="liquid"] .box,
+html[data-ui-variant="liquid"] .card,
+html[data-ui-variant="liquid"] [data-slot="card"],
+html[data-ui-variant="liquid"] .fw-sidebar,
+html[data-ui-variant="liquid"] .folder-sidebar,
+html[data-ui-variant="liquid"] .header,
+html[data-ui-variant="liquid"] .fw-topbar,
+html[data-ui-variant="liquid"] .toolbar,
+html[data-ui-variant="liquid"] .pane-bar,
+html[data-ui-variant="liquid"] .status-line,
+html[data-ui-variant="liquid"] .editor-modal,
+html[data-ui-variant="liquid"] .dialog-content,
+html[data-ui-variant="liquid"] [data-slot="dialog-content"],
+html[data-ui-variant="liquid"] .dropdown-content,
+html[data-ui-variant="liquid"] .popover-content,
+html[data-ui-variant="liquid"] .fw-menu,
+html[data-ui-variant="liquid"] .fw-toast,
+html[data-ui-variant="liquid"] #canvasToolbar,
+html[data-ui-variant="liquid"] .fw-overlay-controls,
+html[data-ui-variant="liquid"] .fw-sheet,
+html[data-ui-variant="liquid"] .page-rail,
+html[data-ui-variant="liquid"] .fw-tooltip,
+html[data-ui-variant="liquid"] [role="tablist"] {
+  background:
+    linear-gradient(var(--fw-glass-bg), var(--fw-glass-bg)) padding-box,
+    linear-gradient(135deg, var(--fw-glass-border-light), var(--fw-glass-border-dark) 45%, var(--fw-glass-border-light) 100%) border-box;
+  border: 1px solid transparent;             /* Lichtkante via border-box-Verlauf */
+  -webkit-backdrop-filter: blur(var(--fw-glass-blur)) saturate(var(--fw-glass-sat));
+  backdrop-filter: blur(var(--fw-glass-blur)) saturate(var(--fw-glass-sat));
+  box-shadow: var(--fw-glass-shadow), var(--fw-glass-inner);
+  border-radius: var(--radius);
+}
+
+/* Tooltip ist einfach */
+html[data-ui-variant="liquid"] .fw-tooltip { background: var(--fw-glass-bg-strong); color: var(--foreground); border: 1px solid var(--fw-glass-border-light); }
+
+/* =====================================================================
+ * GLAS-Pillen-Buttons
+ * ===================================================================== */
+html[data-ui-variant="liquid"] .btn,
+html[data-ui-variant="liquid"] button.btn,
+html[data-ui-variant="liquid"] .mini-button {
+  border-radius: 9999px;                     /* Pillen-Form */
+  border: 1px solid transparent;
+  transition: transform .18s var(--fw-glass-ease), box-shadow .18s var(--fw-glass-ease),
+              background-color .18s var(--fw-glass-ease), border-color .18s var(--fw-glass-ease), filter .18s var(--fw-glass-ease);
+  will-change: transform;
+}
+/* Default-Primary bleibt glasig-haft + Markenfarbe */
+html[data-ui-variant="liquid"] .btn-default,
+html[data-ui-variant="liquid"] .btn-primary,
+html[data-ui-variant="liquid"] .mini-button.picked,
+html[data-ui-variant="liquid"] .mini-button.is-active,
+html[data-ui-variant="liquid"] .mini-button.active {
+  background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 78%, transparent));
+  color: var(--primary-foreground);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 35%, transparent), inset 0 1px 0 0 rgba(255,255,255,.25);
+}
+/* Secondary/Outline/Ghost als Glas-Pille */
+html[data-ui-variant="liquid"] .btn-secondary,
+html[data-ui-variant="liquid"] .btn-outline,
+html[data-ui-variant="liquid"] .btn-ghost,
+html[data-ui-variant="liquid"] .mini-button:not(.picked):not(.is-active):not(.active):not(.inactive) {
+  background:
+    linear-gradient(var(--fw-glass-bg), var(--fw-glass-bg)) padding-box,
+    linear-gradient(135deg, var(--fw-glass-border-light), var(--fw-glass-border-dark)) border-box;
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  backdrop-filter: blur(12px) saturate(160%);
+  box-shadow: var(--fw-glass-inner);
+}
+
+/* =====================================================================
+ * SMOOTH HOVER-ANIMATIONEN
+ * ===================================================================== */
+html[data-ui-variant="liquid"] .btn:hover,
+html[data-ui-variant="liquid"] .mini-button:hover,
+html[data-ui-variant="liquid"] .fw-sidebar-menu-button:hover,
+html[data-ui-variant="liquid"] .fw-theme-item:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.16), var(--fw-glass-inner);
+  filter: saturate(1.08);
+}
+html[data-ui-variant="liquid"] .btn-icon:hover,
+html[data-ui-variant="liquid"] .btn-icon-sm:hover { transform: translateY(-1px) scale(1.08); }
+html[data-ui-variant="liquid"] .btn:active,
+html[data-ui-variant="liquid"] .mini-button:active { transform: translateY(0) scale(0.98); }
+html[data-ui-variant="liquid"] .box:hover,
+html[data-ui-variant="liquid"] .card:hover { box-shadow: 0 12px 36px rgba(15, 23, 42, 0.16), var(--fw-glass-inner); }
+
+/* Lichtkante schimmert beim Hover (Sheen) */
+html[data-ui-variant="liquid"] .fw-glass { position: relative; }
+html[data-ui-variant="liquid"] .fw-glass::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.18) 50%, transparent 70%);
+  opacity: 0; transition: opacity .25s ease; 
+}
+html[data-ui-variant="liquid"] .fw-glass:hover::before { opacity: 1; }
+
+/* Tabs/Tablist Glas */
+html[data-ui-variant="liquid"] [role="tab"][aria-selected="true"] { background: var(--fw-glass-bg-strong); }
+
+/* Dunkel-/Hell + Reduced-Motion */
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-variant="liquid"] * { transition-duration: .001ms !important; animation-duration: .001ms !important; }
+  html[data-ui-variant="liquid"] .btn:hover,
+  html[data-ui-variant="liquid"] .mini-button:hover { transform: none; }
+}
+
+/* Fallback ohne backdrop-filter-Support */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-ui-variant="liquid"] .fw-glass,
+  html[data-ui-variant="liquid"] .box,
+  html[data-ui-variant="liquid"] .toolbar,
+  html[data-ui-variant="liquid"] .editor-modal { background: var(--card); }
+}

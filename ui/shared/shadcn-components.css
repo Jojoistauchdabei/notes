@@ -1,0 +1,286 @@
+/* ============================================================================
+ * ui/shared/shadcn-components.css
+ * shadcn/ui Komponenten (vanilla-Reimplementierung, exakte shadcn-Struktur +
+ * Klassen + Tokens) + Re-Style der bestehenden Federwerk-App-Klassen.
+ * Scope: html[data-ui-variant]. Laedt NACH css/styles.css -> gewinnt.
+ * ========================================================================== */
+
+html[data-ui-variant="shadcn"],
+html[data-ui-variant="liquid"] {
+  color-scheme: light;
+}
+html[data-ui-variant="shadcn"][data-scheme="dark"],
+html[data-ui-variant="liquid"][data-scheme="dark"],
+html[data-ui-variant].dark { color-scheme: dark; }
+
+/* ---------- shadcn Button ----------
+ * shadcn: inline-flex items-center justify-center gap-2 rounded-md text-sm
+ * font-medium transition; default h-9 px-4; icon size-9. */
+html[data-ui-variant] :where(.btn, .mini-button, button.fw-btn) {
+  font-family: inherit;
+}
+
+html[data-ui-variant] .btn,
+html[data-ui-variant] button.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 0.5rem; white-space: nowrap;
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 0.875rem; font-weight: 500; line-height: 1;
+  height: 2.25rem; padding: 0 1rem;
+  border: 1px solid transparent; background: transparent; color: inherit;
+  cursor: pointer; user-select: none;
+  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s, opacity .15s, transform .05s;
+  min-height: 0; box-shadow: none;
+}
+html[data-ui-variant] .btn:active { transform: translateY(0.5px); }
+html[data-ui-variant] .btn:disabled,
+html[data-ui-variant] .btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+html[data-ui-variant] .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 45%, transparent); }
+
+/* variants */
+html[data-ui-variant] .btn-default,
+html[data-ui-variant] .btn-primary { background: var(--primary); color: var(--primary-foreground); }
+html[data-ui-variant] .btn-default:hover { background: color-mix(in srgb, var(--primary) 90%, transparent); }
+html[data-ui-variant] .btn-destructive { background: var(--destructive); color: #fff; }
+html[data-ui-variant] .btn-destructive:hover { background: color-mix(in srgb, var(--destructive) 90%, transparent); }
+html[data-ui-variant] .btn-outline { border-color: var(--border); background: var(--background); box-shadow: 0 1px 2px rgb(0 0 0 / .04); }
+html[data-ui-variant] .btn-outline:hover { background: var(--accent-subtle); color: var(--accent-foreground); }
+html[data-ui-variant] .btn-secondary { background: var(--secondary); color: var(--secondary-foreground); }
+html[data-ui-variant] .btn-secondary:hover { background: color-mix(in srgb, var(--secondary) 80%, transparent); }
+html[data-ui-variant] .btn-ghost { background: transparent; }
+html[data-ui-variant] .btn-ghost:hover { background: var(--accent-subtle); color: var(--accent-foreground); }
+html[data-ui-variant] .btn-link { background: transparent; color: var(--primary); text-underline-offset: 4px; }
+html[data-ui-variant] .btn-link:hover { text-decoration: underline; }
+/* sizes */
+html[data-ui-variant] .btn-sm { height: 2rem; padding: 0 .75rem; border-radius: calc(var(--radius) - 2px); font-size: .8125rem; }
+html[data-ui-variant] .btn-lg { height: 2.5rem; padding: 0 1.5rem; }
+html[data-ui-variant] .btn-icon { width: 2.25rem; height: 2.25rem; padding: 0; }
+html[data-ui-variant] .btn-icon-sm { width: 2rem; height: 2rem; padding: 0; }
+html[data-ui-variant] .btn-icon-lg { width: 2.5rem; height: 2.5rem; padding: 0; }
+
+/* ---------- Federwerk .mini-button / .inactive -> shadcn ---------- */
+html[data-ui-variant] .mini-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--border); background: var(--background); color: var(--foreground);
+  font-size: .8125rem; font-weight: 500; line-height: 1.1;
+  min-height: 2rem; height: auto; padding: .35rem .65rem; min-width: 0;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .04); cursor: pointer;
+  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s, transform .05s;
+}
+html[data-ui-variant] .mini-button:hover { background: var(--accent-subtle); color: var(--accent-foreground); }
+html[data-ui-variant] .mini-button:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 45%, transparent); }
+html[data-ui-variant] .mini-button.picked,
+html[data-ui-variant] .mini-button.is-active,
+html[data-ui-variant] .mini-button.active {
+  background: var(--primary); color: var(--primary-foreground); border-color: var(--primary);
+}
+html[data-ui-variant] .mini-button.inactive {
+  background: var(--secondary); color: var(--secondary-foreground); border-color: var(--border);
+}
+html[data-ui-variant] .mini-button.inactive:hover { background: var(--accent-subtle); }
+/* icon-only toolbar buttons (shadcn size=icon) */
+html[data-ui-variant] .toolbar .mini-button,
+html[data-ui-variant] #toolButtons .mini-button {
+  min-width: 2.25rem; min-height: 2.25rem; padding: .35rem .5rem;
+}
+
+/* ---------- Toolbar (icon-based, shadcn Toolbar) ---------- */
+html[data-ui-variant] .toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .35rem;
+  background: var(--card); color: var(--card-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .4rem .5rem; box-shadow: var(--shadow);
+}
+html[data-ui-variant] .toolbar .tool-group { display: inline-flex; align-items: center; gap: .25rem; }
+html[data-ui-variant] .toolbar .sep,
+html[data-ui-variant] .editor-sep {
+  width: 1px; height: 1.5rem; background: var(--border); margin: 0 .25rem; border: 0; align-self: center;
+}
+html[data-ui-variant] .toolbar .tool-group--tools .mini-button { min-width: 2.5rem; }
+
+/* ---------- shadcn Card / .box ---------- */
+html[data-ui-variant] .box,
+html[data-ui-variant] .card,
+html[data-ui-variant] [data-slot="card"] {
+  background: var(--card); color: var(--card-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 1rem;
+}
+html[data-ui-variant] .box { margin-bottom: 1rem; }
+
+/* ---------- shadcn Badge ---------- */
+html[data-ui-variant] .badge,
+html[data-ui-variant] [data-slot="badge"] {
+  display: inline-flex; align-items: center; gap: .35rem;
+  border-radius: 9999px; border: 1px solid transparent;
+  padding: .125rem .5rem; font-size: .75rem; font-weight: 500; line-height: 1;
+  background: var(--primary); color: var(--primary-foreground);
+}
+html[data-ui-variant] .badge-secondary { background: var(--secondary); color: var(--secondary-foreground); }
+html[data-ui-variant] .badge-destructive { background: var(--destructive); color: #fff; }
+html[data-ui-variant] .badge-outline { background: transparent; color: var(--foreground); border-color: var(--border); }
+html[data-ui-variant] .badge-ghost { background: transparent; color: var(--muted-foreground); }
+html[data-ui-variant] .version-tag { opacity: 1; }
+
+/* ---------- shadcn Input / Label / Select / Textarea ---------- */
+html[data-ui-variant] input[type="text"],
+html[data-ui-variant] input[type="email"],
+html[data-ui-variant] input[type="password"],
+html[data-ui-variant] input[type="search"],
+html[data-ui-variant] input[type="number"],
+html[data-ui-variant] input[type="url"],
+html[data-ui-variant] input[type="tel"],
+html[data-ui-variant] input:not([type]),
+html[data-ui-variant] textarea,
+html[data-ui-variant] select {
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--input); background: var(--background); color: var(--foreground);
+  font-size: .875rem; min-height: 2.25rem; padding: .4rem .65rem;
+  transition: border-color .15s, box-shadow .15s;
+}
+html[data-ui-variant] input::placeholder, html[data-ui-variant] textarea::placeholder { color: var(--muted-foreground); }
+html[data-ui-variant] input:focus-visible, html[data-ui-variant] textarea:focus-visible, html[data-ui-variant] select:focus-visible {
+  outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 35%, transparent);
+}
+html[data-ui-variant] input[type="range"] { accent-color: var(--primary); min-height: 0; border: 0; background: transparent; padding: 0; }
+html[data-ui-variant] input[type="checkbox"], html[data-ui-variant] input[type="radio"] { accent-color: var(--primary); }
+html[data-ui-variant] input[type="color"] { border: 1px solid var(--border); border-radius: calc(var(--radius) - 4px); padding: 2px; min-height: 2rem; width: 2.5rem; background: var(--background); }
+html[data-ui-variant] label { font-size: .8125rem; font-weight: 500; }
+
+/* ---------- shadcn Dialog (.editor-overlay/.editor-modal in der App) --- */
+html[data-ui-variant] .editor-overlay,
+html[data-ui-variant] .dialog-overlay,
+html[data-ui-variant] [data-slot="dialog-overlay"] {
+  background: rgb(0 0 0 / .5); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+}
+html[data-ui-variant] .editor-modal,
+html[data-ui-variant] .dialog-content,
+html[data-ui-variant] [data-slot="dialog-content"] {
+  background: var(--card); color: var(--card-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .18), 0 2px 8px rgb(0 0 0 / .08);
+}
+html[data-ui-variant] .editor-header { border-bottom: 1px solid var(--border); }
+html[data-ui-variant] .editor-header-title { font-weight: 600; letter-spacing: -.01em; }
+html[data-ui-variant] .editor-footer { border-top: 1px solid var(--border); }
+html[data-ui-variant] .editor-toolbar { border-bottom: 1px solid var(--border); background: var(--card); }
+
+/* ---------- shadcn Tabs (app .aw-auth-tabs / flash tabs / graph) -------- */
+html[data-ui-variant] .aw-auth-tabs,
+html[data-ui-variant] [role="tablist"],
+html[data-ui-variant] .tabs-list,
+html[data-ui-variant] [data-slot="tabs-list"] {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--muted); color: var(--muted-foreground);
+  border-radius: calc(var(--radius) - 2px); padding: 3px; gap: 2px; border: 0;
+}
+html[data-ui-variant] .aw-auth-tab,
+html[data-ui-variant] [role="tab"],
+html[data-ui-variant] .tab,
+html[data-ui-variant] [data-slot="tabs-trigger"] {
+  border-radius: calc(var(--radius) - 4px); border: 0; background: transparent;
+  color: var(--muted-foreground); font-weight: 500; font-size: .8125rem;
+  padding: .3rem .8rem; min-height: 1.75rem; box-shadow: none; min-width: 0;
+}
+html[data-ui-variant] .aw-auth-tab.active,
+html[data-ui-variant] .tab.active,
+html[data-ui-variant] [role="tab"][aria-selected="true"],
+html[data-ui-variant] [data-slot="tabs-trigger"][data-state="active"] {
+  background: var(--background); color: var(--foreground); box-shadow: var(--shadow-sm);
+}
+
+/* ---------- shadcn Dropdown / Popover ---------- */
+html[data-ui-variant] .dropdown-content,
+html[data-ui-variant] .popover-content,
+html[data-ui-variant] [data-slot="dropdown-menu-content"],
+html[data-ui-variant] [data-slot="popover-content"],
+html[data-ui-variant] .fw-menu {
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / .14), 0 2px 6px rgb(0 0 0 / .06);
+  padding: .25rem; z-index: 200;
+}
+html[data-ui-variant] .dropdown-item,
+html[data-ui-variant] .fw-menu-item,
+html[data-ui-variant] [data-slot="dropdown-menu-item"] {
+  display: flex; align-items: center; gap: .5rem; width: 100%;
+  border-radius: calc(var(--radius) - 4px); padding: .4rem .6rem;
+  font-size: .8125rem; background: transparent; border: 0; color: inherit; text-align: left; cursor: pointer;
+}
+html[data-ui-variant] .dropdown-item:hover,
+html[data-ui-variant] .fw-menu-item:hover,
+html[data-ui-variant] [data-slot="dropdown-menu-item"]:hover,
+html[data-ui-variant] .dropdown-item:focus-visible { background: var(--accent-subtle); outline: none; }
+html[data-ui-variant] .dropdown-separator,
+html[data-ui-variant] .fw-menu-separator { height: 1px; background: var(--border); margin: .25rem -.25rem; border: 0; }
+
+/* ---------- shadcn Sidebar ---------- */
+html[data-ui-variant] .fw-sidebar {
+  background: var(--sidebar); color: var(--sidebar-foreground);
+  border-right: 1px solid var(--sidebar-border);
+}
+
+/* ---------- shadcn Kbd ---------- */
+html[data-ui-variant] kbd,
+html[data-ui-variant] .kbd,
+html[data-ui-variant] [data-slot="kbd"] {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.25rem; height: 1.25rem; padding: 0 .3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .6875rem; font-weight: 500;
+  background: var(--muted); color: var(--muted-foreground);
+  border: 1px solid var(--border); border-bottom-width: 2px; border-radius: .3rem;
+}
+
+/* ---------- shadcn Separator ---------- */
+html[data-ui-variant] .separator,
+html[data-ui-variant] hr,
+html[data-ui-variant] [data-slot="separator"] { border: 0; border-top: 1px solid var(--border); height: 1px; margin: .5rem 0; background: var(--border); }
+
+/* ---------- shadcn Skeleton ---------- */
+html[data-ui-variant] .skeleton { background: var(--muted); border-radius: calc(var(--radius) - 2px); animation: fw-pulse 1.6s ease-in-out infinite; }
+@keyframes fw-pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+
+/* ---------- Sonner / Toast ---------- */
+.fw-toaster { position: fixed; bottom: 1rem; right: 1rem; z-index: 300; display: flex; flex-direction: column; gap: .5rem; }
+html[data-ui-variant] .fw-toast {
+  background: var(--card); color: var(--card-foreground); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: .75rem 1rem; font-size: .8125rem; box-shadow: 0 8px 24px rgb(0 0 0 / .14);
+  min-width: 16rem; animation: fw-toast-in .18s ease;
+}
+@keyframes fw-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ---------- Smooth hover / transitions (shadcn-Gefuehl) ---------- */
+html[data-ui-variant] .box,
+html[data-ui-variant] .card { transition: box-shadow .18s ease, border-color .18s ease, background-color .18s ease; }
+
+/* App-Header -> shadcn Topbar */
+html[data-ui-variant] .header {
+  background: var(--card); color: var(--card-foreground); border-bottom: 1px solid var(--border);
+}
+html[data-ui-variant] .header .brand-name { letter-spacing: -.02em; font-weight: 700; }
+html[data-ui-variant] .header .brand-tagline { color: var(--muted-foreground); }
+
+/* Pane-Bar / Status-Line shadcn-artig */
+html[data-ui-variant] .pane-bar { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
+html[data-ui-variant] .status-line { color: var(--muted-foreground); }
+html[data-ui-variant] .page-rail { border-right: 1px solid var(--border); }
+
+/* Folder-Sidebar (Bibliothek) shadcn Sidebar-Stil */
+html[data-ui-variant] .folder-sidebar { background: var(--sidebar); border: 1px solid var(--sidebar-border); border-radius: var(--radius); }
+html[data-ui-variant] .folder-item.active { background: var(--sidebar-primary); color: var(--sidebar-primary-foreground); }
+
+/* Canvas-Schreibfluss-Toolbar (js/canvas.js #canvasToolbar) -> shadcn + Glas */
+html[data-ui-variant] #canvasToolbar {
+  background: var(--card); color: var(--card-foreground); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 8px 28px rgb(0 0 0 / .18);
+}
+html[data-ui-variant] #canvasToolbar button { border-radius: calc(var(--radius) - 4px); border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
+html[data-ui-variant] #canvasToolbar button.picked { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-variant] *, html[data-ui-variant] *::before, html[data-ui-variant] *::after {
+    animation-duration: .001ms !important; transition-duration: .001ms !important;
+  }
+}

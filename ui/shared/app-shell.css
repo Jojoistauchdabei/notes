@@ -1,0 +1,112 @@
+/* ============================================================================
+ * ui/shared/app-shell.css
+ * App-Shell-Layout: shadcn-Sidebar (collapsible) + Inset + Topbar.
+ * Funktioniert in beiden Varianten; Liquid-Glass-Variante ueberschreibt
+ * Flaechen separat. Responsive: Desktop >= 900px Sidebar, Mobile Sheet.
+ * ========================================================================== */
+
+html[data-ui-variant] body { background: var(--app-bg); color: var(--ink); }
+
+.fw-app-shell { display: flex; min-height: 100dvh; width: 100%; }
+
+/* ---------- Sidebar ---------- */
+.fw-sidebar {
+  --fw-sb-w: var(--sidebar-width, 16rem);
+  flex: 0 0 var(--fw-sb-w); width: var(--fw-sb-w);
+  display: flex; flex-direction: column; gap: .5rem;
+  padding: .75rem; height: 100dvh; position: sticky; top: 0;
+  background: var(--sidebar); color: var(--sidebar-foreground);
+  border-right: 1px solid var(--sidebar-border);
+  transition: width .18s ease, flex-basis .18s ease, transform .18s ease;
+  overflow-y: auto; z-index: 40;
+}
+.fw-sidebar-header { display: flex; align-items: center; gap: .5rem; padding: .25rem .25rem .5rem; }
+.fw-sidebar-brand { display: flex; align-items: center; gap: .55rem; font-weight: 700; letter-spacing: -.02em; }
+.fw-sidebar-brand img { width: 28px; height: 28px; }
+.fw-sidebar-brand-sub { display: block; font-size: .6875rem; font-weight: 400; color: var(--muted-foreground); }
+.fw-sidebar-content { display: flex; flex-direction: column; gap: .5rem; flex: 1 1 auto; min-height: 0; }
+.fw-sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: .5rem; padding-top: .5rem; border-top: 1px solid var(--sidebar-border); }
+.fw-sidebar-group { display: flex; flex-direction: column; gap: .25rem; }
+.fw-sidebar-group-label { font-size: .6875rem; font-weight: 600; color: var(--muted-foreground); padding: .4rem .5rem .2rem; text-transform: uppercase; letter-spacing: .04em; }
+.fw-sidebar-menu { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .125rem; }
+.fw-sidebar-menu-item { list-style: none; }
+.fw-sidebar-menu-button {
+  display: flex; align-items: center; gap: .55rem; width: 100%;
+  border: 0; background: transparent; color: inherit; text-align: left;
+  border-radius: calc(var(--radius) - 2px); padding: .45rem .55rem;
+  font-size: .8125rem; font-weight: 500; cursor: pointer; min-height: 2rem;
+  transition: background-color .14s, color .14s;
+}
+.fw-sidebar-menu-button:hover { background: var(--sidebar-accent); color: var(--sidebar-accent-foreground); }
+.fw-sidebar-menu-button.is-active,
+.fw-sidebar-menu-button[data-active="true"] { background: var(--sidebar-primary); color: var(--sidebar-primary-foreground); }
+.fw-sidebar-menu-button .fw-ico { width: 1rem; height: 1rem; flex: 0 0 auto; }
+.fw-sidebar-menu-button kbd { margin-left: auto; }
+.fw-sidebar-trigger { /* shadcn SidebarTrigger */ }
+
+/* Collapsed (icon-only) */
+.fw-app-shell[data-sidebar-collapsed="true"] .fw-sidebar { --fw-sb-w: var(--sidebar-width-icon, 3rem); padding: .5rem; }
+.fw-app-shell[data-sidebar-collapsed="true"] .fw-sidebar .fw-sidebar-brand-sub,
+.fw-app-shell[data-sidebar-collapsed="true"] .fw-sidebar .fw-sidebar-group-label,
+.fw-app-shell[data-sidebar-collapsed="true"] .fw-sidebar .fw-sidebar-menu-button > span,
+.fw-app-shell[data-sidebar-collapsed="true"] .fw-sidebar .fw-sidebar-brand > span,
+.fw-app-shell[data-sidebar-collapsed="true"] .fw-sidebar kbd,
+.fw-app-shell[data-sidebar-collapsed="true"] .fw-sidebar .fw-sidebar-footer-label { display: none; }
+.fw-app-shell[data-sidebar-collapsed="true"] .fw-sidebar .fw-sidebar-menu-button { justify-content: center; padding: .5rem; }
+
+/* ---------- Inset ---------- */
+.fw-sidebar-inset { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 100dvh; }
+.fw-main { flex: 1 1 auto; min-width: 0; }
+
+/* ---------- Topbar ---------- */
+html[data-ui-variant] .fw-topbar.header {
+  position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: .5rem;
+  padding: .5rem .75rem; min-height: 3.5rem;
+  background: var(--card); border-bottom: 1px solid var(--border);
+}
+.fw-topbar .header-buttons { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.fw-topbar .header-group { display: inline-flex; align-items: center; gap: .35rem; }
+
+/* ---------- Canvas fullscreen + Overlay-Controls ---------- */
+body.fw-canvas-fullscreen { overflow: hidden; }
+body.fw-canvas-fullscreen .fw-sidebar,
+body.fw-canvas-fullscreen .fw-topbar,
+body.fw-canvas-fullscreen .pane-bar,
+body.fw-canvas-fullscreen .book-nav,
+body.fw-canvas-fullscreen .page-rail,
+body.fw-canvas-fullscreen .status-line { display: none !important; }
+body.fw-canvas-fullscreen .fw-sidebar-inset { width: 100%; }
+body.fw-canvas-fullscreen .split-container,
+body.fw-canvas-fullscreen .stage-wrap { margin: 0; }
+body.fw-canvas-fullscreen .stage-scroll { max-height: 100dvh; }
+.fw-overlay-controls {
+  position: absolute; z-index: 25; top: .75rem; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; justify-content: center;
+  background: var(--card); color: var(--card-foreground); border: 1px solid var(--border);
+  border-radius: 9999px; padding: .35rem .5rem; box-shadow: 0 8px 28px rgb(0 0 0 / .18);
+  opacity: .92; transition: opacity .15s;
+}
+.fw-overlay-controls:hover { opacity: 1; }
+.fw-stage-wrap { position: relative; }
+
+/* ---------- shadcn Sheet (mobile) ---------- */
+.fw-sheet-overlay { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / .5); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+.fw-sheet { position: fixed; z-index: 51; top: 0; bottom: 0; width: var(--sidebar-width-mobile, 18rem); background: var(--sidebar); color: var(--sidebar-foreground); box-shadow: 0 0 40px rgb(0 0 0 / .25); padding: .75rem; overflow-y: auto; }
+.fw-sheet-left { left: 0; } .fw-sheet-right { right: 0; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 899px) {
+  .fw-app-shell { display: block; }
+  .fw-sidebar { display: none; }
+  .fw-app-shell[data-mobile-open="true"] .fw-sidebar {
+    display: flex; position: fixed; inset: 0 auto 0 0; width: var(--sidebar-width-mobile, 18rem); flex-basis: auto;
+  }
+  .fw-sidebar-trigger-mobile { display: inline-flex !important; }
+}
+@media (min-width: 900px) { .fw-sidebar-trigger-mobile { display: none; } }
+
+/* shadcn Sheet-Overlay fuer Mobile */
+.fw-mobile-scrim { display: none; }
+@media (max-width: 899px) {
+  .fw-app-shell[data-mobile-open="true"] .fw-mobile-scrim { display: block; position: fixed; inset: 0; z-index: 39; background: rgb(0 0 0 / .5); }
+}

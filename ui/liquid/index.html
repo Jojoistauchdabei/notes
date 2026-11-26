@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="de" data-ui-variant="liquid" data-scheme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!-- App-Shell im Unterordner: Basis-URL = Repo-Root -->
+  <base href="../../">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#171717">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Federwerk">
+  <link rel="icon" type="image/svg+xml" href="icons/logo.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>Federwerk – shadcn + Liquid Glass</title>
+  <!-- Theme-Switcher VOR dem ersten Paint (kein Flackern); shadcn/Liquid -->
+  
+  <script src="ui/shared/theme-switcher.js" data-boot></script>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/canvas.css">
+  
+  <link rel="stylesheet" href="ui/shared/shadcn-tokens.css">
+  <link rel="stylesheet" href="ui/shared/shadcn-components.css">
+  <link rel="stylesheet" href="ui/shared/app-shell.css">
+  <link rel="stylesheet" href="ui/shared/tailwind.css">
+  <link id="fw-variant-css" rel="stylesheet" href="ui/liquid/css/liquid-glass.css">
+</head>
+<body>
+<!-- Variante: shadcn/ui + Liquid Glass -->
+<div class="fw-mobile-scrim" data-fw-mobile-scrim></div><div class="fw-app-shell fw-ui" data-sidebar-collapsed="false" data-mobile-open="false">
+<aside class="fw-sidebar fw-ui" id="appSidebar" data-sidebar aria-label="Navigation">
+  <div class="fw-sidebar-header">
+    <button type="button" class="btn btn-ghost btn-icon fw-sidebar-trigger" data-sidebar-toggle aria-label="Sidebar umschalten" aria-expanded="true" title="Sidebar ein-/ausklappen (Ctrl+B)"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button>
+    <a class="fw-sidebar-brand" href="#" onclick="showLibrary();return false" aria-label="Federwerk – Bibliothek">
+      <img src="icons/logo.svg" alt="" width="28" height="28">
+      <span>Federwerk<span class="fw-sidebar-brand-sub">Notizbuch</span></span>
+    </a>
+  </div>
+  <div class="fw-sidebar-content">
+    <nav class="fw-sidebar-group" aria-label="Ansichten">
+      <div class="fw-sidebar-group-label">Arbeiten</div>
+      <ul class="fw-sidebar-menu">
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="showLibrary()"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg><span>Bibliothek</span></button></li>
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="if(typeof openBook==='function'&&window.__lastBook)openBook(window.__lastBook)"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg><span>Notiz</span></button></li>
+      </ul>
+    </nav>
+    <nav class="fw-sidebar-group" aria-label="Neu & Import">
+      <div class="fw-sidebar-group-label">Neu &amp; Import</div>
+      <ul class="fw-sidebar-menu">
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="createNotebook()"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span>Neues Buch</span></button></li>
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="createFlashDeck()"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 3v4"/><path d="M16 3v4"/><path d="M3 11h18"/></svg><span>Karteikarten-Deck</span></button></li>
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="createOfficeDoc('doc')"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span>Office-Dokument</span></button></li>
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="document.getElementById('gnFile').click()"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span>GoodNotes-Import</span></button></li>
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="location.href='md.html'"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg><span>Markdown-Editor</span></button></li>
+      </ul>
+    </nav>
+    <nav class="fw-sidebar-group" aria-label="Teilen & Export">
+      <div class="fw-sidebar-group-label">Teilen &amp; Export</div>
+      <ul class="fw-sidebar-menu">
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="exportAllJSON()"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Export JSON</span></button></li>
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="document.getElementById('importFile').click()"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span>Import JSON</span></button></li>
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="window.FederwerkLive&&FederwerkLive.openDialog('host')"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20"/><path d="M12 2a14.5 14.5 0 0 1 0 20"/></svg><span>Liveshare</span></button></li>
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="window.FederwerkFilesUI&&FederwerkFilesUI.openSettings()"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 0 0 0-9h-1.8A7 7 0 1 0 4 14.9"/></svg><span>Cloud / Server</span></button></li>
+        <li class="fw-sidebar-menu-item"><button type="button" class="fw-sidebar-menu-button" onclick="window.print()"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg><span>Druck / PDF</span></button></li>
+      </ul>
+    </nav>
+  </div>
+  <div class="fw-sidebar-footer">
+    <button type="button" class="fw-sidebar-menu-button" data-fw-variant-toggle title="Variante wechseln (Ctrl+Shift+L)"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg><span class="fw-sidebar-footer-label" data-fw-variant-label>Variante</span></button>
+    <button type="button" class="fw-sidebar-menu-button" data-fw-scheme-toggle title="Dunkel-/Hellmodus (Ctrl+Shift+D)"><span data-fw-scheme-icon><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></span><span class="fw-sidebar-footer-label">Hell/Dunkel</span></button>
+    <button type="button" class="fw-sidebar-menu-button" onclick="window.FWShortcuts&&FWShortcuts.show()" title="Tastatur-Shortcuts (Ctrl+/)"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M7 16h10"/></svg><span class="fw-sidebar-footer-label">Shortcuts</span><kbd>Ctrl /</kbd></button>
+  </div>
+</aside><div class="fw-sidebar-inset"><div class="container">
+    <div class="header fw-topbar fw-ui">
+      <h1><img class="brand-logo" src="icons/logo.svg" alt="" width="52" height="52"><span><span class="brand-name">Federwerk</span><span class="brand-tagline">Gedanken von deiner Hand.</span></span></h1>
+      <div class="header-buttons">
+        <button type="button" class="btn btn-ghost btn-icon fw-sidebar-trigger fw-sidebar-trigger-mobile" data-sidebar-toggle aria-label="Navigation öffnen" title="Navigation (Ctrl+B)"><svg class="fw-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button>
+        <div class="header-group">
+          <button class="btn-export" onclick="exportAllJSON()" aria-label="Exportiere alle Bücher als JSON">⬇ Export JSON</button>
+          <button class="btn-import" onclick="document.getElementById('importFile').click()" aria-label="Importiere JSON-Dateien">⬆ Import JSON</button>
+          <button class="btn-import" onclick="document.getElementById('gnFile').click()" aria-label="Importiere GoodNotes-Dateien">📥 GoodNotes</button>
+          <button class="btn-import" onclick="location.href='md.html'" aria-label="Markdown-Editor öffnen" title="Markdown-Editor: Live-Vorschau mit markdown-wasm">✎ Markdown</button>
+        </div>
+        <div class="header-group">
+          <button class="btn-print" onclick="window.print()" aria-label="Seite drucken oder als PDF speichern">🖨 Druck / PDF</button>
+        </div>
+        <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none" aria-hidden="true">
+        <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none" aria-hidden="true">
+        <span class="version-tag" aria-hidden="true">v1.9.0 · BUILD 20.09.2026-1</span>
+      </div>
+    </div>
+
+    <!-- BIBLIOTHEK -->
+    <div class="view active" id="viewLibrary">
+      <div class="box">
+        <div class="search-bar no-print">
+          <input type="text" id="librarySearch" placeholder="Suchen: Text, tag:#x, file:Titel, &quot;Phrase&quot;, -aus, A OR B ..." oninput="renderLibrarySoon()" aria-label="Federwerk durchsuchen" title="Syntax: Text | tag:#name | file:Titel | &quot;exakte Phrase&quot; | -ausschluss | A OR B">
+          <button onclick="openGraphOverlay()" style="white-space:nowrap" aria-label="Graph-Ansicht öffnen">◈ Graph</button>
+          <button onclick="openCraftOverlay()" style="white-space:nowrap" aria-label="ArtCraft-Apps öffnen" title="Zwölf quelloffene Rust-Apps von ArtCraft">◆ Craft</button>
+          <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
+          <button onclick="createFlashDeck()" style="white-space:nowrap" aria-label="Neues Karteikarten-Deck erstellen">+ 🂠 Deck</button>
+<button id="newOfficeBtn" onclick="createOfficeDoc('doc')" style="white-space:nowrap" aria-label="Neues Office-Dokument erstellen und im Writer öffnen" title="Office (SPEC-40): Textdokument mit Überschriften, Listen, Formatierung und DOCX-Import/Export">+ 📄 Office</button>
+        </div>
+        <div class="folder-chips no-print" id="folderChips" role="tablist" aria-label="Ordner-Filter (mobil)"></div>
+        <div class="library-layout">
+          <aside class="folder-sidebar no-print" aria-label="Ordner">
+            <div class="folder-sidebar-head">
+              <div>
+                <div class="section-title folder-sidebar-title">Dateien</div>
+                <div class="folder-sidebar-subtitle">Dokumente und Ordner</div>
+              </div>
+              <button class="mini-button folder-new-button" onclick="createFolderUI()" aria-label="Neuen Ordner erstellen" title="Neuen Ordner erstellen">＋</button>
+            </div>
+            <div class="folder-toolbar" aria-label="Ordneransicht">
+              <button type="button" class="folder-toolbar-button" onclick="setActiveFolder('all',event)" title="Alle Dokumente anzeigen">⌂ <span>Alle Dateien</span></button>
+              <button type="button" class="folder-toolbar-icon" onclick="expandAllFolders()" title="Alle Ordner aufklappen" aria-label="Alle Ordner aufklappen">＋</button>
+              <button type="button" class="folder-toolbar-icon" onclick="collapseAllFolders()" title="Alle Ordner zuklappen" aria-label="Alle Ordner zuklappen">−</button>
+            </div>
+            <nav class="folder-nav" id="folderNav" aria-label="Ordner-Liste"></nav>
+            <div class="folder-hint">Ordner wie im Dateimanager verwalten: ziehen, ablegen, doppelklicken zum Umbenennen oder Rechtsklick für weitere Aktionen.</div>
+          </aside>
+          <section class="library-main" aria-live="polite">
+            <div id="conflictBanner" class="conflict-banner no-print" style="display:none" role="alert"></div>
+            <div class="divider"><div class="divider-line"></div><div class="divider-title" id="libraryFolderTitle">Alle Bücher</div><div class="divider-line"></div></div>
+            <div class="library-grid" id="libraryGrid"></div>
+          </section>
+        </div>
+      </div>
+      <div class="box">
+        <div class="section-title">Über Federwerk</div>
+        <div style="font-size:14px">Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Rich-Text-Editor, Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ Appwrite-Cloud</b> für Notizen- und Datei-Sync zwischen Geräten – siehe „Appwrite-Cloud“ unten.</div>
+      </div>
+      <div class="box">
+        <div class="section-title">🔴 Liveshare</div>
+        <div class="cloud-status-wrap">
+          <div id="liveStatus" aria-live="polite">Liveshare: aus – über „🔴 Live“ starten.</div>
+          <div style="font-size:13px;opacity:.85">Seite live mit anderen teilen: Share-Link (Lesen/Edit, mit Ablauf) + Live-Cursor. Läuft über deine Appwrite-Tabellen <code>shares</code>/<code>share_events</code> – Login in ⚙ nötig, kein Drittanbieter.</div>
+          <div class="live-status-wrap no-print">
+            <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('host')" aria-label="Seite live teilen">🔴 Hosten</button>
+            <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('join')" aria-label="Live-Session beitreten">➕ Beitreten</button>
+          </div>
+        </div>
+      </div>
+      <div class="box">
+        <div class="section-title">☁ Appwrite-Cloud</div>
+        <div class="cloud-status-wrap">
+          <div id="awStatus" aria-live="polite">Appwrite-Dateien: Sync über ⚙ einrichten.</div>
+          <div id="awDbStatus" aria-live="polite" style="font-size:13px;opacity:.85">Notizen-Sync bereit.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" class="no-print">
+            <button class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.syncNow()" aria-label="Notizen mit Appwrite synchronisieren">🗂 Notizen syncen</button>
+            <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien mit Appwrite synchronisieren">⬆⬇ Dateien syncen</button>
+            <button class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.openDiagnostics()" aria-label="Appwrite-Synchronisation diagnostizieren">🛠 Diagnose</button>
+            <button class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.openSettings()" aria-label="Appwrite-Einstellungen öffnen">⚙ Einstellungen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ARBEITSBEREICH (Split-Screen: 2 Dokumente in einem Fenster) -->
+    <div class="view" id="viewBook">
+      <div class="box no-print book-nav" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="inactive" onclick="showLibrary()" aria-label="Zurück zur Bibliothek">← Bibliothek</button>
+        <span style="flex:1"></span>
+        <button class="mini-button" id="splitToggle" onclick="toggleSplit()" aria-label="Split-Screen umschalten" title="Zweites Dokument daneben öffnen">⇉ Split</button>
+        <button class="mini-button" id="splitSwap" onclick="swapSplitPanes()" aria-label="Panes tauschen" title="Linke/rechte Seite tauschen" style="display:none">⇄ Tauschen</button>
+        <button class="mini-button" id="splitClose" onclick="closeSplit()" aria-label="Split schließen" title="Zweiten Bereich schließen" style="display:none">✕ Split zu</button>
+        <label style="display:none;align-items:center;gap:6px;margin:0" id="splitRatioWrap" title="Breitenverhältnis">
+          <span style="font-size:11px">Breite</span>
+          <input type="range" id="splitRatio" min="20" max="80" value="50" oninput="setSplitRatio(this.value / 100)" style="width:90px" aria-label="Breitenverhältnis der Panes">
+        </label>
+      </div>
+
+      <div class="toolbar box no-print" role="toolbar" aria-label="Werkzeugleiste">
+        <div class="tool-group tool-group--tools" id="toolButtons" role="group" aria-label="Werkzeuge">
+          <button class="mini-button picked" data-tool="pen" onclick="setTool('pen')" aria-label="Stift-Werkzeug" aria-pressed="true">✒ Stift</button>
+          <button class="mini-button" onclick="openCanvasFlow()" aria-label="Canvas-Schreibfluss öffnen" title="HTML5-Canvas auf der Seite: Stift/Marker/Radierer, Druck, Pinch-Zoom">Canvas</button>
+          <button class="mini-button" data-tool="marker" onclick="setTool('marker')" aria-label="Marker-Werkzeug" aria-pressed="false">🖍 Marker</button>
+          <button class="mini-button" data-tool="eraser" onclick="setTool('eraser')" aria-label="Radierer-Werkzeug" aria-pressed="false">⌫ Radierer</button>
+          <button class="mini-button" data-tool="text" onclick="setTool('text')" aria-label="Text-Werkzeug" aria-pressed="false">T Text</button>
+          <button class="mini-button" data-tool="move" onclick="setTool('move')" aria-label="Auswahl-Werkzeug" aria-pressed="false">✥ Auswahl</button>
+          <button class="mini-button" data-tool="laser" onclick="setTool('laser')" aria-label="Laserpointer-Werkzeug (speichert nichts, Taste L)" aria-pressed="false" title="Laserpointer (L) – zum Zeigen, speichert nichts">🔦 Laser</button>
+        </div>
+        <div class="sep" role="separator" aria-hidden="true"></div>
+        <div class="tool-group tool-group--colors" role="group" aria-label="Farbe und Stärke">
+          <input type="color" id="penColor" value="#2a1a0e" onchange="setColor(this.value)" title="Farbe" aria-label="Stiftfarbe">
+          <input type="range" id="penSize" min="1" max="24" value="3" oninput="setSize(this.value)" title="Stärke" aria-label="Stiftstärke">
+          <span id="sizeLabel" style="font-size:12px" aria-hidden="true">3px</span>
+        </div>
+        <div class="sep" role="separator" aria-hidden="true"></div>
+        <div class="tool-group" title="Radierer-Modi (SPEC-25)" role="group" aria-label="Radierer-Modi">
+          <select id="eraserMode" onchange="setEraserMode(this.value)" title="Radierer-Modus" style="max-width:110px" aria-label="Radierer-Modus">
+            <option value="standard">Radier: Standard</option>
+            <option value="precision">Radier: Precision</option>
+            <option value="stroke">Radier: Stroke</option>
+          </select>
+          <label style="font-size:12px;display:flex;gap:4px;align-items:center" title="Radierer trifft nur Marker, lässt Tinte intakt">
+            <input type="checkbox" id="eraserHLOnly" onchange="setEraserHighlighterOnly(this.checked)" style="width:auto" aria-label="Nur Highlighter löschen"> Nur Highlighter
+          </label>
+        </div>
+        <div class="sep" role="separator" aria-hidden="true"></div>
+        <div class="tool-group" title="Apple Pencil schreibt immer; Finger und Maus scrollen standardmäßig" role="group" aria-label="Finger- und Maus-Schreiben">
+          <button class="mini-button" id="fingerDrawToggle" onclick="setFingerDraw(!inputPrefs.fingerDraw)" aria-label="Finger- und Maus-Schreiben umschalten" title="Finger und Maus scrollen; zum Schreiben einschalten">✍ Schreiben: aus</button>
+        </div>
+        <div class="sep" role="separator" aria-hidden="true"></div>
+        <div class="tool-group tool-group--actions" role="group" aria-label="Aktionen">
+          <button class="mini-button" onclick="undo()" aria-label="Rückgängig machen">↩</button>
+          <button class="mini-button" onclick="redo()" aria-label="Wiederherstellen">↪</button>
+          <button class="mini-button" onclick="openDocImportDialog(activePaneIdx(),event)" aria-label="Seiten aus anderem Dokument importieren" title="Seiten aus einem anderen Dokument hinter die aktuelle Seite importieren">⤵ Doc-Import</button>
+          <button class="mini-button" onclick="duplicatePageAsTemplate()" aria-label="Seite als leere Vorlage duplizieren" title="Leere Vorlage der aktuellen Seite (ohne Handschrift, Textfelder, Marker)">⧉ Vorlage</button>
+          <button class="mini-button" onclick="document.getElementById('imgFile').click()" aria-label="Bild einfügen">🖼 Bild</button>
+          <input id="imgFile" type="file" accept="image/*" multiple onchange="importImage(event)" style="display:none" aria-hidden="true">
+          <button class="mini-button" onclick="document.getElementById('imgPageFile').click()" aria-label="Bild als neue Seite einfügen">🖼+ Seite</button>
+          <input id="imgPageFile" type="file" accept="image/*" multiple onchange="importImageAsPage(event)" style="display:none" aria-hidden="true">
+          <button class="mini-button" onclick="document.getElementById('pdfPageFile').click()" aria-label="PDF als neue Seiten importieren">📄+ PDF</button>
+          <input id="pdfPageFile" type="file" accept="application/pdf" multiple onchange="importPdfAsPages(event)" style="display:none" aria-hidden="true">
+          <button class="mini-button" onclick="openTextEditorForSelected()" aria-label="Texteditor öffnen">✎ Texteditor</button>
+          <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('host')" aria-label="Seite live mit anderen teilen" title="Seite live teilen (Share-Link + Live-Cursor)">🔴 Live</button>
+          <button class="mini-button" id="presentBtn" onclick="presentToggle()" aria-label="Auf zweiten Bildschirm präsentieren" aria-pressed="false" title="Dokument auf zweiten Monitor / Apple TV spiegeln. Die Hauptansicht bleibt unverändert und steuert die Show.">▶ Präsentieren</button>
+          <button class="mini-button" onclick="clearPage()" aria-label="Seite leeren">Seite leeren</button>
+        </div>
+      </div>
+
+      <div class="split-container" id="splitContainer">
+        <div class="split-pane" id="pane0" data-pane="0" onclick="setActivePane(0)">
+          <div class="box no-print pane-bar">
+            <select id="bookSelect" onchange="openBookInPane(this.value, 0)" style="max-width:220px;flex:1" aria-label="Dokument im linken Bereich wählen"></select>
+            <input type="text" id="bookTitle" onchange="renameBook(this.value)" style="max-width:200px;flex:1" placeholder="Buchtitel" aria-label="Buchtitel">
+            <select id="paperSelect" onchange="setPaper(this.value)" style="max-width:170px;flex:0 0 auto" aria-label="Papiervorlage wählen">
+              <optgroup label="Blanko & Formate">
+                <option value="blank-a4">Blanko A4</option>
+                <option value="blank-a5">Blanko A5 hoch</option>
+                <option value="blank-square">Blanko Quadrat</option>
+                <option value="blank-letter">Blanko US-Letter</option>
+              </optgroup>
+              <optgroup label="Linien & Raster">
+                <option value="lined-a4">Liniert A4</option>
+                <option value="lined-margin-a4">Liniert mit Rand</option>
+                <option value="grid-a4">Kariert klein A4</option>
+                <option value="grid-large-a4">Kariert groß A4</option>
+                <option value="dots-a4">Punktraster A4</option>
+              </optgroup>
+              <optgroup label="Spezial">
+                <option value="cornell-a4">Cornell-Notizen</option>
+                <option value="todo-a4">Checkliste / Todo</option>
+                <option value="music-a4">Notenlinien</option>
+              </optgroup>
+            </select>
+            <select id="pageFormat" onchange="setPageSizeInPane(this.value, 0)" style="max-width:140px;flex:0 0 auto" aria-label="Seitenformat wählen" title="Seitenformat dieser Seite: Buchvorlage folgen oder eigenes Format (jede Seite darf anders sein)">
+              <option value="__auto">Buchvorlage (auto)</option>
+              <option value="a4p">A4 Hoch</option>
+              <option value="a4l">A4 Quer</option>
+              <option value="square">Quadrat</option>
+            </select>
+            <button class="mini-button" onclick="addPageInPane(0,event)" aria-label="Neue Seite hinzufügen">+ Seite</button>
+            <button class="mini-button" onclick="duplicatePageInPane(0,event)" aria-label="Seite duplizieren">Duplizieren</button>
+            <button class="mini-button" onclick="deletePageInPane(0,event)" aria-label="Seite löschen">Seite löschen</button>
+            <button class="mini-button" onclick="exportPagePNGInPane(0,event)" aria-label="Seite als PNG exportieren">PNG</button>
+            <button class="mini-button" onclick="clearPageBgInPane(0,event)" aria-label="Hintergrund entfernen">HG entfernen</button>
+          </div>
+          <div class="work-layout">
+            <div class="page-rail no-print" id="pageRail"></div>
+            <div>
+              <div class="stage-wrap">
+                <div class="stage-scroll" id="stageScroll">
+                  <div class="stage-stack" id="stageStack">
+                    <div class="stage" id="stage" data-part="stage" data-page-id="">
+                      <div id="bgLayer" data-part="bgLayer"></div>
+                      <canvas id="drawCanvas" data-part="drawCanvas"></canvas>
+                      <canvas id="overlayCanvas" data-part="overlayCanvas"></canvas>
+                      <div class="img-layer" id="imgLayer" data-part="imgLayer"></div>
+                      <div class="text-layer" id="textLayer" data-part="textLayer"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="status-line no-print">
+                <button type="button" class="rail-toggle" id="railToggle" aria-expanded="true" aria-controls="pageRail" title="Seiten-Vorschau ein-/ausblenden"><span class="rail-toggle-icon" aria-hidden="true">🗎</span><span class="rail-toggle-label">Seiten</span></button>
+                <span id="statusPage" aria-live="polite">Seite 1/1</span>
+                <span id="statusTool">✒ Stift</span>
+                <span id="statusSave">💾 gespeichert</span>
+                <span class="pane-badge" id="paneBadge0">● aktiv</span>
+                <span class="present-chip" id="presentChip" hidden></span>
+                <button type="button" class="present-stop" id="presentStopBtn" onclick="presentStop()" hidden title="Präsentation beenden">✕ Präsentation beenden</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="split-divider no-print" id="splitDivider" style="display:none" title="Ziehen zum Anpassen der Breite">
+          <div class="split-divider-grip" aria-hidden="true">⋮</div>
+        </div>
+        <div class="split-pane" id="pane1" data-pane="1" onclick="setActivePane(1)" style="display:none">
+          <div class="box no-print pane-bar">
+            <select id="bookSelectB" onchange="openBookInPane(this.value, 1)" style="max-width:220px;flex:1" aria-label="Dokument im rechten Bereich wählen"></select>
+            <input type="text" id="bookTitleB" onchange="renameBookInPane(this.value, 1)" style="max-width:200px;flex:1" placeholder="Buchtitel" aria-label="Buchtitel rechter Bereich">
+            <select id="paperSelectB" onchange="setPaperInPane(this.value, 1)" style="max-width:170px;flex:0 0 auto" aria-label="Papiervorlage wählen rechter Bereich">
+              <optgroup label="Blanko & Formate">
+                <option value="blank-a4">Blanko A4</option>
+                <option value="blank-a5">Blanko A5 hoch</option>
+                <option value="blank-square">Blanko Quadrat</option>
+                <option value="blank-letter">Blanko US-Letter</option>
+              </optgroup>
+              <optgroup label="Linien & Raster">
+                <option value="lined-a4">Liniert A4</option>
+                <option value="lined-margin-a4">Liniert mit Rand</option>
+                <option value="grid-a4">Kariert klein A4</option>
+                <option value="grid-large-a4">Kariert groß A4</option>
+                <option value="dots-a4">Punktraster A4</option>
+              </optgroup>
+              <optgroup label="Spezial">
+                <option value="cornell-a4">Cornell-Notizen</option>
+                <option value="todo-a4">Checkliste / Todo</option>
+                <option value="music-a4">Notenlinien</option>
+              </optgroup>
+            </select>
+            <select id="pageFormatB" onchange="setPageSizeInPane(this.value, 1)" style="max-width:140px;flex:0 0 auto" aria-label="Seitenformat wählen rechter Bereich" title="Seitenformat dieser Seite: Buchvorlage folgen oder eigenes Format (jede Seite darf anders sein)">
+              <option value="__auto">Buchvorlage (auto)</option>
+              <option value="a4p">A4 Hoch</option>
+              <option value="a4l">A4 Quer</option>
+              <option value="square">Quadrat</option>
+            </select>
+            <button class="mini-button" onclick="addPageInPane(1,event)" aria-label="Neue Seite hinzufügen rechter Bereich">+ Seite</button>
+            <button class="mini-button" onclick="duplicatePageInPane(1,event)" aria-label="Seite duplizieren rechter Bereich">Duplizieren</button>
+            <button class="mini-button" onclick="deletePageInPane(1,event)" aria-label="Seite löschen rechter Bereich">Seite löschen</button>
+            <button class="mini-button" onclick="exportPagePNGInPane(1,event)" aria-label="Seite als PNG exportieren rechter Bereich">PNG</button>
+            <button class="mini-button" onclick="clearPageBgInPane(1,event)" aria-label="Hintergrund entfernen rechter Bereich">HG entfernen</button>
+            <button class="mini-button" onclick="closeSplit(event)" aria-label="Rechten Bereich schließen">✕</button>
+          </div>
+          <div class="work-layout">
+            <div class="page-rail no-print" id="pageRailB"></div>
+            <div>
+              <div class="stage-wrap">
+                <div class="stage-scroll" id="stageScrollB">
+                  <div class="stage-stack" id="stageStackB">
+                    <div class="stage" id="stageB" data-part="stage" data-page-id="">
+                      <div id="bgLayerB" data-part="bgLayer"></div>
+                      <canvas id="drawCanvasB" data-part="drawCanvas"></canvas>
+                      <canvas id="overlayCanvasB" data-part="overlayCanvas"></canvas>
+                      <div class="img-layer" id="imgLayerB" data-part="imgLayer"></div>
+                      <div class="text-layer" id="textLayerB" data-part="textLayer"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="status-line no-print">
+                <button type="button" class="rail-toggle" id="railToggleB" aria-expanded="true" aria-controls="pageRailB" title="Seiten-Vorschau ein-/ausblenden"><span class="rail-toggle-icon" aria-hidden="true">🗎</span><span class="rail-toggle-label">Seiten</span></button>
+                <span id="statusPageB" aria-live="polite">Seite 1/1</span>
+                <span id="statusToolB">✒ Stift</span>
+                <span class="pane-badge" id="paneBadge1">● aktiv</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div><!-- OFFICE (SPEC-40) ===================================================
+       Office-Dokumente liegen als Bücher in derselben Bibliothek (Ordner,
+       Suche, Appwrite-Sync). Diese Ansicht ist nur die Editorfläche.
+       Der Writer hängt die Toolbar zur Laufzeit an #officeToolbar. -->
+  <div class="view" id="viewOffice">
+    <div class="fw-office">
+      <div class="fw-office-bar">
+        <button type="button" class="mini-button" id="officeBack" aria-label="Zurück zur Bibliothek">← Bibliothek</button>
+        <h2 id="officeTitle">Dokument</h2>
+        <span class="fw-office-kind" id="officeKind">Dokument</span>
+        <!-- DOCX über das Office-WASM. Der Import ersetzt den Inhalt des
+             geöffneten Dokuments, deshalb steht das im Titel und aria-label. -->
+        <span class="fw-office-io">
+          <button type="button" class="mini-button" id="officeNew"
+                  title="Weiteres Dokument anlegen und direkt öffnen"
+                  aria-label="Neues Dokument anlegen">+ Neu</button>
+          <button type="button" class="mini-button" id="officeImport"
+                  title="DOCX importieren – ersetzt den Inhalt dieses Dokuments"
+                  aria-label="DOCX importieren">📥 Import</button>
+          <button type="button" class="mini-button" id="officeExport"
+                  title="Als DOCX speichern"
+                  aria-label="Als DOCX exportieren">📤 Export</button>
+          <input type="file" id="officeFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+        </span>
+      </div>
+      <div class="fw-office-toolbar" id="officeToolbar"></div>
+      <div class="fw-office-page">
+        <div class="fw-office-paper">
+          <div id="officeBlocks"></div>
+        </div>
+      </div>
+      <div class="fw-office-status" id="officeStatus" aria-live="polite"></div>
+    </div>
+  </div></div></div><!-- TEXTEDITOR-OVERLAY -->
+  <div id="editorOverlay" class="editor-overlay" onclick="if (event.target === this) closeTextEditor()">
+    <div class="editor-modal">
+      <div class="editor-header">
+        <div class="editor-header-title">✎ TEXTEDITOR: <span id="editorTargetTitle">NOTIZEN</span></div>
+        <button type="button" class="mini-button" onclick="closeTextEditor()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Texteditor schließen">✕</button>
+      </div>
+      <div class="editor-toolbar">
+        <button type="button" id="editorModeToggle" class="mini-button" onmousedown="event.preventDefault()" onclick="toggleEditorMode()" title="Zwischen Rich-Text und Markdown-Quelle wechseln (Strg+E)" aria-label="Editor-Modus wechseln">📝 Rich</button>
+        <span class="editor-sep" aria-hidden="true"></span>
+        <select class="editor-select" onchange="applyEditorFormat(this.value); this.selectedIndex = 0;" aria-label="Schriftgröße und Stil">
+          <option value="" disabled selected>Schriftgröße / Stil</option>
+          <option value="p">Normal (Fließtext)</option>
+          <option value="h1">Große Überschrift (H1)</option>
+          <option value="h2">Mittlere Überschrift (H2)</option>
+          <option value="h3">Kleine Überschrift (H3)</option>
+          <option value="font-2">Kleiner Text</option>
+          <option value="font-5">Großer Text</option>
+          <option value="font-6">Sehr großer Text</option>
+        </select>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('bold', false, null)" title="Fett" aria-label="Fett"><b>B</b></button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('italic', false, null)" title="Kursiv" aria-label="Kursiv"><i>I</i></button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('underline', false, null)" title="Unterstrichen" aria-label="Unterstrichen"><u>U</u></button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('strikeThrough', false, null)" title="Durchgestrichen" aria-label="Durchgestrichen"><s>S</s></button>
+        <span class="editor-sep" aria-hidden="true"></span>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertUnorderedList', false, null)" title="Aufzählung" aria-label="Aufzählungsliste">• Liste</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertOrderedList', false, null)" title="Nummeriert" aria-label="Nummerierte Liste">1. Liste</button>
+        <span class="editor-sep" aria-hidden="true"></span>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyLeft', false, null)" title="Linksbündig" aria-label="Linksbündig">⫷</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyCenter', false, null)" title="Zentriert" aria-label="Zentriert">≡</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('justifyRight', false, null)" title="Rechtsbündig" aria-label="Rechtsbündig">⫸</button>
+        <span class="editor-sep" aria-hidden="true"></span>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('insertHorizontalRule', false, null)" title="Trennlinie" aria-label="Trennlinie einfügen">— Linie</button>
+        <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('removeFormat', false, null)" title="Formatierung entfernen" aria-label="Formatierung zurücksetzen">⌫ Reset</button>
+      </div>
+      <div id="editorContent" class="editor-body" contenteditable="true" spellcheck="false" aria-label="Textinhalt"></div>
+      <textarea id="editorSource" class="editor-body editor-source" spellcheck="false" style="display:none" aria-label="Markdown-Quelle" placeholder="Markdown-Quelle (OFM-Subset: # H1, **fett**, *kursiv*, ==mark==, - [ ] Task, > [!note] Callout, [[Wikilink]])"></textarea>
+      <div class="editor-footer">
+        <button type="button" class="inactive" onclick="closeTextEditor()" aria-label="Abbrechen">✖ Abbrechen</button>
+        <button type="button" class="mini-button" onclick="saveEditorStyleAsDefault()" title="Aktuellen Stil als Standard für neue Textboxen speichern" aria-label="Stil als Standard speichern">★ Als Standard</button>
+        <button type="button" onclick="saveTextEditor()" aria-label="Übernehmen">💾 Übernehmen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PREVIEW-OVERLAY: große Seitenvorschau (Klick auf Mini-Thumbnail) -->
+  <div id="previewOverlay" class="editor-overlay" onclick="if (event.target === this) closePagePreview()">
+    <div class="editor-modal preview-modal">
+      <div class="editor-header">
+        <div class="editor-header-title">🔍 <span id="previewTitle">SEITE 1</span></div>
+        <button type="button" class="mini-button" onclick="closePagePreview()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Seitenvorschau schließen">✕</button>
+      </div>
+      <div class="preview-body">
+        <button type="button" class="mini-button preview-nav" onclick="stepPreview(-1)" title="Vorherige Seite" aria-label="Vorherige Seite">◀</button>
+        <canvas id="previewCanvas" aria-hidden="true"></canvas>
+        <button type="button" class="mini-button preview-nav" onclick="stepPreview(1)" title="Nächste Seite" aria-label="Nächste Seite">▶</button>
+      </div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <span id="previewMeta" style="font-size:12px;align-self:center"></span>
+        <span style="display:flex;gap:8px">
+          <button type="button" class="inactive" onclick="closePagePreview()" aria-label="Schließen">Schließen</button>
+          <button type="button" onclick="openPreviewPage()" aria-label="Seite öffnen">Seite öffnen →</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SERVER-OVERLAY: Anmeldung, Datei-Sync mit Speicheroptimierung -->
+  <div id="awOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkFilesUI) FederwerkFilesUI.closeSettings()">
+    <div class="editor-modal" style="max-width:560px">
+      <div class="editor-header">
+        <div class="editor-header-title">☁ SERVER</div>
+        <button type="button" class="mini-button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.closeSettings()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Server-Einstellungen schließen">✕</button>
+      </div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px">Bilder/PDFs werden per <b>SHA-256-Dedupe</b> abgelegt (Dateiname = Content-Hash). Vor dem Upload: <b>Recompress</b> auf max. 1600px, JPEG/WebP. Verwaiste Dateien können aufgeräumt werden. Offline-Fehlversuche landen in einer Queue.</div>
+        <div style="font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="awSaved" aria-live="polite">Ersparnis: –</span>
+          <button type="button" class="mini-button" onclick="window.FederwerkOptimizeUI && window.FederwerkOptimizeUI.optimizeLibrary()" aria-label="Bibliothek optimieren (Strokes + Bilder komprimieren)">🧹 Bibliothek optimieren</button>
+        </div>
+        <div><label for="awEndpoint">Server (leer = gleicher Origin)</label><input type="text" id="awEndpoint" autocomplete="off" placeholder="http://192.168.1.97:8080"></div>
+        <div style="font-size:12px;opacity:.8">Eigene SQLite-Datenbank pro Konto, Dateien liegen auf dem NAS. Prüft der Server beim Lesen, ob eine Datei noch zum Hash in ihrem Namen passt – eine beschädigte Datei wird nicht ausgeliefert, sondern als Fehler gemeldet.</div>
+        <div style="font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px dashed rgba(120,85,45,.4);border-radius:8px;background:rgba(139,90,43,.06)">
+          <span style="flex:1;min-width:180px">🤖 <b>KI-Agent:</b> Notizen, Ordner &amp; Karteikarten per MCP steuern lassen.</span>
+          <a class="mini-button" href="agent.html" target="_blank" rel="noopener" style="text-decoration:none" aria-label="Seite für KI-Agent und MCP öffnen">Anleitung öffnen</a>
+        </div>
+        <div class="aw-auth-tabs" role="tablist" aria-label="Anmeldung oder Registrierung">
+          <button type="button" id="awTabLogin" class="aw-auth-tab active" role="tab" aria-selected="true" aria-controls="awLoginPane" onclick="window.FederwerkFilesUI && FederwerkFilesUI.switchAuthTab('login')">Login</button>
+          <button type="button" id="awTabRegister" class="aw-auth-tab" role="tab" aria-selected="false" aria-controls="awRegisterPane" onclick="window.FederwerkFilesUI && FederwerkFilesUI.switchAuthTab('register')">Registrieren</button>
+        </div>
+        <div id="awLoginPane" class="aw-auth-pane" role="tabpanel" aria-labelledby="awTabLogin">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div style="flex:1;min-width:140px"><label for="awEmail">E-Mail (Login)</label><input type="text" id="awEmail" autocomplete="username"></div>
+            <div style="flex:1;min-width:140px"><label for="awPass">Passwort</label><input type="password" id="awPass" autocomplete="current-password"></div>
+          </div>
+        </div>
+        <div id="awRegisterPane" class="aw-auth-pane" role="tabpanel" aria-labelledby="awTabRegister" hidden>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div style="flex:1;min-width:140px"><label for="awRegName">Name (optional)</label><input type="text" id="awRegName" autocomplete="nickname" maxlength="128" placeholder="Anzeigename"></div>
+            <div style="flex:1;min-width:140px"><label for="awRegEmail">E-Mail</label><input type="text" id="awRegEmail" autocomplete="email" inputmode="email" placeholder="name@beispiel.de"></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div style="flex:1;min-width:140px"><label for="awRegPass">Passwort (min. 8 Zeichen)</label><input type="password" id="awRegPass" autocomplete="new-password" minlength="8" oninput="window.FederwerkFilesUI && FederwerkFilesUI.updatePwStrength()"></div>
+            <div style="flex:1;min-width:140px"><label for="awRegPass2">Passwort wiederholen</label><input type="password" id="awRegPass2" autocomplete="new-password"></div>
+          </div>
+          <div id="awPwHint" class="aw-pw-hint" aria-live="polite">Mind. 8 Zeichen, am besten lang + gemischt.</div>
+          <div class="aw-privacy-note">Mit Registrieren stimmst du der Speicherung deines Kontos bei Appwrite zu. Es gibt kein Tracking ohne Opt-in – Sync nur auf Knopfdruck bzw. Realtime-Opt-in.</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="awRealtime" style="width:auto" onchange="window.FederwerkSyncUI && FederwerkSyncUI.toggleRealtime(this.checked)" aria-label="Realtime-Sync aktivieren"> Realtime-Sync (Auto bei Cloud-Änderung)</label>
+          <button type="button" class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.syncNow()" aria-label="Notizen synchronisieren">🗂 Notizen syncen</button>
+        </div>
+        <div id="awMsg" style="font-size:13px;min-height:18px" aria-live="polite"></div>
+      </div>
+      <div class="editor-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <span style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.dryRun()" aria-label="Verwaiste Dateien prüfen">Orphans prüfen</button>
+          <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.cleanup()" aria-label="Verwaiste Dateien löschen">Orphans löschen</button>
+        </span>
+        <span style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" id="awBtnLogin" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.login()" aria-label="Einloggen">Login</button>
+          <button type="button" id="awBtnRegister" class="inactive" style="display:none" onclick="window.FederwerkFilesUI && FederwerkFilesUI.register()" aria-label="Konto registrieren">Registrieren</button>
+          <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.logout()" aria-label="Ausloggen">Logout</button>
+          <button type="button" class="inactive" onclick="window.FederwerkFilesUI && FederwerkFilesUI.syncNow()" aria-label="Dateien synchronisieren">⬆⬇ Sync</button>
+          <button type="button" onclick="window.FederwerkFilesUI && FederwerkFilesUI.save()" aria-label="Einstellungen speichern">💾 Speichern</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div id="awDiagnosticsOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkSyncUI) FederwerkSyncUI.closeDiagnostics()">
+    <div class="editor-modal" style="max-width:620px">
+      <div class="editor-header">
+        <div class="editor-header-title">🛠 SYNC-DIAGNOSE</div>
+        <button type="button" class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.closeDiagnostics()" aria-label="Diagnose schließen">✕</button>
+      </div>
+      <div style="padding:14px 16px">
+        <div id="awDiagnosticsSummary" style="font-size:13px;white-space:pre-wrap" aria-live="polite">Noch kein Test ausgeführt.</div>
+        <pre id="awDiagnosticsLog" style="max-height:220px;overflow:auto;background:var(--field-bg);padding:8px;font-size:11px;white-space:pre-wrap"></pre>
+      </div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <button type="button" class="inactive" onclick="window.FederwerkSyncUI && FederwerkSyncUI.clearDiagnostics()">Protokoll löschen</button>
+        <span style="display:flex;gap:8px">
+          <button type="button" class="mini-button" onclick="window.FederwerkSyncUI && FederwerkSyncUI.runDiagnostics()">Tests ausführen</button>
+          <button type="button" class="inactive" onclick="window.FederwerkSyncUI && FederwerkSyncUI.syncNow()">Jetzt synchronisieren</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- FLASH-OVERLAY: Karteikarten-Deck (Verwalten + SM-2-Lernmodus) -->
+  <div id="flashOverlay" class="editor-overlay" onclick="if (event.target === this) closeDeckView()">
+    <div class="editor-modal flash-modal">
+      <div class="editor-header">
+        <div class="editor-header-title" id="flashTitle">🂠 DECK</div>
+        <button type="button" class="mini-button" onclick="closeDeckView()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Deck-Ansicht schließen">✕</button>
+      </div>
+      <div class="editor-toolbar" role="group" aria-label="Deck-Steuerung">
+        <button type="button" id="flashTabCards" class="mini-button picked" onclick="flashSwitchMode('cards')" aria-label="Karten verwalten">🂠 Karten</button>
+        <button type="button" id="flashTabLearn" class="mini-button" onclick="startLearn()" aria-label="Lernmodus starten">▶ Lernen</button>
+        <button type="button" id="flashTabStats" class="mini-button" onclick="flashSwitchMode('stats')" aria-label="Auswertungen und Lernstand">📊 Auswertung</button>
+      </div>
+      <div id="flashBody" class="flash-body"></div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <span id="flashFoot" style="font-size:12px;align-self:center;opacity:.8"></span>
+        <span style="display:flex;gap:8px">
+          <button type="button" class="inactive" onclick="closeDeckView()" aria-label="Schließen">Schließen</button>
+        </span>
+      </div>
+      <input id="flashImgFile" type="file" accept="image/*" onchange="deckImagePicked(event)" style="display:none" aria-hidden="true">
+      <input id="flashCsvFile" type="file" accept=".csv,text/csv,text/plain" onchange="deckImportCsv(event)" style="display:none" aria-hidden="true">
+    </div>
+  </div>
+
+  <!-- GRAPH-OVERLAY: SPEC-09 light V1 (Canvas, statisches Radial-/Kreis-Layout, kein Cloud) -->
+  <div id="graphOverlay" class="editor-overlay" onclick="if (event.target === this) closeGraphOverlay()">
+    <div class="editor-modal" style="max-width:880px">
+      <div class="editor-header">
+        <div class="editor-header-title">◈ GRAPH</div>
+        <button type="button" class="mini-button" onclick="closeGraphOverlay()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Graph-Ansicht schließen">✕</button>
+      </div>
+      <div class="editor-toolbar" role="group" aria-label="Graph-Steuerung">
+        <button type="button" id="graphModeGlobal" class="mini-button picked" onclick="setGraphMode('global')" aria-label="Globalen Graphen zeigen">🌐 Global</button>
+        <button type="button" id="graphModeLocal" class="mini-button" onclick="setGraphMode('local')" aria-label="Lokalen Graphen zeigen">📍 Lokal</button>
+        <span class="editor-sep" aria-hidden="true"></span>
+        <select id="graphBookSelect" class="editor-select" onchange="renderGraph()" aria-label="Startbuch für lokalen Graphen" title="Startbuch (lokal)"></select>
+        <span id="graphDepthWrap" style="display:none;align-items:center;gap:6px">
+          <label for="graphDepth" style="margin:0">Tiefe</label>
+          <input type="range" id="graphDepth" min="1" max="2" value="1" oninput="renderGraph()" style="width:90px" aria-label="Tiefe des lokalen Graphen">
+          <span id="graphDepthLabel" style="font-size:12px" aria-hidden="true">1</span>
+        </span>
+      </div>
+      <div style="position:relative;padding:12px 14px;background:var(--field-bg)">
+        <canvas id="graphCanvas" width="800" height="500" onclick="onGraphClick(event)" onmousemove="onGraphHover(event)" onmouseleave="if(document.getElementById('graphTip'))document.getElementById('graphTip').style.display='none'" aria-label="Notiz-Graph: Klick auf einen Knoten öffnet das Buch"></canvas>
+        <div id="graphTip" style="display:none;position:absolute;pointer-events:none;background:var(--surface-strong);border:1px solid var(--border);padding:2px 8px;font-size:13px;z-index:5"></div>
+      </div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <span id="graphInfo" style="font-size:12px;align-self:center" aria-live="polite"></span>
+        <span style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:11px;opacity:.75">V1: statisches Layout, kein Force/Zoom</span>
+          <button type="button" class="inactive" onclick="closeGraphOverlay()" aria-label="Schließen">Schließen</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ARTCRAFT-OVERLAY: Verweis auf die zwölf Crafting Apps -->
+  <div id="craftOverlay" class="editor-overlay" onclick="if (event.target === this) closeCraftOverlay()">
+    <div class="editor-modal" style="max-width:720px">
+      <div class="editor-header">
+        <div class="editor-header-title">◆ ARTCRAFT APPS</div>
+        <button type="button" class="mini-button" onclick="closeCraftOverlay()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="ArtCraft-Apps schließen">✕</button>
+      </div>
+      <div style="padding:12px 14px;font-size:13px">
+        Diese Engines stecken hinter den Formaten unten. Der Grafik-Import
+        (PSD/SVG/IDML) ist noch nicht freigegeben – die Dateien öffnen sich
+        erst, wenn das nachgewiesen läuft. Die übrigen ArtCraft-Apps (Video,
+        Audio, CAD, PDF) sind native Desktop-Programme und lassen sich in
+        eine Web-Seite nicht einbetten.
+      </div>
+      <div id="craftAppGrid" class="craft-app-grid" role="list"></div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <a class="mini-button" id="craftAllLink" href="https://getartcraft.com/apps" target="_blank" rel="noopener" style="text-decoration:none" aria-label="ArtCraft-Projekt auf getartcraft.com ansehen">ArtCraft ansehen</a>
+        <button type="button" class="inactive" onclick="closeCraftOverlay()" aria-label="Schließen">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIVESHARE-OVERLAY: Hosten + Beitreten (js/liveshare.js, Appwrite-only) -->
+  <div id="liveOverlay" class="editor-overlay" onclick="if (event.target === this && window.FederwerkLive) FederwerkLive.closeDialog()">
+    <div class="editor-modal" style="max-width:560px">
+      <div class="editor-header">
+        <div class="editor-header-title">🔴 LIVESHARE</div>
+        <button type="button" class="mini-button" onclick="window.FederwerkLive && FederwerkLive.closeDialog()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Liveshare-Dialog schließen">✕</button>
+      </div>
+      <div class="editor-toolbar" role="group" aria-label="Liveshare-Modus">
+        <button type="button" id="liveTabHost" class="mini-button picked" onclick="window.FederwerkLive && FederwerkLive.openDialog('host')" aria-label="Seite hosten">🔴 Hosten</button>
+        <button type="button" id="liveTabJoin" class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('join')" aria-label="Session beitreten">➕ Beitreten</button>
+      </div>
+      <div id="liveHostPane" class="live-pane">
+        <div style="font-size:13px">Teilt die <b>aktuelle Seite</b> live: Striche + Texte syncen per LWW (kein Overwrite), Cursor farbig. Gäste brauchen denselben Appwrite-Login.</div>
+        <label>Buch
+          <select id="liveBookSel" aria-label="Zu teilendes Buch"></select>
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <label style="flex:1;min-width:140px">Rechte
+            <select id="liveMode" aria-label="Gastrechte" onchange="window.FederwerkLive && FederwerkLive.setMode(this.value)">
+              <option value="read">👁 Lesen (zuschauen)</option>
+              <option value="edit">✎ Edit (mitschreiben)</option>
+            </select>
+          </label>
+          <label style="flex:1;min-width:140px">Ablauf
+            <select id="liveExpiry" aria-label="Ablauf der Freigabe">
+              <option value="1">1 Stunde</option>
+              <option value="24" selected>24 Stunden</option>
+              <option value="168">7 Tage</option>
+              <option value="720">30 Tage</option>
+              <option value="">Nie</option>
+            </select>
+          </label>
+        </div>
+        <div class="live-linkrow">
+          <input type="text" id="liveLink" readonly placeholder="Link erscheint nach dem Hosten …" aria-label="Share-Link" onclick="this.select()">
+          <button type="button" class="mini-button" onclick="window.FederwerkLive && FederwerkLive.copyLink()" aria-label="Share-Link kopieren">📋</button>
+        </div>
+        <div id="liveHostMeta" class="live-hint" aria-live="polite"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" onclick="window.FederwerkLive && FederwerkLive.host()" aria-label="Freigabe starten">🔴 Freigabe starten</button>
+          <button type="button" class="inactive" onclick="window.FederwerkLive && FederwerkLive.revoke()" aria-label="Freigabe zurückziehen">Zurückziehen</button>
+          <button type="button" class="inactive" onclick="window.FederwerkLive && FederwerkLive.leave()" aria-label="Live verlassen">Verlassen</button>
+        </div>
+      </div>
+      <div id="liveJoinPane" class="live-pane" style="display:none">
+        <div style="font-size:13px">Link einfügen (…<code>#share=s…</code>) oder Code direkt – du brauchst einen Appwrite-Login auf derselben Instanz.</div>
+        <label>Share-Link oder Code
+          <input type="text" id="liveCode" autocomplete="off" placeholder="https://…#share=s… oder Code" aria-label="Share-Code">
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" onclick="window.FederwerkLive && FederwerkLive.join()" aria-label="Live-Session beitreten">➕ Beitreten</button>
+        </div>
+      </div>
+      <div class="editor-footer" style="justify-content:flex-start">
+        <span id="liveMsg" aria-live="polite"></span>
+      </div>
+    </div>
+  </div>
+  <div id="liveBar" class="no-print" aria-live="polite"></div>
+
+  
+  
+  
+  <!-- Canvas-Schreibfluss (js/canvas.js + css/canvas.css): Canvas auf der
+       aktiven Seite – Pointer Events, Druck, Palette, Zoom, PDF/PNG-Export.
+       Nach app.js laden, globale Behandlungsfunktionen sind dann verfügbar. -->
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+<!-- Office (SPEC-40): Modell zuerst, der Writer baut darauf auf, app.js
+     braucht isOfficeDoc() fuer die Karten der Bibliothek. -->
+
+
+<!-- Lädt das Office-WASM erst bei Bedarf nach (office_wasm.js), deshalb steht
+     hier nur der Adapter selbst im Bundle. -->
+
+<!-- Übersetzt zwischen Office-Modell und dem WordCraft-JSON. Muss nach dem
+     Adapter geladen werden, wird aber von ihm nicht referenziert. -->
+
+<!-- Grafik-Engine (PSD/SVG/IDML aus craft-wasm). Wie das Office-WASM laedt sie
+     die 13 MB erst bei Bedarf nach, deshalb nur der Adapter im Bundle. -->
+
+  <script src="js/sanitize.js"></script>
+  <script src="js/pencil.js"></script>
+  <script src="js/inkdraw.js"></script>
+  <script src="js/canvas.js"></script>
+  <script src="js/folders.js"></script>
+  <script src="js/split.js"></script>
+  <script src="js/markdown.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/gnzip.js"></script>
+  <script src="js/goodnotes.js"></script>
+  <script src="js/optimize.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/pages-import.js"></script>
+  <script src="js/erase.js"></script>
+  <script src="js/laser.js"></script>
+  <script src="js/ink-index.js"></script>
+  <script src="js/graph.js"></script>
+  <script src="js/search.js"></script>
+  <script src="js/format-doc.js"></script>
+  <script src="js/pageflow.js"></script>
+  <script src="js/paper-templates.js"></script>
+  <script src="js/flashcards.js"></script>
+  <script src="js/dialog.js"></script>
+  <script src="js/office-doc.js"></script>
+  <script src="js/office-writer.js"></script>
+  <script src="js/office-engine.js"></script>
+  <script src="js/office-bridge.js"></script>
+  <script src="js/craft-engine.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/flash-ui.js"></script>
+  <script src="js/presentflow.js"></script>
+  <script src="js/present.js"></script>
+  <script src="js/sha256.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/appwrite-files.js"></script>
+  <script src="js/appwrite-sync.js"></script>
+  <script src="js/liveshare.js"></script>
+  <script src="js/updater.js"></script>
+  
+  <script src="ui/shared/federwerk-core.js"></script>
+  <script src="ui/shared/ui-kit.js"></script>
+  <script src="ui/shared/keyboard-shortcuts.js"></script>
+  <script src="ui/liquid/js/app.js"></script>
+</body>
+</html>

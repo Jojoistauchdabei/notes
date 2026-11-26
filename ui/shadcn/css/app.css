@@ -1,0 +1,4 @@
+/* ui/shadcn/css/app.css — Variante shadcn (klassisch). Gemeinsame Basis:
+ * shadcn-tokens.css + shadcn-components.css + app-shell.css. Hier nur
+ * Varianten-spezifisches Feintuning. */
+html[data-ui-variant="shadcn"] { /* shadcn-Neutral */ }
