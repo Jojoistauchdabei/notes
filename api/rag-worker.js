@@ -25,8 +25,7 @@
 // Hinweis zum PDF-Pipeline: PDF -> Text (z. B. mit pdf-lib) geschieht vorgelagernt;
 // dieser Worker nimmt Plain Text / Notizen entgegen.
 
-const HF_EMBED_MODEL = 'google/embeddinggemma-2';
-const HF_BASE = 'https://router.huggingface.co/hf-inference/models/' + HF_EMBED_MODEL;
+const CF_EMBED_MODEL = '@cf/baai/bge-base-en-v1.5';
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_MODEL = 'openrouter/free';
 const DEFAULT_DIM = 768; // EMBED_DIM ueberschreiben, wenn der Index eine andere Dimension hat
@@ -129,28 +128,18 @@ function extractVectors(data, expected) {
 }
 
 async function embedTexts(env, texts) {
-  const token = env && env.HF_TOKEN;
   const inputs = Array.isArray(texts) ? texts : [texts];
   if (!inputs.length || inputs.some((t) => !String(t || '').trim())) {
     throw new Error('Leerer Text fuer Embedding');
   }
-  const res = await fetch(HF_BASE, {
-    method: 'POST',
-    headers: Object.assign(
-      { 'Content-Type': 'application/json' },
-      token ? { Authorization: 'Bearer ' + String(token) } : {},
-    ),
-    body: JSON.stringify({ inputs: inputs.length === 1 ? inputs[0] : inputs }),
-  });
-  if (!res.ok) {
-    throw Object.assign(new Error('HF-Embedding fehlgeschlagen (HTTP ' + res.status + ')'), { status: 502 });
-  }
-  const data = await res.json().catch(() => ({}));
-  const vectors = extractVectors(data, inputs.length);
+  const ai = env && env.AI;
+  if (!ai) throw new Error('AI-Binding nicht konfiguriert');
+  const res = await ai.run(CF_EMBED_MODEL, { text: inputs });
+  const vectors = (res && res.data) ? res.data : [];
   if (vectors.length !== inputs.length) {
-    throw Object.assign(new Error('HF-Embedding lieferte unerwartete Vektoren'), { status: 502 });
+    throw new Error('Embedding lieferte ' + vectors.length + ' statt ' + inputs.length + ' Vektoren');
   }
-  return vectors;
+  return vectors.map(v => Array.from(v));
 }
 
 // ------------------------------------------------------------------ Vectorize
