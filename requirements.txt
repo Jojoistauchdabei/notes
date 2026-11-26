@@ -1,0 +1,5 @@
+# Python-Abhängigkeiten für scraper.py
+# Installation: python3 -m pip install -r requirements.txt  (oder: uv pip install -r requirements.txt)
+requests>=2.31
+youtube-transcript-api>=1.0
+beautifulsoup4>=4.12

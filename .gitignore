@@ -12,3 +12,7 @@ src-tauri/gen/
 src-tauri/target/
 src-tauri/**/*.key
 node_modules/
+# Python-Scraper: Ausgaben/Logs nicht einchecken
+scraped_data.json
+scraper.log
+.venv/
