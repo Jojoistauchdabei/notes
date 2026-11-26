@@ -140,6 +140,7 @@
           <button onclick="openCraftOverlay()" style="white-space:nowrap" aria-label="ArtCraft-Apps öffnen" title="Zwölf quelloffene Rust-Apps von ArtCraft">◆ Craft</button>
           <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
           <button onclick="createFlashDeck()" style="white-space:nowrap" aria-label="Neues Karteikarten-Deck erstellen">+ 🂠 Deck</button>
+          <button class="mini-button" onclick="federwerkLearnOpen()" style="white-space:nowrap" aria-label="Lernen-Missionsmodus öffnen" title="Lernen: Quiz-Missionen mit Videos/Webseiten, XP, Streak und Level">📚 Lernen</button>
           <button id="newOfficeBtn" onclick="createOfficeDoc('doc')" style="white-space:nowrap" aria-label="Neues Office-Dokument erstellen und im Writer öffnen" title="Office (SPEC-40): Textdokument mit Überschriften, Listen, Formatierung und DOCX-Import/Export">+ 📄 Office</button>
         </div>
         <div class="folder-chips no-print" id="folderChips" role="tablist" aria-label="Ordner-Filter (mobil)"></div>
@@ -554,6 +555,23 @@
     </div>
   </div>
 
+  <!-- LEARN-OVERLAY: Lernen-Missionsmodul (js/learn.js) -->
+  <div id="learnOverlay" class="editor-overlay" onclick="if (event.target === this) federwerkLearnClose()">
+    <div class="editor-modal" style="max-width:720px">
+      <div class="editor-header">
+        <div class="editor-header-title" id="learnTitle">🎯 LERNEN</div>
+        <button type="button" class="mini-button" onclick="federwerkLearnClose()" style="font-size: 14px; padding: 2px 8px; line-height: 1;" aria-label="Lernen schließen">✕</button>
+      </div>
+      <div id="learnBody" class="flash-body"></div>
+      <div class="editor-footer" style="justify-content:space-between">
+        <span id="learnFoot" style="font-size:12px;align-self:center;opacity:.75"></span>
+        <span style="display:flex;gap:8px">
+          <button type="button" class="inactive" onclick="federwerkLearnClose()" aria-label="Schließen">Schließen</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
   <!-- GRAPH-OVERLAY: SPEC-09 light V1 (Canvas, statisches Radial-/Kreis-Layout, kein Cloud) -->
   <div id="graphOverlay" class="editor-overlay" onclick="if (event.target === this) closeGraphOverlay()">
     <div class="editor-modal" style="max-width:880px">
@@ -693,6 +711,7 @@
   <script src="js/pageflow.js"></script>
   <script src="js/paper-templates.js"></script>
   <script src="js/flashcards.js"></script>
+  <script src="js/learn.js"></script>
   <script src="js/dialog.js"></script>
   <!-- Office (SPEC-40): Modell zuerst, der Writer baut darauf auf, app.js
        braucht isOfficeDoc() fuer die Karten der Bibliothek. -->

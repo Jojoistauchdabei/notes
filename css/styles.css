@@ -956,7 +956,48 @@ button.inactive:hover { background: var(--mini-button-hover-bg); }
   color: var(--ink);
 }
 .fw-dlg-foot { justify-content: flex-end; }
-.fw-dlg-danger { background: var(--danger); border-color: var(--danger); color: #ffffff; }
+/* ===== Lernen (Missionsmodul) ===== */
+.learn-hero { padding: 14px 16px; }
+.learn-hero-title { font-size: 20px; font-weight: 700; }
+.learn-hero-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.learn-stats-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.learn-stat { font-size: 12px; background: var(--surface-strong); border: 1px solid var(--border); padding: 4px 10px; border-radius: 999px; }
+.learn-subject-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.learn-subject { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface-strong); color: var(--ink); font: inherit; cursor: pointer; box-shadow: none; }
+.learn-subject:hover { border-color: var(--accent); }
+.learn-subject-icon { font-size: 26px; }
+.learn-subject-label { font-weight: 700; font-size: 16px; }
+.learn-subject-blurb { font-size: 12px; color: var(--muted); }
+.learn-navrow { display: flex; gap: 8px; margin: 10px 0; }
+.learn-topic-list { display: flex; flex-direction: column; gap: 8px; }
+.learn-topic { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface-strong); color: var(--ink); font: inherit; cursor: pointer; }
+.learn-topic:hover { border-color: var(--accent); }
+.learn-topic-title { font-weight: 600; font-size: 15px; }
+.learn-topic-sub { font-size: 12px; color: var(--muted); }
+.learn-resource-list { display: flex; flex-direction: column; gap: 10px; }
+.learn-resource { display: flex; gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-strong); }
+.learn-resource-thumb-wrap { width: 96px; height: 64px; flex: 0 0 auto; border-radius: var(--radius-sm); overflow: hidden; background: var(--field-bg); display: flex; align-items: center; justify-content: center; }
+.learn-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.learn-thumb-fallback { font-size: 20px; color: var(--muted); }
+.learn-resource-body { flex: 1; min-width: 0; }
+.learn-resource-title { font-weight: 600; font-size: 14px; }
+.learn-resource-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.learn-q { font-size: 17px; font-weight: 600; line-height: 1.45; }
+.learn-opts { display: flex; flex-direction: column; gap: 8px; }
+.learn-opt { text-align: left; padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-strong); color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
+.learn-opt:hover { border-color: var(--accent); }
+.learn-opt.is-answer { border-color: #10b981; background: rgba(16, 185, 129, 0.12); }
+.learn-opt.is-correct { border-color: #10b981; background: rgba(16, 185, 129, 0.2); font-weight: 600; }
+.learn-opt.is-wrong { border-color: var(--danger); background: rgba(239, 68, 68, 0.12); }
+.learn-explain { font-size: 13px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--field-bg); border: 1px solid var(--border); line-height: 1.5; }
+.learn-explain-ok { border-color: rgba(16, 185, 129, 0.5); background: rgba(16, 185, 129, 0.08); }
+.learn-explain-wrong { border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.08); }
+.learn-match-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.learn-match-col { display: flex; flex-direction: column; gap: 8px; }
+.learn-match-head { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.learn-match-item { padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-strong); color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
+.learn-match-item.matched { opacity: 0.45; pointer-events: none; border-color: rgba(16, 185, 129, 0.5); background: rgba(16, 185, 129, 0.1); }
+@media (max-width: 560px) { .learn-match-cols { grid-template-columns: 1fr; } }
 
 /* ===== Karteikarten ===== */
 .flash-modal { max-width: 760px; }

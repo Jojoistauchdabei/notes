@@ -308,6 +308,46 @@ async function handleFiles(env, request, url, method) {
   return null;
 }
 
+// ---------------------------------------------------------------- /api/learn
+
+// Lern-Fortschritt (XP / Level / Streak / Missionen) -> PocketBase-Collection
+// "learning_progress" (Owner-Filter ueber ownerId, wie bei /api/docs).
+async function handleLearn(env, request, url, method) {
+  const p = url.pathname;
+  if (p !== '/api/learn/progress') return null;
+  const user = await currentUser(env, request);
+  const ownerId = recId(user);
+
+  if (method === 'GET') {
+    const q = new URLSearchParams();
+    q.set('filter', 'ownerId="' + ownerId + '"');
+    q.set('sort', '-updated');
+    const data = await pbJson(env, request, '/api/collections/learning_progress/records?' + q.toString());
+    const items = (data && data.items) || [];
+    return json({ progress: items[0] || null });
+  }
+
+  if (method === 'PUT') {
+    const body = await readJson(request).catch(() => ({}));
+    const clean = Object.assign({}, body);
+    delete clean.id; delete clean.$id;
+    const id = body.id || body.$id;
+    const target = id
+      ? '/api/collections/learning_progress/records/' + encodeURIComponent(String(id))
+      : '/api/collections/learning_progress/records';
+    const res = await pbFetch(env, request, target, {
+      method: id ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(clean),
+    });
+    if (!res.ok) return pbError(res);
+    const record = await res.json().catch(() => ({}));
+    return json({ progress: record });
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------- /api/shares
 
 async function findShareRecord(env, request, code) {
@@ -500,6 +540,7 @@ export default {
         (await handleDocs(env, request, url, method)) ||
         (await handleFolders(env, request, url, method)) ||
         (await handleFiles(env, request, url, method)) ||
+        (await handleLearn(env, request, url, method)) ||
         (await handleShares(env, request, url, method));
       if (authd) return authd;
 

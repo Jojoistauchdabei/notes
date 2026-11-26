@@ -150,6 +150,10 @@
   const shareAppend = (code, ev) =>
     call('POST', '/api/shares/' + encodeURIComponent(code) + '/events', ev);
 
+  /* ---- Lernen: Mission-Fortschritt (XP / Level / Streak) -> PocketBase ---- */
+  const saveLearnProgress = (p) => call('PUT', '/api/learn/progress', p).then((j) => j.progress);
+  const listLearnProgress = () => call('GET', '/api/learn/progress').then((j) => j.progress);
+
   /* ---- Live-Kanal ----
    *
    * SSE statt WebSocket: Reconnect, Last-Event-ID und die HTTP-Semantik sind
@@ -182,6 +186,7 @@
     putFile, getFile, listFiles,
     shareCreate, shareGet, sharePatch, shareRevoke, shareList, shareEvents, shareAppend,
     subscribe, health,
+    saveLearnProgress, listLearnProgress,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
