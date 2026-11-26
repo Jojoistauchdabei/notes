@@ -122,3 +122,27 @@ describe('lernen/quelltext', () => {
     assert.ok(SRC.indexOf('federwerkLearnPickSubject') >= 0);
   });
 });
+
+describe('lernen/remote-mission', () => {
+  it('mappt Backend-Missionen (quiz / zuordnung / lueckentext)', () => {
+    const quiz = FL.missionFromRemote({ type: 'quiz', question: 'Was ist die Masse?', options: ['5', '10', '15'], correctIndex: 1, correctAnswer: '10', explanation: 'F = m·a' });
+    assert.ok(quiz);
+    assert.equal(quiz.type, 'mc');
+    assert.equal(quiz.answer, '10');
+    assert.equal(quiz.options[1], '10');
+
+    const zuordnung = FL.missionFromRemote({ type: 'zuordnung', pairs: [{ left: 'Masse', right: 'Trägheit' }] });
+    assert.ok(zuordnung);
+    assert.equal(zuordnung.type, 'match');
+    assert.equal(zuordnung.pairs.length, 1);
+
+    const lueckentext = FL.missionFromRemote({ type: 'lueckentext', text: 'Die Masse ist [[1]].', blanks: [{ id: 'b1', answer: '5' }], answers: ['5', '10'] });
+    assert.ok(lueckentext);
+    assert.equal(lueckentext.type, 'cloze');
+    assert.equal(lueckentext.answer, '5');
+  });
+  it('liefert null für unbekannte Missionstypen', () => {
+    assert.equal(FL.missionFromRemote({ type: 'video-link', url: 'https://youtube.com/watch?v=x' }), null);
+    assert.equal(FL.missionFromRemote(null), null);
+  });
+});

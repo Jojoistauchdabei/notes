@@ -344,6 +344,68 @@
     return correct ? (XP_CORRECT[step.type] || 10) : 0;
   }
 
+  /* ---------- Backend: Missionen aus der RAG-Pipeline (Fallback: lokaler Katalog) ---------- */
+
+  async function callApi(path, body) {
+    try {
+      var w = (typeof window !== 'undefined') ? window : {};
+      var api = w.FederwerkApi;
+      if (api && typeof api.call === 'function') { return await api.call('POST', path, body || {}); }
+    } catch (e) { /* Backend nicht erreichbar -> Fallback unten */ }
+    return null;
+  }
+  function missionFromRemote(m) {
+    if (!m) return null;
+    var t = String(m.type || '');
+    if (t === 'quiz') {
+      var options = (Array.isArray(m.options) ? m.options : []).map(function (o) { return String(o); }).filter(function (o) { return o; });
+      var answer = String(m.correctAnswer || '');
+      if (!answer && Array.isArray(m.options)) { var ci = Number(m.correctIndex); if (Number.isInteger(ci) && m.options[ci] != null) answer = String(m.options[ci]); }
+      if (!answer) return null;
+      var opts = options.length ? options : [answer];
+      return { type: 'mc', question: String(m.question || ''), options: opts, answer: answer, explain: String(m.explanation || m.instruction || '') };
+    }
+    if (t === 'zuordnung') {
+      var pairs = [];
+      (Array.isArray(m.pairs) ? m.pairs : []).forEach(function (p) { var l = String((p && p.left) || ''); var r = String((p && p.right) || ''); if (l && r) pairs.push({ left: l, right: r }); });
+      if (!pairs.length) return null;
+      return { type: 'match', pairs: pairs };
+    }
+    if (t === 'lueckentext') {
+      var text = String(m.text || m.instruction || '');
+      var cleaned = text.replace(/\[\[\d+\]\]/g, '___');
+      var blanks = Array.isArray(m.blanks) ? m.blanks : [];
+      var answers = Array.isArray(m.answers) ? m.answers.map(function (a) { return String(a); }).filter(function (a) { return a; }) : (blanks.length ? blanks.map(function (b) { return String((b && b.answer) || ''); }) : []);
+      if (!cleaned && !answers.length) return null;
+      var uniq = answers.filter(function (a, i) { return answers.indexOf(a) === i; });
+      if (!uniq.length) return null;
+      return { type: 'cloze', sentence: cleaned, options: uniq, answer: uniq[0], explain: String(m.explanation || m.instruction || '') };
+    }
+    return null;
+  }
+  async function fetchRemoteSteps(subjectLabel, topicText, count) {
+    var list = await callApi('/api/content/missions', { subject: subjectLabel, topic: topicText, difficulty: 'easy', count: Math.max(1, Math.min(6, count || 3)) });
+    var arr = Array.isArray(list) ? list : ((list && (list.missions || list.missionen || list.items)) || []);
+    var steps = [];
+    (arr || []).forEach(function (m) { var s = missionFromRemote(m); if (s) steps.push(s); });
+    return steps;
+  }
+  function topicForText(topicText) {
+    var t = String(topicText || '').toLowerCase().trim();
+    var all = allTopics();
+    for (var i = 0; i < all.length; i++) { var x = all[i]; if (x.title.toLowerCase().indexOf(t) >= 0 || (x.subtitle || '').toLowerCase().indexOf(t) >= 0) return x; }
+    return null;
+  }
+  async function startMissionFromSubjectTopic(subjectLabel, topicText) {
+    var steps = await fetchRemoteSteps(subjectLabel, topicText, 3);
+    if (steps.length) {
+      return { id: 'remote-' + Date.now(), subjectId: subjectLabel, topicId: topicText, title: subjectLabel + ' · ' + topicText, steps: steps, score: { xp: 0, correctCount: 0, answered: 0 } };
+    }
+    var localTopic = topicForText(topicText) || topicFor(learnTopicId);
+    var localMission = localTopic ? buildMission(localTopic, Math.random) : null;
+    return localMission;
+  }
+
   /* ==================== Fortschritt (Speichern/Laden) ==================== */
 
   var STATS_KEY = 'federwerkLearnStats';
@@ -487,7 +549,10 @@
         + '</div>';
     });
     h += '</div>';
-    h += '<div class="learn-navrow"><button type="button" class="mini-button" onclick="federwerkLearnBack()">← Thema wählen</button></div>';
+    h += '<div class="learn-navrow" style="justify-content:space-between">'
+      + '<button type="button" class="mini-button" onclick="federwerkLearnBack()">← Thema wählen</button>'
+      + '<button type="button" class="mini-button" id="learnStartMissionBtn" onclick="federwerkLearnStartMission()">🎯 Mission starten</button>'
+      + '</div>';
     if (body) body.innerHTML = h;
   }
 
@@ -701,15 +766,21 @@
     else if (learnPhase === 'mission') closeLearn();
   }
   function federfunkLearnStartMission() {
-    var t = topicFor(learnTopicId);
-    if (!t) return;
-    mission = buildMission(t, Math.random);
-    missionStep = 0;
-    stepResult = null;
-    mission.score = { xp: 0, correctCount: 0, answered: 0 };
-    matchDeck = null; matchSel = null;
-    learnPhase = 'mission';
-    renderMission($('learnBody'));
+    return startMissionFromSubjectTopic(
+      (subjectFor(learnSubjectId) || { label: '' }).label || '',
+      (topicFor(learnTopicId) || { title: '' }).title || '',
+    ).then(function (m) {
+      if (!m) return false;
+      mission = m;
+      missionStep = 0;
+      stepResult = null;
+      mission.score = { xp: 0, correctCount: 0, answered: 0 };
+      matchDeck = null;
+      matchSel = null;
+      learnPhase = 'mission';
+      renderMission($('learnBody'));
+      return true;
+    });
   }
   function federfunkLearnReset() {
     var t = topicFor(learnTopicId);
@@ -726,6 +797,8 @@
     resourcesFor: resourcesFor,
     buildMission: buildMission,
     stepXp: stepXp,
+    missionFromRemote: missionFromRemote,
+    fetchRemoteSteps: fetchRemoteSteps,
     levelFromXp: levelFromXp,
     levelTitleFor: levelTitleFor,
     levelProgress: levelProgress,
