@@ -1,0 +1,8 @@
+{
+  "name": "external-display",
+  "version": "1.0.0",
+  "description": "Lokales Expo-Modul: Präsentationsmodus auf externem Display (Beamer) – nur die Seite, keine UI.",
+  "private": true,
+  "main": "index.js",
+  "license": "MIT"
+}

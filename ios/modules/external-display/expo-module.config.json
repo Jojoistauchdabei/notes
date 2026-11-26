@@ -1,0 +1,7 @@
+{
+  "name": "ExternalDisplay",
+  "platforms": ["ios"],
+  "ios": {
+    "modules": ["ExternalDisplayModule"]
+  }
+}
