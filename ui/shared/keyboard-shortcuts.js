@@ -59,7 +59,7 @@
     if (key === 'Escape') {
       var sc = D.querySelector('#fwShortcuts'); if (sc) { sc.remove(); return; }
       var shell = D.querySelector('.fw-app-shell'); if (shell && shell.getAttribute('data-mobile-open') === 'true') shell.setAttribute('data-mobile-open', 'false');
-      var kit = D.querySelector('.dialog-overlay.active, [data-fw-kit].active'); if (kit && !kit.id || kit && kit.hasAttribute('data-fw-kit')) { /* noop */ }
+      var kit = D.querySelector('[data-fw-kit].active, .dialog-overlay.active'); if (kit && kit.hasAttribute('data-fw-kit')) kit.classList.remove('active');
     }
 
     if (typing()) return; /* in Feldern nicht eingreifen */
