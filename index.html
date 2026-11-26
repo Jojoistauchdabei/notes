@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#8b5a2b">
+  <meta name="theme-color" content="#1e293b">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -16,47 +16,131 @@
   <title>Federwerk – Dein digitales Notizbuch</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="css/canvas.css">
   <!-- Theme-System: laeuft synchron VOR dem ersten Paint und setzt
        data-theme/data-scheme, damit die Seite nicht kurz im Standard-Theme
        aufblitzt. Das data-boot-Attribut ist wichtig: build-dist.js bündelt
        nur Skript-Tags ganz ohne weitere Attribute, also bleibt themes.js
-       allein im head und wird zuerst geladen (das Bundle wäre defer am
-       Seitenende und damit sichtbar zu spaet). -->
+       allein im head und wird zuerst geladen. -->
   <script src="js/themes.js" data-boot></script>
+  <style>
+    /* Goodnotes-artiger Grundlayer, unabhaengig vom Theme */
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; }
+    /* iPad/Praesentations-Modus: laeuft eine Show, bleibt die HAUPT-UI voll,
+       nur das separate Beamer-Fenster ist schlank. */
+  </style>
 </head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1><img class="brand-logo" src="icons/logo.svg" alt="" width="52" height="52"><span><span class="brand-name">Federwerk</span><span class="brand-tagline">Gedanken von deiner Hand.</span></span></h1>
-      <div class="header-buttons">
-        <div class="header-group">
-          <button class="btn-export" onclick="exportAllJSON()" aria-label="Exportiere alle Bücher als JSON">⬇ Export JSON</button>
-          <button class="btn-import" onclick="document.getElementById('importFile').click()" aria-label="Importiere JSON-Dateien">⬆ Import JSON</button>
-          <button class="btn-import" onclick="document.getElementById('gnFile').click()" aria-label="Importiere GoodNotes-Dateien">📥 GoodNotes</button>
-          <button class="btn-import" onclick="location.href='md.html'" aria-label="Markdown-Editor öffnen" title="Markdown-Editor: Live-Vorschau mit markdown-wasm">✎ Markdown</button>
+<body class="app-goodnotes">
+  <div class="container app-shell">
+    <!-- ===== Goodnotes-Kopfleiste (dunkel) ===== -->
+    <header class="header app-header" role="banner">
+      <div class="status-row status-row--top" aria-hidden="true">
+        <div class="status-left">
+          <span class="status-time" id="statusTime">4:02</span>
+          <span class="status-date" id="statusDate">Donnerstag 26. Nov.</span>
         </div>
-        <div class="header-group">
-          <button class="btn-print" onclick="window.print()" aria-label="Seite drucken oder als PDF speichern">🖨 Druck / PDF</button>
+        <div class="status-right">
+          <span class="status-icon" title="VPN">🔒 VPN</span>
+          <span class="status-batt" title="Akku">81%</span>
         </div>
-        <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none" aria-hidden="true">
-        <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none" aria-hidden="true">
-        <span class="version-tag" aria-hidden="true">v1.9.0 · BUILD 20.09.2026-1</span>
+      </div>
+      <div class="header-main">
+        <h1 class="brand">
+          <img class="brand-logo" src="icons/logo.svg" alt="" width="52" height="52">
+          <span class="brand-name">Federwerk</span>
+          <span class="brand-tagline">Gedanken von deiner Hand.</span>
+        </h1>
+        <div class="header-buttons">
+          <div class="header-group">
+            <button class="btn-export" onclick="exportAllJSON()" aria-label="Exportiere alle Bücher als JSON">⬇ Export JSON</button>
+            <button class="btn-import" onclick="document.getElementById('importFile').click()" aria-label="Importiere JSON-Dateien">⬆ Import JSON</button>
+            <button class="btn-import" onclick="document.getElementById('gnFile').click()" aria-label="Importiere GoodNotes-Dateien">📥 GoodNotes</button>
+            <button class="btn-import" onclick="location.href='md.html'" aria-label="Markdown-Editor öffnen" title="Markdown-Editor: Live-Vorschau mit markdown-wasm">✎ Markdown</button>
+          </div>
+          <div class="header-group">
+            <button class="btn-print" onclick="window.print()" aria-label="Seite drucken oder als PDF speichern">🖨 Druck / PDF</button>
+          </div>
+          <span class="version-tag" aria-hidden="true">v1.9.0 · BUILD 20.09.2026-1</span>
+        </div>
+      </div>
+    </header>
+
+    <input id="importFile" type="file" accept=".json,application/json" multiple onchange="importAllJSON(event)" style="display:none" aria-hidden="true">
+    <input id="gnFile" type="file" accept=".goodnotes" multiple onchange="importGoodNotes(event)" style="display:none" aria-hidden="true">
+
+    <!-- ===== Tab-Leiste (offene Dokumente) ===== -->
+    <div class="tab-bar" role="tablist" aria-label="Offene Dokumente" id="tabBar">
+      <!-- Tabs werden zur Laufzeit gefuellt; statische Platzhalter fuer Layout -->
+      <div class="tab active" role="tab" aria-selected="true">Federwerk</div>
+    </div>
+
+    <!-- ===== Werkzeugleiste ===== -->
+    <div class="toolbar box no-print" role="toolbar" aria-label="Werkzeugleiste" id="toolbar">
+      <div class="tool-group tool-group--nav" role="group" aria-label="Navigation">
+        <button class="mini-button" onclick="showLibrary()" aria-label="Zurück zur Bibliothek">← Bibliothek</button>
+      </div>
+      <div class="sep" role="separator" aria-hidden="true"></div>
+      <div class="tool-group tool-group--tools" id="toolButtons" role="group" aria-label="Werkzeuge">
+        <button class="mini-button picked" data-tool="pen" onclick="setTool('pen')" aria-label="Stift-Werkzeug" aria-pressed="true">✒ Stift</button>
+        <button class="mini-button" onclick="openCanvasFlow()" aria-label="Canvas-Schreibfluss öffnen" title="HTML5-Canvas auf der Seite: Stift/Marker/Radierer, Druck, Pinch-Zoom">Canvas</button>
+        <button class="mini-button" data-tool="marker" onclick="setTool('marker')" aria-label="Marker-Werkzeug" aria-pressed="false">🖍 Marker</button>
+        <button class="mini-button" data-tool="eraser" onclick="setTool('eraser')" aria-label="Radierer-Werkzeug" aria-pressed="false">⌫ Radierer</button>
+        <button class="mini-button" data-tool="text" onclick="setTool('text')" aria-label="Text-Werkzeug" aria-pressed="false">T Text</button>
+        <button class="mini-button" data-tool="move" onclick="setTool('move')" aria-label="Auswahl-Werkzeug" aria-pressed="false">✥ Auswahl</button>
+        <button class="mini-button" data-tool="laser" onclick="setTool('laser')" aria-label="Laserpointer-Werkzeug (speichert nichts, Taste L)" aria-pressed="false" title="Laserpointer (L) – zum Zeigen, speichert nichts">🔦 Laser</button>
+      </div>
+      <div class="sep" role="separator" aria-hidden="true"></div>
+      <div class="tool-group tool-group--colors" role="group" aria-label="Farbe und Stärke">
+        <input type="color" id="penColor" value="#0f172a" onchange="setColor(this.value)" title="Farbe" aria-label="Stiftfarbe">
+        <input type="range" id="penSize" min="1" max="24" value="3" oninput="setSize(this.value)" title="Stärke" aria-label="Stiftstärke">
+        <span id="sizeLabel" style="font-size:12px" aria-hidden="true">3px</span>
+      </div>
+      <div class="sep" role="separator" aria-hidden="true"></div>
+      <div class="tool-group" title="Radierer-Modi (SPEC-25)" role="group" aria-label="Radierer-Modi">
+        <select id="eraserMode" onchange="setEraserMode(this.value)" title="Radierer-Modus" style="max-width:110px" aria-label="Radierer-Modus">
+          <option value="standard">Radier: Standard</option>
+          <option value="precision">Radier: Precision</option>
+          <option value="stroke">Radier: Stroke</option>
+        </select>
+        <label style="font-size:12px;display:flex;gap:4px;align-items:center" title="Radierer trifft nur Marker, lässt Tinte intakt">
+          <input type="checkbox" id="eraserHLOnly" onchange="setEraserHighlighterOnly(this.checked)" style="width:auto" aria-label="Nur Highlighter löschen"> Nur Highlighter
+        </label>
+      </div>
+      <div class="sep" role="separator" aria-hidden="true"></div>
+      <div class="tool-group" title="Apple Pencil schreibt immer; Finger und Maus scrollen standardmäßig" role="group" aria-label="Finger- und Maus-Schreiben">
+        <button class="mini-button" id="fingerDrawToggle" onclick="setFingerDraw(!inputPrefs.fingerDraw)" aria-label="Finger- und Maus-Schreiben umschalten" title="Finger und Maus scrollen; zum Schreiben einschalten">✍ Schreiben: aus</button>
+      </div>
+      <div class="sep" role="separator" aria-hidden="true"></div>
+      <div class="tool-group tool-group--actions" role="group" aria-label="Aktionen">
+        <button class="mini-button" onclick="undo()" aria-label="Rückgängig machen">↩</button>
+        <button class="mini-button" onclick="redo()" aria-label="Wiederherstellen">↪</button>
+        <button class="mini-button" onclick="openDocImportDialog(activePaneIdx(),event)" aria-label="Seiten aus anderem Dokument importieren" title="Seiten aus einem anderen Dokument hinter die aktuelle Seite importieren">⤵ Doc-Import</button>
+        <button class="mini-button" onclick="duplicatePageAsTemplate()" aria-label="Seite als leere Vorlage duplizieren" title="Leere Vorlage der aktuellen Seite (ohne Handschrift, Textfelder, Marker)">⧉ Vorlage</button>
+        <button class="mini-button" onclick="document.getElementById('imgFile').click()" aria-label="Bild einfügen">🖼 Bild</button>
+        <input id="imgFile" type="file" accept="image/*" multiple onchange="importImage(event)" style="display:none" aria-hidden="true">
+        <button class="mini-button" onclick="document.getElementById('imgPageFile').click()" aria-label="Bild als neue Seite einfügen">🖼+ Seite</button>
+        <input id="imgPageFile" type="file" accept="image/*" multiple onchange="importImageAsPage(event)" style="display:none" aria-hidden="true">
+        <button class="mini-button" onclick="document.getElementById('pdfPageFile').click()" aria-label="PDF als neue Seiten importieren">📄+ PDF</button>
+        <input id="pdfPageFile" type="file" accept="application/pdf" multiple onchange="importPdfAsPages(event)" style="display:none" aria-hidden="true">
+        <button class="mini-button" onclick="openTextEditorForSelected()" aria-label="Texteditor öffnen">✎ Texteditor</button>
+        <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('host')" aria-label="Seite live mit anderen teilen" title="Seite live teilen (Share-Link + Live-Cursor)">🔴 Live</button>
+        <button class="mini-button" id="presentBtn" onclick="presentToggle()" aria-label="Auf zweiten Bildschirm präsentieren" aria-pressed="false" title="Dokument auf zweiten Monitor / Apple TV spiegeln. Die Hauptansicht bleibt unverändert und steuert die Show.">▶ Präsentieren</button>
+        <button class="mini-button" onclick="clearPage()" aria-label="Seite leeren">Seite leeren</button>
       </div>
     </div>
 
-    <!-- BIBLIOTHEK -->
+    <!-- ===== BIBLIOTHEK ===== -->
     <div class="view active" id="viewLibrary">
-      <div class="box">
+      <div class="box library-card">
         <div class="search-bar no-print">
           <input type="text" id="librarySearch" placeholder="Suchen: Text, tag:#x, file:Titel, &quot;Phrase&quot;, -aus, A OR B ..." oninput="renderLibrarySoon()" aria-label="Federwerk durchsuchen" title="Syntax: Text | tag:#name | file:Titel | &quot;exakte Phrase&quot; | -ausschluss | A OR B">
           <button onclick="openGraphOverlay()" style="white-space:nowrap" aria-label="Graph-Ansicht öffnen">◈ Graph</button>
           <button onclick="openCraftOverlay()" style="white-space:nowrap" aria-label="ArtCraft-Apps öffnen" title="Zwölf quelloffene Rust-Apps von ArtCraft">◆ Craft</button>
           <button onclick="createNotebook()" style="white-space:nowrap" aria-label="Neues Buch erstellen">+ Neues Buch</button>
           <button onclick="createFlashDeck()" style="white-space:nowrap" aria-label="Neues Karteikarten-Deck erstellen">+ 🂠 Deck</button>
-<button id="newOfficeBtn" onclick="createOfficeDoc('doc')" style="white-space:nowrap" aria-label="Neues Office-Dokument erstellen und im Writer öffnen" title="Office (SPEC-40): Textdokument mit Überschriften, Listen, Formatierung und DOCX-Import/Export">+ 📄 Office</button>
+          <button id="newOfficeBtn" onclick="createOfficeDoc('doc')" style="white-space:nowrap" aria-label="Neues Office-Dokument erstellen und im Writer öffnen" title="Office (SPEC-40): Textdokument mit Überschriften, Listen, Formatierung und DOCX-Import/Export">+ 📄 Office</button>
         </div>
         <div class="folder-chips no-print" id="folderChips" role="tablist" aria-label="Ordner-Filter (mobil)"></div>
         <div class="library-layout">
@@ -85,12 +169,12 @@
       </div>
       <div class="box">
         <div class="section-title">Über Federwerk</div>
-        <div style="font-size:14px">Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Rich-Text-Editor, Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ Appwrite-Cloud</b> für Notizen- und Datei-Sync zwischen Geräten – siehe „Appwrite-Cloud“ unten.</div>
+        <div style="font-size:14px">Handschrift-Notizbuch im Papier-Stil: Stift, Marker, Radierer, Textboxen mit Rich-Text-Editor, Bilder, Seiten, Thumbnails. Mehrere Dokumente in der Bibliothek, Einzel- und Gesamt-Export als JSON, <b>GoodNotes-Import (.goodnotes)</b> inkl. Handschrift. Alles wird lokal im Browser gespeichert – kein Server, offline-fähig (PWA). Optional: <b>☁ Appwrite-Cloud</b> für Notizen- und Datei-Sync zwischen Geräten – siehe „Appwrite-Cloud" unten.</div>
       </div>
       <div class="box">
         <div class="section-title">🔴 Liveshare</div>
         <div class="cloud-status-wrap">
-          <div id="liveStatus" aria-live="polite">Liveshare: aus – über „🔴 Live“ starten.</div>
+          <div id="liveStatus" aria-live="polite">Liveshare: aus – über „🔴 Live" starten.</div>
           <div style="font-size:13px;opacity:.85">Seite live mit anderen teilen: Share-Link (Lesen/Edit, mit Ablauf) + Live-Cursor. Läuft über deine Appwrite-Tabellen <code>shares</code>/<code>share_events</code> – Login in ⚙ nötig, kein Drittanbieter.</div>
           <div class="live-status-wrap no-print">
             <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('host')" aria-label="Seite live teilen">🔴 Hosten</button>
@@ -113,9 +197,9 @@
       </div>
     </div>
 
-    <!-- ARBEITSBEREICH (Split-Screen: 2 Dokumente in einem Fenster) -->
+    <!-- ===== ARBEITSBEREICH (Split-Screen: 2 Dokumente in einem Fenster) ===== -->
     <div class="view" id="viewBook">
-      <div class="box no-print book-nav" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div class="book-nav box no-print">
         <button class="inactive" onclick="showLibrary()" aria-label="Zurück zur Bibliothek">← Bibliothek</button>
         <span style="flex:1"></span>
         <button class="mini-button" id="splitToggle" onclick="toggleSplit()" aria-label="Split-Screen umschalten" title="Zweites Dokument daneben öffnen">⇉ Split</button>
@@ -125,56 +209,6 @@
           <span style="font-size:11px">Breite</span>
           <input type="range" id="splitRatio" min="20" max="80" value="50" oninput="setSplitRatio(this.value / 100)" style="width:90px" aria-label="Breitenverhältnis der Panes">
         </label>
-      </div>
-
-      <div class="toolbar box no-print" role="toolbar" aria-label="Werkzeugleiste">
-        <div class="tool-group tool-group--tools" id="toolButtons" role="group" aria-label="Werkzeuge">
-          <button class="mini-button picked" data-tool="pen" onclick="setTool('pen')" aria-label="Stift-Werkzeug" aria-pressed="true">✒ Stift</button>
-          <button class="mini-button" onclick="openCanvasFlow()" aria-label="Canvas-Schreibfluss öffnen" title="HTML5-Canvas auf der Seite: Stift/Marker/Radierer, Druck, Pinch-Zoom">Canvas</button>
-          <button class="mini-button" data-tool="marker" onclick="setTool('marker')" aria-label="Marker-Werkzeug" aria-pressed="false">🖍 Marker</button>
-          <button class="mini-button" data-tool="eraser" onclick="setTool('eraser')" aria-label="Radierer-Werkzeug" aria-pressed="false">⌫ Radierer</button>
-          <button class="mini-button" data-tool="text" onclick="setTool('text')" aria-label="Text-Werkzeug" aria-pressed="false">T Text</button>
-          <button class="mini-button" data-tool="move" onclick="setTool('move')" aria-label="Auswahl-Werkzeug" aria-pressed="false">✥ Auswahl</button>
-          <button class="mini-button" data-tool="laser" onclick="setTool('laser')" aria-label="Laserpointer-Werkzeug (speichert nichts, Taste L)" aria-pressed="false" title="Laserpointer (L) – zum Zeigen, speichert nichts">🔦 Laser</button>
-        </div>
-        <div class="sep" role="separator" aria-hidden="true"></div>
-        <div class="tool-group tool-group--colors" role="group" aria-label="Farbe und Stärke">
-          <input type="color" id="penColor" value="#2a1a0e" onchange="setColor(this.value)" title="Farbe" aria-label="Stiftfarbe">
-          <input type="range" id="penSize" min="1" max="24" value="3" oninput="setSize(this.value)" title="Stärke" aria-label="Stiftstärke">
-          <span id="sizeLabel" style="font-size:12px" aria-hidden="true">3px</span>
-        </div>
-        <div class="sep" role="separator" aria-hidden="true"></div>
-        <div class="tool-group" title="Radierer-Modi (SPEC-25)" role="group" aria-label="Radierer-Modi">
-          <select id="eraserMode" onchange="setEraserMode(this.value)" title="Radierer-Modus" style="max-width:110px" aria-label="Radierer-Modus">
-            <option value="standard">Radier: Standard</option>
-            <option value="precision">Radier: Precision</option>
-            <option value="stroke">Radier: Stroke</option>
-          </select>
-          <label style="font-size:12px;display:flex;gap:4px;align-items:center" title="Radierer trifft nur Marker, lässt Tinte intakt">
-            <input type="checkbox" id="eraserHLOnly" onchange="setEraserHighlighterOnly(this.checked)" style="width:auto" aria-label="Nur Highlighter löschen"> Nur Highlighter
-          </label>
-        </div>
-        <div class="sep" role="separator" aria-hidden="true"></div>
-        <div class="tool-group" title="Apple Pencil schreibt immer; Finger und Maus scrollen standardmäßig" role="group" aria-label="Finger- und Maus-Schreiben">
-          <button class="mini-button" id="fingerDrawToggle" onclick="setFingerDraw(!inputPrefs.fingerDraw)" aria-label="Finger- und Maus-Schreiben umschalten" title="Finger und Maus scrollen; zum Schreiben einschalten">✍ Schreiben: aus</button>
-        </div>
-        <div class="sep" role="separator" aria-hidden="true"></div>
-        <div class="tool-group tool-group--actions" role="group" aria-label="Aktionen">
-          <button class="mini-button" onclick="undo()" aria-label="Rückgängig machen">↩</button>
-          <button class="mini-button" onclick="redo()" aria-label="Wiederherstellen">↪</button>
-          <button class="mini-button" onclick="openDocImportDialog(activePaneIdx(),event)" aria-label="Seiten aus anderem Dokument importieren" title="Seiten aus einem anderen Dokument hinter die aktuelle Seite importieren">⤵ Doc-Import</button>
-          <button class="mini-button" onclick="duplicatePageAsTemplate()" aria-label="Seite als leere Vorlage duplizieren" title="Leere Vorlage der aktuellen Seite (ohne Handschrift, Textfelder, Marker)">⧉ Vorlage</button>
-          <button class="mini-button" onclick="document.getElementById('imgFile').click()" aria-label="Bild einfügen">🖼 Bild</button>
-          <input id="imgFile" type="file" accept="image/*" multiple onchange="importImage(event)" style="display:none" aria-hidden="true">
-          <button class="mini-button" onclick="document.getElementById('imgPageFile').click()" aria-label="Bild als neue Seite einfügen">🖼+ Seite</button>
-          <input id="imgPageFile" type="file" accept="image/*" multiple onchange="importImageAsPage(event)" style="display:none" aria-hidden="true">
-          <button class="mini-button" onclick="document.getElementById('pdfPageFile').click()" aria-label="PDF als neue Seiten importieren">📄+ PDF</button>
-          <input id="pdfPageFile" type="file" accept="application/pdf" multiple onchange="importPdfAsPages(event)" style="display:none" aria-hidden="true">
-          <button class="mini-button" onclick="openTextEditorForSelected()" aria-label="Texteditor öffnen">✎ Texteditor</button>
-          <button class="mini-button" onclick="window.FederwerkLive && FederwerkLive.openDialog('host')" aria-label="Seite live mit anderen teilen" title="Seite live teilen (Share-Link + Live-Cursor)">🔴 Live</button>
-          <button class="mini-button" id="presentBtn" onclick="presentToggle()" aria-label="Auf zweiten Bildschirm präsentieren" aria-pressed="false" title="Dokument auf zweiten Monitor / Apple TV spiegeln. Die Hauptansicht bleibt unverändert und steuert die Show.">▶ Präsentieren</button>
-          <button class="mini-button" onclick="clearPage()" aria-label="Seite leeren">Seite leeren</button>
-        </div>
       </div>
 
       <div class="split-container" id="splitContainer">
@@ -363,7 +397,7 @@
           <option value="h2">Mittlere Überschrift (H2)</option>
           <option value="h3">Kleine Überschrift (H3)</option>
           <option value="font-2">Kleiner Text</option>
-          <option value="font-5">Großer Text</option>
+          <option value="font-5">Größerer Text</option>
           <option value="font-6">Sehr großer Text</option>
         </select>
         <button type="button" class="mini-button" onmousedown="event.preventDefault()" onclick="document.execCommand('bold', false, null)" title="Fett" aria-label="Fett"><b>B</b></button>
@@ -659,21 +693,21 @@
   <script src="js/pageflow.js"></script>
   <script src="js/paper-templates.js"></script>
   <script src="js/flashcards.js"></script>
-<script src="js/dialog.js"></script>
-<!-- Office (SPEC-40): Modell zuerst, der Writer baut darauf auf, app.js
-     braucht isOfficeDoc() fuer die Karten der Bibliothek. -->
-<script src="js/office-doc.js"></script>
-<script src="js/office-writer.js"></script>
-<!-- Lädt das Office-WASM erst bei Bedarf nach (office_wasm.js), deshalb steht
-     hier nur der Adapter selbst im Bundle. -->
-<script src="js/office-engine.js"></script>
-<!-- Übersetzt zwischen Office-Modell und dem WordCraft-JSON. Muss nach dem
-     Adapter geladen werden, wird aber von ihm nicht referenziert. -->
-<script src="js/office-bridge.js"></script>
-<!-- Grafik-Engine (PSD/SVG/IDML aus craft-wasm). Wie das Office-WASM laedt sie
-     die 13 MB erst bei Bedarf nach, deshalb nur der Adapter im Bundle. -->
-<script src="js/craft-engine.js"></script>
-<script src="js/app.js"></script>
+  <script src="js/dialog.js"></script>
+  <!-- Office (SPEC-40): Modell zuerst, der Writer baut darauf auf, app.js
+       braucht isOfficeDoc() fuer die Karten der Bibliothek. -->
+  <script src="js/office-doc.js"></script>
+  <script src="js/office-writer.js"></script>
+  <!-- Lädt das Office-WASM erst bei Bedarf nach (office_wasm.js), deshalb steht
+       hier nur der Adapter selbst im Bundle. -->
+  <script src="js/office-engine.js"></script>
+  <!-- Übersetzt zwischen Office-Modell und dem WordCraft-JSON. Muss nach dem
+       Adapter geladen werden, wird aber von ihm nicht referenziert. -->
+  <script src="js/office-bridge.js"></script>
+  <!-- Grafik-Engine (PSD/SVG/IDML aus craft-wasm). Wie das Office-WASM laedt sie
+       die 13 MB erst bei Bedarf nach, deshalb nur der Adapter im Bundle. -->
+  <script src="js/craft-engine.js"></script>
+  <script src="js/app.js"></script>
   <script src="js/flash-ui.js"></script>
   <script src="js/presentflow.js"></script>
   <script src="js/present.js"></script>
