@@ -99,6 +99,11 @@ DEFAULT_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 scraper.py/1.0"
 )
 DEFAULT_LANGUAGES = ("de", "en")
+DEFAULT_HTTP_PROXY = os.environ.get("SCRAPER_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+DEFAULT_HTTPS_PROXY = os.environ.get("SCRAPER_HTTPS_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+DEFAULT_INVIDIOUS_INSTANCES = (
+    "https://yt.chocolatemoo53.com",
+)
 YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v={video_id}"
 YOUTUBE_RSS_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
 YOUTUBE_OEMBED_URL = "https://www.youtube.com/oembed"
@@ -889,15 +894,50 @@ def _is_permanent_transcript_error(exc: Exception) -> bool:
     }
 
 
-def fetch_youtube_transcript(
-    video_id: str,
-    languages: Sequence[str] = DEFAULT_LANGUAGES,
-) -> dict[str, Any]:
-    """Holt das Transkript eines Videos via youtube-transcript-api.
+_VTT_TIMING_RE = re.compile(r"(?:(\d{1,2}):)?(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(?:(\d{1,2}):)?(\d{2}):(\d{2})\.(\d{3})")
+_VTT_TAG_RE = re.compile(r"<[^>]+>")
+_VTT_NOTE_RE = re.compile(r"^(NOTE|STYLE|REGION)\b", re.IGNORECASE)
 
-    Bevorzugt manuell erstellte Transkripte in den gewünschten Sprachen,
-    dann generierte, dann beliebige verfügbare Sprachen.
-    """
+
+def _parse_vtt(text: str) -> list[dict[str, Any]]:
+    """Parst WebVTT-Text in einfache Snippet-Dicts (text,start,duration)."""
+    # UTF-8 BOM + Zeilenenden normalisieren
+    text = text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    snippets: list[dict[str, Any]] = []
+    blocks = re.split(r"\n\s*\n", text)
+    for block in blocks:
+        lines = [line for line in block.split("\n") if line.strip()]
+        if not lines:
+            continue
+        if lines[0].strip().startswith("WEBVTT") or _VTT_NOTE_RE.match(lines[0].strip()):
+            continue
+        # optionale Cue-ID entfernen
+        while lines and "-->" not in lines[0] and not _VTT_TIMING_RE.search(lines[0]):
+            # kann cue id sein
+            if len(lines) == 1:
+                lines = []
+                break
+            lines = lines[1:]
+        if not lines:
+            continue
+        timing_line = lines[0]
+        m = _VTT_TIMING_RE.search(timing_line)
+        if not m:
+            continue
+        sh, sm, ss, sms, eh, em, es, ems = m.groups()
+        start = int(sh or 0) * 3600 + int(sm) * 60 + int(ss) + int(sms) / 1000
+        end = int(eh or 0) * 3600 + int(em) * 60 + int(es) + int(ems) / 1000
+        body_lines = lines[1:]
+        body = " ".join(_VTT_TAG_RE.sub("", line) for line in body_lines)
+        body = _clean_text(body)
+        if not body:
+            continue
+        snippets.append({"text": body, "start": start, "duration": max(0.0, end - start)})
+    return snippets
+
+
+def _build_youtube_api(proxy: str | None = None) -> Any:
+    """Erstellt YouTubeTranscriptApi; optional mit HTTP(S)-Proxy."""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi  # type: ignore
     except ImportError as exc:
@@ -906,46 +946,148 @@ def fetch_youtube_transcript(
             "Bitte `pip install youtube-transcript-api`."
         ) from exc
 
-    api = YouTubeTranscriptApi()
-    preferred = [lang.strip() for lang in languages if lang.strip()] or list(DEFAULT_LANGUAGES)
-
-    transcript_list = api.list(video_id)
-
-    transcript = None
-    finders = (
-        transcript_list.find_manually_created_transcript,
-        transcript_list.find_transcript,
-        transcript_list.find_generated_transcript,
-    )
-    for finder in finders:
+    proxy_config = None
+    if proxy:
         try:
-            transcript = finder(preferred)
-            break
-        except Exception:  # noqa: BLE001, S112 - NoTranscriptFound etc.
-            continue
-    if transcript is None:
-        available = list(transcript_list)
-        if not available:
-            raise RuntimeError(f"Kein Transkript verfügbar für Video {video_id}")
-        transcript = available[0]
+            from youtube_transcript_api.proxies import GenericProxyConfig  # type: ignore
 
-    fetched = transcript.fetch()
-    snippets = getattr(fetched, "snippets", None) or list(fetched)
-    pieces: list[str] = []
-    for snippet in snippets:
-        text = getattr(snippet, "text", None)
-        if text is None and isinstance(snippet, dict):
-            text = snippet.get("text")
-        if text and str(text).strip():
-            pieces.append(str(text).strip())
-    full_text = "\n".join(pieces).strip()
-    return {
-        "text": full_text,
-        "language": getattr(fetched, "language_code", None) or transcript.language_code,
-        "language_name": getattr(fetched, "language", None),
-        "is_generated": bool(getattr(fetched, "is_generated", transcript.is_generated)),
-        "segment_count": len(pieces),
-    }
+            proxy_config = GenericProxyConfig(http_url=proxy, https_url=proxy)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Proxy-Konfiguration für youtube-transcript-api fehlgeschlagen: %s", _short_error(exc))
+            proxy_config = None
+    return YouTubeTranscriptApi(proxy_config=proxy_config)
+
+
+def fetch_youtube_transcript_via_invidious(
+    video_id: str,
+    languages: Sequence[str] = DEFAULT_LANGUAGES,
+    session: requests.Session | None = None,
+    instances: Sequence[str] = DEFAULT_INVIDIOUS_INSTANCES,
+) -> dict[str, Any]:
+    """Fallback: Transkript über Invidious-Captions-API (WebVTT).
+
+    Nützlich, wenn die direkte YouTube-Transcript-API per IP blockiert wird.
+    """
+    sess = session or build_session()
+    preferred = [lang.strip() for lang in languages if lang.strip()] or list(DEFAULT_LANGUAGES)
+    last_error: Exception | None = None
+
+    for base in instances:
+        base = base.rstrip("/")
+        try:
+            listing = sess.get(f"{base}/api/v1/captions/{video_id}", timeout=20)
+            if listing.status_code >= 400:
+                last_error = RuntimeError(f"Invidious captions listing HTTP {listing.status_code} ({base})")
+                continue
+            try:
+                payload = listing.json()
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                continue
+            captions = payload.get("captions", []) if isinstance(payload, dict) else []
+            if not captions:
+                last_error = RuntimeError(f"Invidious: keine Captions für {video_id} ({base})")
+                continue
+
+            # Sprache auswählen: bevorzugte Sprache, sonst erste.
+            chosen = None
+            for lang in preferred:
+                for cap in captions:
+                    code = str(cap.get("languageCode") or cap.get("language_code") or "")
+                    if code == lang or code.startswith((lang + "-", lang + "_")):
+                        chosen = cap
+                        break
+                if chosen:
+                    break
+            if chosen is None:
+                chosen = captions[0]
+
+            code = str(chosen.get("languageCode") or chosen.get("language_code") or "de")
+            lang = code.split("-")[0]
+            vtt_resp = sess.get(f"{base}/api/v1/captions/{video_id}", params={"lang": lang}, timeout=30)
+            if vtt_resp.status_code >= 400:
+                last_error = RuntimeError(f"Invidious VTT HTTP {vtt_resp.status_code} ({base})")
+                continue
+            snippets = _parse_vtt(vtt_resp.text)
+            if not snippets:
+                last_error = RuntimeError(f"Invidious VTT leer/unparsebar ({base})")
+                continue
+            text_out = "\n".join(s["text"] for s in snippets).strip()
+            return {
+                "text": text_out,
+                "language": lang,
+                "language_name": str(chosen.get("label") or lang),
+                "is_generated": "auto" in str(chosen.get("label", "")).lower(),
+                "segment_count": len(snippets),
+                "source": f"invidious:{base}",
+            }
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            continue
+
+    raise RuntimeError(f"Invidious-Fallback fehlgeschlagen für {video_id}: {_short_error(last_error) if last_error else 'unbekannt'}")
+
+
+def fetch_youtube_transcript(
+    video_id: str,
+    languages: Sequence[str] = DEFAULT_LANGUAGES,
+    proxy: str | None = None,
+    session: requests.Session | None = None,
+) -> dict[str, Any]:
+    """Holt das Transkript eines Videos via youtube-transcript-api.
+
+    Bevorzugt manuell erstellte Transkripte in den gewünschten Sprachen,
+    dann generierte, dann beliebige verfügbare Sprachen. Bei Fehlern
+    wird auf Invidious-Captions zurückgefallen.
+    """
+    preferred = [lang.strip() for lang in languages if lang.strip()] or list(DEFAULT_LANGUAGES)
+    try:
+        api = _build_youtube_api(proxy=proxy)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("youtube-transcript-api nicht nutzbar (%s), versuche Invidious", _short_error(exc))
+        return fetch_youtube_transcript_via_invidious(video_id, preferred, session=session)
+
+    try:
+        transcript_list = api.list(video_id)
+
+        transcript = None
+        finders = (
+            transcript_list.find_manually_created_transcript,
+            transcript_list.find_transcript,
+            transcript_list.find_generated_transcript,
+        )
+        for finder in finders:
+            try:
+                transcript = finder(preferred)
+                break
+            except Exception:  # noqa: BLE001, S112 - NoTranscriptFound etc.
+                continue
+        if transcript is None:
+            available = list(transcript_list)
+            if not available:
+                raise RuntimeError(f"Kein Transkript verfügbar für Video {video_id}")
+            transcript = available[0]
+
+        fetched = transcript.fetch()
+        snippets = getattr(fetched, "snippets", None) or list(fetched)
+        pieces: list[str] = []
+        for snippet in snippets:
+            text = getattr(snippet, "text", None)
+            if text is None and isinstance(snippet, dict):
+                text = snippet.get("text")
+            if text and str(text).strip():
+                pieces.append(str(text).strip())
+        full_text = "\n".join(pieces).strip()
+        return {
+            "text": full_text,
+            "language": getattr(fetched, "language_code", None) or transcript.language_code,
+            "language_name": getattr(fetched, "language", None),
+            "is_generated": bool(getattr(fetched, "is_generated", transcript.is_generated)),
+            "segment_count": len(pieces),
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Direktes YouTube-Transcript fehlgeschlagen für %s (%s), versuche Invidious", video_id, _short_error(exc))
+        return fetch_youtube_transcript_via_invidious(video_id, preferred, session=session)
 
 
 # ---------------------------------------------------------------------------
@@ -1003,6 +1145,7 @@ def scrape_video_source(
     retries: int = 3,
     languages: Sequence[str] = DEFAULT_LANGUAGES,
     fallback_title: str | None = None,
+    youtube_proxy: str | None = None,
 ) -> dict[str, Any]:
     """Scrapt ein YouTube-Video; liefert Metadaten + Transkript."""
     video_id = source.video_id or extract_video_id(source.url)
@@ -1012,13 +1155,18 @@ def scrape_video_source(
     url = canonical_video_url(video_id)
     langs = tuple(source.languages or languages)
 
-    transcript = with_retries(
-        lambda: fetch_youtube_transcript(video_id, languages=langs),
-        retries=retries,
-        description=f"YouTube-Transkript {video_id}",
-        rate_limiter=rate_limiter,
-        retry_if=lambda exc: not _is_permanent_transcript_error(exc),
-    )
+    try:
+        transcript = with_retries(
+            lambda: fetch_youtube_transcript(video_id, languages=langs, proxy=youtube_proxy, session=session),
+            retries=retries,
+            description=f"YouTube-Transkript {video_id}",
+            rate_limiter=rate_limiter,
+            retry_if=lambda exc: not _is_permanent_transcript_error(exc),
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Bei direktem API-Fehler (z.B. IpBlocked) Invidious-Fallback versuchen.
+        logger.warning("Direktes Transcript fehlgeschlagen für %s (%s), versuche Invidious", video_id, _short_error(exc))
+        transcript = fetch_youtube_transcript_via_invidious(video_id, langs, session=session)
 
     title = source.title or fallback_title
     if not title or title == video_id:
